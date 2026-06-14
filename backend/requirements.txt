@@ -1,0 +1,60 @@
+# Web framework
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+python-multipart==0.0.9
+
+# Database
+sqlalchemy[asyncio]==2.0.30
+asyncpg==0.29.0
+alembic==1.13.1
+
+# Redis / Celery
+redis==5.0.4
+celery==5.4.0
+
+# Elasticsearch
+elasticsearch[async]==8.13.1
+
+# MinIO
+minio==7.2.5
+
+# LLM / Agents - pinned exact compatible versions (no litellm, use ChatOpenAI directly)
+langchain-core==0.2.40
+langchain==0.2.16
+langchain-openai==0.1.25
+langchain-community==0.2.16
+langgraph==0.2.0
+
+# PDF Processing
+pymupdf==1.24.3
+python-magic==0.4.27
+
+# Document Processing
+python-docx==1.1.2
+openpyxl==3.1.5
+python-pptx==1.0.2
+beautifulsoup4==4.12.3
+
+# Auth
+authlib==1.3.0
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+
+# Validation / Serialization
+pydantic==2.7.1
+pydantic-settings==2.2.1
+pydantic[email]==2.7.1
+email-validator==2.1.1
+
+# HTTP Client
+httpx==0.27.0
+
+# Utilities
+python-dotenv==1.0.1
+tenacity==8.3.0
+structlog==24.1.0
+
+# Development
+pytest==8.2.0
+pytest-asyncio==0.23.6
