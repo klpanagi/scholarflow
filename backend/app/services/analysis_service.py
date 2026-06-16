@@ -1,117 +1,132 @@
+import json
+import logging
+
+from langchain_core.messages import HumanMessage
+
 from app.services.llm_service import llm_service
+from app.schemas.paper_analysis import PaperAnalysis
+from app.utils.context_budget import get_context_budget, fit_to_budget
+
+logger = logging.getLogger(__name__)
+
+LLM_MODEL = "google/gemma-4-31b-it:free"
+LLM_PROVIDER = "openrouter"
 
 
-class AnalysisService:
+def _extract_json(text: str) -> str:
+    for open_char, close_char in [("{", "}"), ("[", "]")]:
+        start = text.find(open_char)
+        end = text.rfind(close_char)
+        if start != -1 and end > start:
+            return text[start : end + 1]
+    return text
 
-    async def generate_summary(self, title: str, abstract: str | None, full_text: str, doc_type: str) -> dict:
-        text_excerpt = full_text[:6000]
-        prompt = f"""Analyze this {doc_type} and provide a structured summary.
 
-Title: {title or 'Unknown'}
-Abstract: {abstract or 'Not available'}
+async def _invoke_llm(prompt: str, temperature: float = 0.7, max_tokens: int = 4000) -> str:
+    llm = llm_service.get_llm(
+        model=LLM_MODEL,
+        provider=LLM_PROVIDER,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+    response = await llm.ainvoke([HumanMessage(content=prompt)])
+    return response.content
+
+
+ANALYSIS_PROMPT = """Analyze this academic document and produce a structured assessment.
+
+Title: {title}
+Abstract: {abstract}
+Document Type: {doc_type}
 
 Content (excerpt):
-{text_excerpt}
+{content}
 
-Respond in JSON format:
+Respond in EXACTLY this JSON format. Every field is REQUIRED.
+
 {{
-  "summary": "2-3 sentence overview of the main contribution",
+  "summary": "2-4 sentence overview of the paper's main contribution and approach",
   "key_findings": ["finding 1", "finding 2", "finding 3"],
-  "methodology": "brief description of methods used",
+  "methodology": "description of methods, techniques, or approaches used",
   "contributions": ["contribution 1", "contribution 2"],
   "limitations": ["limitation 1", "limitation 2"],
-  "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"]
-}}"""
 
-        try:
-            response = await llm_service.get_completion(
-                model="minimax-m3-free",
-                messages=[{"role": "user", "content": prompt}],
-                provider="opencode-zen",
-                temperature=0.3,
-                max_tokens=2000,
-            )
-            import json
-            json_match = response[response.find("{"):response.rfind("}") + 1]
-            return json.loads(json_match)
-        except Exception:
-            return {
-                "summary": f"Could not auto-analyze this {doc_type}.",
-                "key_findings": [],
-                "methodology": "",
-                "contributions": [],
-                "limitations": [],
-                "keywords": [],
-            }
-
-    async def generate_tags(self, title: str, abstract: str | None, full_text: str) -> list[str]:
-        text_excerpt = full_text[:3000]
-        prompt = f"""Generate 5-8 relevant academic tags/keywords for this document.
-
-Title: {title or 'Unknown'}
-Abstract: {abstract or 'Not available'}
-Content: {text_excerpt}
-
-Return ONLY a JSON array of strings, e.g.: ["machine learning", "natural language processing", "transformer"]"""
-
-        try:
-            response = await llm_service.get_completion(
-                model="minimax-m3-free",
-                messages=[{"role": "user", "content": prompt}],
-                provider="opencode-zen",
-                temperature=0.3,
-                max_tokens=500,
-            )
-            import json
-            json_match = response[response.find("["):response.rfind("]") + 1]
-            return json.loads(json_match)
-        except Exception:
-            return []
-
-    async def analyze_strengths_weaknesses(self, title: str, abstract: str | None, full_text: str, doc_type: str) -> dict:
-        text_excerpt = full_text[:6000]
-        prompt = f"""Perform a critical analysis of this {doc_type}.
-
-Title: {title or 'Unknown'}
-Abstract: {abstract or 'Not available'}
-
-Content (excerpt):
-{text_excerpt}
-
-Respond in JSON format:
-{{
   "strengths": [
-    {{"point": "strength description", "evidence": "supporting evidence from text"}},
-    ...
+    {{"point": "strength description", "evidence": "supporting quote or fact from the text", "severity": "major"}}
   ],
   "weaknesses": [
-    {{"point": "weakness description", "evidence": "supporting evidence from text"}},
-    ...
+    {{"point": "weakness description", "evidence": "supporting quote or fact from the text", "severity": "major"}}
   ],
-  "suggestions": ["improvement suggestion 1", "improvement suggestion 2"],
+  "suggestions": ["specific improvement suggestion 1", "suggestion 2"],
+
+  "scientific_areas": ["primary field", "secondary field"],
+  "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
+  "field_of_study": "Computer Science",
+  "subfield": "specific subfield",
+
   "quality_score": 7.5,
-  "quality_rationale": "brief explanation of score"
-}}"""
+  "quality_rationale": "explanation of quality score",
+  "novelty_score": 7.0,
+  "novelty_rationale": "explanation of novelty score",
+  "rigor_score": 7.0,
+  "rigor_rationale": "explanation of rigor score",
+  "clarity_score": 7.5,
+  "clarity_rationale": "explanation of clarity score",
 
-        try:
-            response = await llm_service.get_completion(
-                model="minimax-m3-free",
-                messages=[{"role": "user", "content": prompt}],
-                provider="opencode-zen",
-                temperature=0.4,
-                max_tokens=2000,
-            )
-            import json
-            json_match = response[response.find("{"):response.rfind("}") + 1]
-            return json.loads(json_match)
-        except Exception:
-            return {
-                "strengths": [],
-                "weaknesses": [],
-                "suggestions": [],
-                "quality_score": 0,
-                "quality_rationale": "Analysis failed",
-            }
+  "doc_type": "journal",
+  "venue_type": "journal",
+  "estimated_venue_tier": "mid"
+}}
+
+SCORING RUBRIC (1-10):
+- quality_score: Overall technical quality and soundness
+- novelty_score: Originality of contribution relative to existing work
+- rigor_score: Methodological rigor, experimental design, reproducibility
+- clarity_score: Writing quality, structure, figure quality, readability
+
+doc_type: journal | conference | preprint | thesis | report | other
+venue_type: journal | conference | workshop | arxiv | other
+estimated_venue_tier: top | high | mid | low | unknown
+
+severity: critical | major | minor
+
+RULES:
+- Every field must be present. No nulls, no empty arrays where min_length > 0.
+- Scores must be between 1.0 and 10.0.
+- Provide exactly 1-5 strengths and 1-5 weaknesses.
+- Keywords must be lowercase, specific (not generic like "research" or "analysis").
+- Return ONLY the JSON object. No markdown fences, no explanation."""
 
 
-analysis_service = AnalysisService()
+async def analyze_paper(
+    title: str,
+    abstract: str | None,
+    full_text: str,
+    doc_type: str = "other",
+) -> PaperAnalysis | None:
+    budget = get_context_budget(LLM_MODEL, output_tokens=4000)
+    prompt_reserve = 2000
+    content_budget = max(budget - prompt_reserve, 2000)
+    content = fit_to_budget(full_text or "", content_budget, label="analysis")
+
+    prompt = ANALYSIS_PROMPT.format(
+        title=title or "Unknown",
+        abstract=abstract or "Not available",
+        doc_type=doc_type,
+        content=content,
+    )
+
+    try:
+        response_text = await _invoke_llm(prompt, temperature=0.3, max_tokens=4000)
+        raw = json.loads(_extract_json(response_text))
+
+        raw.setdefault("doc_type", doc_type)
+        raw.setdefault("venue_type", "other")
+        raw.setdefault("estimated_venue_tier", "unknown")
+
+        analysis = PaperAnalysis(**raw)
+        return analysis
+
+    except Exception as e:
+        logger.error(f"Paper analysis failed for '{title}': {type(e).__name__}: {e}")
+        return None

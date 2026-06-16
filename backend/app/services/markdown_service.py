@@ -106,7 +106,7 @@ class MarkdownService:
             file_data=md_bytes,
             object_key=object_key,
             content_type="text/markdown",
-            bucket_name="papers",
+            bucket_name="assets",
         )
         result.minio_key = object_key
         return result

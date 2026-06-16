@@ -1,9 +1,13 @@
+import asyncio
+import logging
 from typing import AsyncGenerator, Optional
 
 import httpx
 from langchain_openai import ChatOpenAI
 
 from ..core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 PROVIDER_CONFIG = {
@@ -43,28 +47,41 @@ async def get_completion(
     provider: str = "opencode",
     temperature: float = 0.7,
     max_tokens: int = 4096,
+    max_retries: int = 3,
 ) -> str:
     config = _get_provider_config(provider)
     base_url = config["base_url"].rstrip("/")
     api_key = config["api_key"]
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        resp = await client.post(
-            f"{base_url}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": model,
-                "messages": messages,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-            },
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return data["choices"][0]["message"]["content"]
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                resp = await client.post(
+                    f"{base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": model,
+                        "messages": messages,
+                        "temperature": temperature,
+                        "max_tokens": max_tokens,
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                return data["choices"][0]["message"]["content"]
+        except httpx.HTTPStatusError as e:
+            last_error = e
+            if e.response.status_code == 429:
+                wait = 2 ** attempt * 2  # 2s, 4s, 8s
+                logger.warning(f"[get_completion] 429 rate limit (attempt {attempt + 1}/{max_retries}), waiting {wait}s...")
+                await asyncio.sleep(wait)
+            else:
+                raise
+    raise last_error
 
 
 async def get_embedding(

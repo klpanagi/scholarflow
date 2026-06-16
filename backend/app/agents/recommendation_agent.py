@@ -4,8 +4,8 @@ from langgraph.graph import StateGraph, END
 
 from app.agents.base import BaseAgent, AgentState
 from app.services.search_service import search_service
-from app.services.academic_apis import semantic_scholar
-from app.agents.scholar_agent import _extract_search_query
+from app.services.academic_apis import semantic_scholar, openalex_api
+from app.agents.scholar_agent import _extract_paper_title
 
 
 class RecommendationAgent(BaseAgent):
@@ -54,7 +54,7 @@ class RecommendationAgent(BaseAgent):
         async def find_recommendations(state: AgentState) -> AgentState:
             preferences = state["context"].get("preferences", "")
             original_query = state["messages"][-1].content
-            short_query = _extract_search_query(original_query)
+            short_query = _extract_paper_title(original_query)
 
             search_tool = self._get_tool("search_papers")
             if search_tool:
@@ -70,7 +70,14 @@ class RecommendationAgent(BaseAgent):
                 state["context"]["vector_results"] = vector_results
 
                 s2_results = await semantic_scholar.search(short_query, limit=5)
-                state["context"]["api_results"] = s2_results
+                oa_results = await openalex_api.search(short_query, limit=5)
+                seen = {r.title.lower() for r in s2_results}
+                combined_api = list(s2_results)
+                for r in oa_results:
+                    if r.title.lower() not in seen:
+                        seen.add(r.title.lower())
+                        combined_api.append(r)
+                state["context"]["api_results"] = combined_api
 
             return state
 

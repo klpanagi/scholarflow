@@ -36,13 +36,11 @@ def create_agent(
     if not agent_cls:
         raise ValueError(f"Unknown agent type: {agent_type}. Available: {list(AGENT_REGISTRY.keys())}")
 
-    capped_max_tokens = min(max_tokens, 1024)
-
     llm = llm_service.get_llm(
         model=model,
         provider=provider,
         temperature=temperature,
-        max_tokens=capped_max_tokens,
+        max_tokens=max_tokens,
     )
     return agent_cls(llm=llm, strategy_name=strategy, system_prompt=system_prompt, tools=tools, **kwargs)
 
