@@ -9,7 +9,7 @@ import { useToast } from "@/hooks/use-toast"
 import { api } from "@/lib/api"
 import { Search, Upload, FileText, Trash2, X, CheckCircle, AlertCircle, Loader2, ChevronDown, ChevronUp, Sparkles, Tag, BarChart3, FileUp, UploadCloud } from "lucide-react"
 
-interface Paper {
+interface Asset {
   id: string
   title: string
   authors: string[]
@@ -20,12 +20,12 @@ interface Paper {
   venue?: string
   doc_type: string
   tags: string[]
-  analysis?: PaperAnalysis
+  analysis?: AssetAnalysis
   created_at: string
   updated_at: string
 }
 
-interface PaperAnalysis {
+interface AssetAnalysis {
   summary?: string
   key_findings?: string[]
   methodology?: string
@@ -33,6 +33,9 @@ interface PaperAnalysis {
   limitations?: string[]
   keywords?: string[]
   auto_tags?: string[]
+  scientific_areas?: string[]
+  field_of_study?: string
+  subfield?: string
   references?: { index: number; text: string; authors: string[]; year: number }[]
   strengths_weaknesses?: {
     strengths: { point: string; evidence: string }[]
@@ -49,7 +52,7 @@ interface UploadItem {
   status: "pending" | "uploading" | "done" | "error"
   progress: number
   error?: string
-  result?: Paper
+  result?: Asset
 }
 
 const DOC_TYPES = [
@@ -60,7 +63,7 @@ const DOC_TYPES = [
   { value: "other", label: "Other", icon: "📎" },
 ]
 
-export default function PapersPage() {
+export default function AssetsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const activeTab = searchParams.get("tab") || "library"
   const { toast } = useToast()
@@ -68,36 +71,36 @@ export default function PapersPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [searchQuery, setSearchQuery] = useState("")
-  const [searchResults, setSearchResults] = useState<Paper[]>([])
+  const [searchResults, setSearchResults] = useState<Asset[]>([])
   const [uploads, setUploads] = useState<UploadItem[]>([])
   const [dragActive, setDragActive] = useState(false)
   const [selectedDocType, setSelectedDocType] = useState("paper")
-  const [expandedPaper, setExpandedPaper] = useState<string | null>(null)
+  const [expandedAsset, setExpandedAsset] = useState<string | null>(null)
   const [analyzing, setAnalyzing] = useState<string | null>(null)
 
-  const { data: papers = [] } = useQuery<Paper[]>({
-    queryKey: ["papers"],
+  const { data: assets = [] } = useQuery<Asset[]>({
+    queryKey: ["assets"],
     queryFn: async () => {
-      const { data } = await api.get("/papers")
+      const { data } = await api.get("/assets")
       return data.items || []
     },
   })
 
   const searchMutation = useMutation({
     mutationFn: async (query: string) => {
-      const { data } = await api.get(`/papers/search?q=${encodeURIComponent(query)}`)
+      const { data } = await api.get(`/assets/search?q=${encodeURIComponent(query)}`)
       return data
     },
     onSuccess: (data) => setSearchResults(data),
   })
 
   const analyzeMutation = useMutation({
-    mutationFn: async (paperId: string) => {
-      const { data } = await api.post(`/papers/${paperId}/analyze`)
+    mutationFn: async (assetId: string) => {
+      const { data } = await api.post(`/assets/${assetId}/analyze`)
       return data
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["papers"] })
+      queryClient.invalidateQueries({ queryKey: ["assets"] })
       setAnalyzing(null)
       toast({ title: "Analysis complete" })
     },
@@ -108,15 +111,15 @@ export default function PapersPage() {
   })
 
   const deleteMutation = useMutation({
-    mutationFn: async (paperId: string) => {
-      await api.delete(`/papers/${paperId}`)
+    mutationFn: async (assetId: string) => {
+      await api.delete(`/assets/${assetId}`)
     },
     onSuccess: () => {
-      toast({ title: "Paper deleted" })
-      queryClient.invalidateQueries({ queryKey: ["papers"] })
+      toast({ title: "Asset deleted" })
+      queryClient.invalidateQueries({ queryKey: ["assets"] })
     },
     onError: () => {
-      toast({ title: "Failed to delete paper", variant: "destructive" })
+      toast({ title: "Failed to delete asset", variant: "destructive" })
     },
   })
 
@@ -158,7 +161,7 @@ export default function PapersPage() {
         formData.append("file", item.file)
         formData.append("doc_type", selectedDocType)
 
-        const { data } = await api.post("/papers/", formData, {
+        const { data } = await api.post("/assets/", formData, {
           headers: { "Content-Type": "multipart/form-data" },
           onUploadProgress: (e) => {
             const pct = Math.round((e.loaded * 100) / (e.total || 1))
@@ -172,7 +175,7 @@ export default function PapersPage() {
       }
     }
 
-    queryClient.invalidateQueries({ queryKey: ["papers"] })
+    queryClient.invalidateQueries({ queryKey: ["assets"] })
     toast({ title: `Uploaded ${pending.length} file(s)` })
   }
 
@@ -183,16 +186,16 @@ export default function PapersPage() {
     return dt ? `${dt.icon} ${dt.label}` : docType
   }
 
-  const renderAnalysis = (paper: Paper) => {
-    if (!paper.analysis) {
+  const renderAnalysis = (asset: Asset) => {
+    if (!asset.analysis) {
       return (
         <div className="mt-4 border-t pt-4">
-          <p className="text-sm text-muted-foreground">No analysis available. Click the sparkle button to analyze this paper.</p>
+          <p className="text-sm text-muted-foreground">No analysis available. Click the sparkle button to analyze this asset.</p>
         </div>
       )
     }
 
-    const a = paper.analysis
+    const a = asset.analysis
     const sw = a.strengths_weaknesses
     const hasStrengths = sw && sw.strengths && sw.strengths.length > 0
     const hasWeaknesses = sw && sw.weaknesses && sw.weaknesses.length > 0
@@ -246,6 +249,26 @@ export default function PapersPage() {
             <h4 className="text-sm font-semibold mb-1 flex items-center gap-1"><Tag className="h-3 w-3" /> Auto Tags</h4>
             <div className="flex flex-wrap gap-1">
               {a.auto_tags.map((t, i) => <Badge key={i} variant="secondary" className="text-xs">{t}</Badge>)}
+            </div>
+          </div>
+        )}
+
+        {a.keywords && a.keywords.length > 0 && (
+          <div>
+            <h4 className="text-sm font-semibold mb-1">Keywords</h4>
+            <div className="flex flex-wrap gap-1">
+              {a.keywords.map((k, i) => <Badge key={i} variant="outline" className="text-xs">{k}</Badge>)}
+            </div>
+          </div>
+        )}
+
+        {(a.scientific_areas && a.scientific_areas.length > 0 || a.field_of_study) && (
+          <div>
+            <h4 className="text-sm font-semibold mb-1">Scientific Areas</h4>
+            <div className="flex flex-wrap gap-1">
+              {a.field_of_study && <Badge key="fos" variant="default" className="text-xs">{a.field_of_study}</Badge>}
+              {a.subfield && <Badge key="sub" variant="default" className="text-xs">{a.subfield}</Badge>}
+              {a.scientific_areas?.map((s, i) => <Badge key={i} variant="secondary" className="text-xs">{s}</Badge>)}
             </div>
           </div>
         )}
@@ -304,7 +327,7 @@ export default function PapersPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Papers</h1>
+        <h1 className="text-2xl font-bold">Assets</h1>
         <div className="flex gap-2">
           <Button variant={activeTab === "library" ? "default" : "outline"} size="sm" onClick={() => setSearchParams({ tab: "library" })}>
             <FileText className="mr-2 h-4 w-4" /> Library
@@ -334,7 +357,7 @@ export default function PapersPage() {
                 <input ref={fileInputRef} type="file" accept=".pdf" multiple className="hidden" onChange={(e) => e.target.files && handleFiles(e.target.files)} />
                 <UploadCloud className={`mx-auto h-12 w-12 mb-4 ${dragActive ? "text-primary" : "text-muted-foreground/50"}`} />
                 <p className="text-lg font-medium">Drop PDFs here or click to browse</p>
-                <p className="text-sm text-muted-foreground mt-1">Upload research papers, proposals, reviews, and more</p>
+                <p className="text-sm text-muted-foreground mt-1">Upload papers, proposals, reviews, deliverables, and more</p>
               </div>
             </CardContent>
           </Card>
@@ -399,21 +422,21 @@ export default function PapersPage() {
       {activeTab === "search" && (
         <div className="space-y-4">
           <form onSubmit={(e) => { e.preventDefault(); searchQuery.trim() && searchMutation.mutate(searchQuery) }} className="flex gap-2">
-            <Input placeholder="Search papers by content, title, or topic..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="flex-1" />
+            <Input placeholder="Search assets by content, title, or topic..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="flex-1" />
             <Button type="submit" disabled={searchMutation.isPending}>
               {searchMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
             </Button>
           </form>
           <div className="grid gap-3">
-            {searchResults.map((paper: any) => (
-              <Card key={paper.id || paper.paper_id}>
+            {searchResults.map((asset: any) => (
+              <Card key={asset.id || asset.asset_id}>
                 <CardContent className="pt-4">
                   <div className="flex justify-between items-start">
                     <div>
-                      <h3 className="font-medium">{paper.title || "Untitled"}</h3>
-                      <p className="text-sm text-muted-foreground mt-1">{paper.content?.substring(0, 200)}...</p>
+                      <h3 className="font-medium">{asset.title || "Untitled"}</h3>
+                      <p className="text-sm text-muted-foreground mt-1">{asset.content?.substring(0, 200)}...</p>
                     </div>
-                    {paper.score && <Badge variant="outline">{(paper.score * 100).toFixed(0)}% match</Badge>}
+                    {asset.score && <Badge variant="outline">{(asset.score * 100).toFixed(0)}% match</Badge>}
                   </div>
                 </CardContent>
               </Card>
@@ -424,52 +447,52 @@ export default function PapersPage() {
 
       {activeTab === "library" && (
         <div className="grid gap-3">
-          {papers.length === 0 ? (
+          {assets.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center">
                 <FileUp className="mx-auto h-12 w-12 text-muted-foreground/30 mb-4" />
-                <p className="text-muted-foreground">No papers yet. Upload some PDFs to get started.</p>
-                <Button className="mt-4" onClick={() => setSearchParams({ tab: "upload" })}><Upload className="mr-2 h-4 w-4" /> Upload Papers</Button>
+                <p className="text-muted-foreground">No assets yet. Upload some PDFs to get started.</p>
+                <Button className="mt-4" onClick={() => setSearchParams({ tab: "upload" })}><Upload className="mr-2 h-4 w-4" /> Upload Assets</Button>
               </CardContent>
             </Card>
           ) : (
-            papers.map((paper) => (
-              <Card key={paper.id}>
+            assets.map((asset) => (
+              <Card key={asset.id}>
                 <CardContent className="pt-4">
                   <div className="flex justify-between items-start gap-4">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-medium">{paper.title}</h3>
-                        <Badge variant="secondary" className="text-xs">{getDocTypeBadge(paper.doc_type)}</Badge>
+                        <h3 className="font-medium">{asset.title}</h3>
+                        <Badge variant="secondary" className="text-xs">{getDocTypeBadge(asset.doc_type)}</Badge>
                       </div>
-                      {paper.authors && paper.authors.length > 0 && (
-                        <p className="text-sm text-muted-foreground mt-1">{paper.authors.join(", ")}</p>
+                      {asset.authors && asset.authors.length > 0 && (
+                        <p className="text-sm text-muted-foreground mt-1">{asset.authors.join(", ")}</p>
                       )}
                       <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-                        {paper.year && <span className="text-xs text-muted-foreground">{paper.year}</span>}
-                        {paper.venue && <span className="text-xs text-muted-foreground">{paper.venue}</span>}
-                        {paper.doi && <span className="text-xs text-muted-foreground">DOI: {paper.doi}</span>}
-                        {paper.arxiv_id && <span className="text-xs text-muted-foreground">arXiv: {paper.arxiv_id}</span>}
-                        {paper.analysis?.references && paper.analysis.references.length > 0 && <span className="text-xs text-muted-foreground">{paper.analysis.references.length} refs</span>}
+                        {asset.year && <span className="text-xs text-muted-foreground">{asset.year}</span>}
+                        {asset.venue && <span className="text-xs text-muted-foreground">{asset.venue}</span>}
+                        {asset.doi && <span className="text-xs text-muted-foreground">DOI: {asset.doi}</span>}
+                        {asset.arxiv_id && <span className="text-xs text-muted-foreground">arXiv: {asset.arxiv_id}</span>}
+                        {asset.analysis?.references && asset.analysis.references.length > 0 && <span className="text-xs text-muted-foreground">{asset.analysis.references.length} refs</span>}
                       </div>
-                      {paper.abstract && <p className="text-sm text-muted-foreground mt-2 line-clamp-3">{paper.abstract}</p>}
-                      {paper.tags && paper.tags.length > 0 && (
+                      {asset.abstract && <p className="text-sm text-muted-foreground mt-2 line-clamp-3">{asset.abstract}</p>}
+                      {asset.tags && asset.tags.length > 0 && (
                         <div className="flex flex-wrap gap-1 mt-2">
-                          {paper.tags.map((tag, i) => <Badge key={i} variant="outline" className="text-xs">{tag}</Badge>)}
+                          {asset.tags.map((tag, i) => <Badge key={i} variant="outline" className="text-xs">{tag}</Badge>)}
                         </div>
                       )}
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
-                      <Button variant="ghost" size="sm" onClick={() => setExpandedPaper(expandedPaper === paper.id ? null : paper.id)}>
-                        {expandedPaper === paper.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                      <Button variant="ghost" size="sm" onClick={() => setExpandedAsset(expandedAsset === asset.id ? null : asset.id)}>
+                        {expandedAsset === asset.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                       </Button>
-                      <Button variant="ghost" size="sm" onClick={() => { setAnalyzing(paper.id); analyzeMutation.mutate(paper.id) }} disabled={analyzing === paper.id} title={paper.analysis ? "Re-analyze paper" : "Analyze paper"}>
-                        {analyzing === paper.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                      <Button variant="ghost" size="sm" onClick={() => { setAnalyzing(asset.id); analyzeMutation.mutate(asset.id) }} disabled={analyzing === asset.id} title={asset.analysis ? "Re-analyze asset" : "Analyze asset"}>
+                        {analyzing === asset.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                       </Button>
-                      <Button variant="ghost" size="sm" onClick={() => deleteMutation.mutate(paper.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                      <Button variant="ghost" size="sm" onClick={() => deleteMutation.mutate(asset.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
                     </div>
                   </div>
-                  {expandedPaper === paper.id && renderAnalysis(paper)}
+                  {expandedAsset === asset.id && renderAnalysis(asset)}
                 </CardContent>
               </Card>
             ))

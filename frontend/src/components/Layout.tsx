@@ -27,8 +27,8 @@ export function Layout() {
                 <Link to="/dashboard">
                   <Button variant="ghost" className="text-sm font-medium text-slate-600 hover:text-slate-900">Dashboard</Button>
                 </Link>
-                <Link to="/papers">
-                  <Button variant="ghost" className="text-sm font-medium text-slate-600 hover:text-slate-900">Papers</Button>
+                <Link to="/assets">
+                  <Button variant="ghost" className="text-sm font-medium text-slate-600 hover:text-slate-900">Assets</Button>
                 </Link>
                 <Link to="/cult">
                   <Button variant="ghost" className="text-sm font-medium text-slate-600 hover:text-slate-900">

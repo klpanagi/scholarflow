@@ -1,21 +1,26 @@
 import { useState, useEffect } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import {
   ArrowRight,
   BookOpen,
   ChevronDown,
+  Clock,
   FileText,
   FlaskConical,
+  LayoutGrid,
   Loader2,
   Play,
   Search,
   Shield,
+  Trash2,
   Users,
   Zap,
 } from "lucide-react";
@@ -46,7 +51,7 @@ interface Workflow {
   inputLabel: string;
 }
 
-interface Paper {
+interface Asset {
   id: string;
   title: string;
   abstract?: string;
@@ -221,17 +226,17 @@ const WORKFLOWS: Workflow[] = [
   },
 ];
 
-function PaperSelector({
-  papers,
-  selectedPaperId,
+function AssetSelector({
+  assets,
+  selectedAssetId,
   onSelect,
 }: {
-  papers: Paper[];
-  selectedPaperId: string | null;
-  onSelect: (paper: Paper | null) => void;
+  assets: Asset[];
+  selectedAssetId: string | null;
+  onSelect: (asset: Asset | null) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const selectedPaper = papers.find((p) => p.id === selectedPaperId);
+  const selectedAsset = assets.find((a) => a.id === selectedAssetId);
 
   return (
     <div className="relative">
@@ -241,7 +246,7 @@ function PaperSelector({
         className="w-full flex items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background hover:bg-accent hover:text-accent-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
       >
         <span className="truncate">
-          {selectedPaper ? selectedPaper.title : "Select an uploaded paper..."}
+          {selectedAsset ? selectedAsset.title : "Select an uploaded asset..."}
         </span>
         <ChevronDown className="h-4 w-4 ml-2 shrink-0 opacity-50" />
       </button>
@@ -257,30 +262,30 @@ function PaperSelector({
           >
             None — use manual input
           </button>
-          {papers.map((paper) => (
+          {assets.map((asset) => (
             <button
-              key={paper.id}
+              key={asset.id}
               type="button"
               onClick={() => {
-                onSelect(paper);
+                onSelect(asset);
                 setOpen(false);
               }}
               className={`w-full text-left rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground ${
-                paper.id === selectedPaperId ? "bg-accent" : ""
+                asset.id === selectedAssetId ? "bg-accent" : ""
               }`}
             >
-              <div className="font-medium">{paper.title}</div>
-              {paper.authors && paper.authors.length > 0 && (
+              <div className="font-medium">{asset.title}</div>
+              {asset.authors && asset.authors.length > 0 && (
                 <div className="text-xs text-muted-foreground truncate">
-                  {paper.authors.slice(0, 3).join(", ")}
-                  {paper.year ? ` (${paper.year})` : ""}
+                  {asset.authors.slice(0, 3).join(", ")}
+                  {asset.year ? ` (${asset.year})` : ""}
                 </div>
               )}
             </button>
           ))}
-          {papers.length === 0 && (
+          {assets.length === 0 && (
             <div className="px-2 py-1.5 text-sm text-muted-foreground">
-              No papers uploaded yet
+              No assets uploaded yet
             </div>
           )}
         </div>
@@ -321,19 +326,19 @@ function PipelineDiagram({ stages }: { stages: WorkflowStage[] }) {
 
 function WorkflowCard({
   workflow,
-  papers,
+  assets,
   userConfigs,
   onExecute,
   isExecuting,
 }: {
   workflow: Workflow;
-  papers: Paper[];
+  assets: Asset[];
   userConfigs: AgentConfig[];
-  onExecute: (id: string, input: string, paperId?: string, assignments?: Record<string, string>) => void;
+  onExecute: (id: string, input: string, assetId?: string, assignments?: Record<string, string>) => void;
   isExecuting: boolean;
 }) {
   const [input, setInput] = useState("");
-  const [selectedPaperId, setSelectedPaperId] = useState<string | null>(null);
+  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [assignments, setAssignments] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -359,10 +364,10 @@ function WorkflowCard({
     }
   }, [workflow.stages, userConfigs]);
 
-  const handlePaperSelect = (paper: Paper | null) => {
-    setSelectedPaperId(paper?.id || null);
-    if (paper?.abstract) {
-      setInput(paper.abstract);
+  const handleAssetSelect = (asset: Asset | null) => {
+    setSelectedAssetId(asset?.id || null);
+    if (asset?.abstract) {
+      setInput(asset.abstract);
     }
   };
 
@@ -379,7 +384,7 @@ function WorkflowCard({
       return;
     }
     
-    onExecute(workflow.id, input, selectedPaperId || undefined, assignments);
+    onExecute(workflow.id, input, selectedAssetId || undefined, assignments);
   };
 
   const isMissingAssignments = workflow.stages.some((stage) => !assignments[stage.id]);
@@ -443,11 +448,11 @@ function WorkflowCard({
         </div>
 
         <div className="space-y-3 border-t pt-4">
-          <label className="text-sm font-medium">Select Paper (optional)</label>
-          <PaperSelector
-            papers={papers}
-            selectedPaperId={selectedPaperId}
-            onSelect={handlePaperSelect}
+          <label className="text-sm font-medium">Select Asset (optional)</label>
+          <AssetSelector
+            assets={assets}
+            selectedAssetId={selectedAssetId}
+            onSelect={handleAssetSelect}
           />
 
           <label className="text-sm font-medium">{workflow.inputLabel}</label>
@@ -480,18 +485,217 @@ function WorkflowCard({
   );
 }
 
+interface WorkflowExecution {
+  id: string;
+  workflow_id: string;
+  workflow_name: string;
+  input_text?: string;
+  paper_id?: string;
+  agent_assignments?: Record<string, string>;
+  stages: {
+    agent_role?: string;
+    agent_name?: string;
+    status: string;
+    output: string;
+    metadata?: Record<string, any>;
+  }[];
+  status: string;
+  duration_seconds?: number;
+  created_at: string;
+}
+
+function ExecutionCard({ execution, onDelete }: { execution: WorkflowExecution; onDelete?: (id: string) => void }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const formatDuration = (seconds?: number) => {
+    if (!seconds) return "--";
+    if (seconds < 60) return `${seconds.toFixed(1)}s`;
+    return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+  };
+
+  const formatTime = (iso: string) => {
+    const d = new Date(iso);
+    return d.toLocaleString();
+  };
+
+  const statusStyle = (status: string) => {
+    switch (status) {
+      case "completed":
+        return "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800";
+      case "partial":
+        return "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border-amber-200 dark:border-amber-800";
+      case "failed":
+        return "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300 border-red-200 dark:border-red-800";
+      default:
+        return "bg-muted text-muted-foreground";
+    }
+  };
+
+  const stageStatusStyle = (status: string) => {
+    switch (status) {
+      case "completed":
+        return "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800";
+      case "in_progress":
+      case "running":
+        return "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800";
+      case "failed":
+        return "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-400 dark:border-red-800";
+      case "skipped":
+        return "bg-muted text-muted-foreground border-border";
+      default:
+        return "bg-muted text-muted-foreground border-border";
+    }
+  };
+
+  return (
+    <Card className="overflow-hidden transition-shadow hover:shadow-md group relative">
+      <CardContent className="pt-4">
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          className="w-full text-left"
+        >
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="font-semibold text-sm">{execution.workflow_name}</h3>
+                <span
+                  className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${statusStyle(execution.status)}`}
+                >
+                  {execution.status}
+                </span>
+                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  {formatDuration(execution.duration_seconds)}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {formatTime(execution.created_at)}
+                {execution.input_text &&
+                  ` -- "${execution.input_text.substring(0, 80)}${execution.input_text.length > 80 ? "..." : ""}"`}
+              </p>
+            </div>
+            <ChevronDown
+              className={`h-4 w-4 text-muted-foreground shrink-0 transition-transform duration-200 ${
+                expanded ? "rotate-180" : ""
+              }`}
+            />
+          </div>
+          {onDelete && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(execution.id);
+              }}
+              className="absolute top-3 right-3 p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors opacity-0 group-hover:opacity-100"
+              title="Delete result"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </button>
+
+        {expanded && (
+          <div className="mt-4 space-y-4 border-t pt-4">
+            {execution.input_text && (
+              <div>
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
+                  Input
+                </h4>
+                <p className="text-sm bg-muted/50 rounded-md p-3 text-muted-foreground leading-relaxed">
+                  {execution.input_text}
+                </p>
+              </div>
+            )}
+
+            {execution.agent_assignments &&
+              Object.keys(execution.agent_assignments).length > 0 && (
+                <div>
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
+                    Agent Assignments
+                  </h4>
+                  <div className="flex flex-wrap gap-1.5">
+                    {Object.entries(execution.agent_assignments).map(
+                      ([stageId, configId]) => (
+                        <Badge key={stageId} variant="outline" className="text-xs">
+                          {stageId}: {configId.substring(0, 8)}...
+                        </Badge>
+                      )
+                    )}
+                  </div>
+                </div>
+              )}
+
+            <div className="space-y-3">
+              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Stages
+              </h4>
+              {execution.stages.map((stage, i) => (
+                <div
+                  key={i}
+                  className="rounded-lg border bg-card p-4 space-y-3"
+                >
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {stage.agent_role && (
+                      <Badge variant="secondary" className="text-xs capitalize">
+                        {stage.agent_role}
+                      </Badge>
+                    )}
+                    {stage.agent_name && (
+                      <span className="text-xs text-muted-foreground font-medium">
+                        {stage.agent_name}
+                      </span>
+                    )}
+                    <span
+                      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ml-auto ${stageStatusStyle(
+                        stage.status
+                      )}`}
+                    >
+                      {stage.status}
+                    </span>
+                  </div>
+
+                  {stage.output ? (
+                    <MarkdownRenderer content={stage.output} />
+                  ) : (
+                    <p className="text-sm text-muted-foreground italic">No output</p>
+                  )}
+
+                  {stage.metadata &&
+                    Object.keys(stage.metadata).length > 0 && (
+                      <details className="group">
+                        <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors">
+                          Metadata
+                        </summary>
+                        <pre className="text-xs bg-muted rounded-md p-3 mt-2 overflow-auto max-h-[150px] leading-relaxed">
+                          {JSON.stringify(stage.metadata, null, 2)}
+                        </pre>
+                      </details>
+                    )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function WorkflowsPage() {
   const { toast } = useToast();
-  const [result, setResult] = useState<any>(null);
+  const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState("execute");
 
-  const { data: papersData } = useQuery({
-    queryKey: ["papers"],
+  const { data: assetsData } = useQuery({
+    queryKey: ["assets"],
     queryFn: async () => {
-      const { data } = await api.get("/papers/");
-      return (data.items || []) as Paper[];
+      const { data } = await api.get("/assets");
+      return (data.items || []) as Asset[];
     },
   });
-  const papers = papersData || [];
+  const assets = assetsData || [];
 
   const { data: userConfigs = [] } = useQuery<AgentConfig[]>({
     queryKey: ["agent-configs"],
@@ -501,29 +705,71 @@ export default function WorkflowsPage() {
     },
   });
 
+  const { data: pastExecutions = [] } = useQuery<WorkflowExecution[]>({
+    queryKey: ["workflow-results"],
+    queryFn: async () => {
+      const { data } = await api.get("/workflows/results");
+      return data || [];
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (executionId: string) => {
+      await api.delete(`/workflows/results/${executionId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workflow-results"] });
+      toast({ title: "Result deleted" });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Delete failed",
+        description: error.response?.data?.detail || "Something went wrong",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteAllMutation = useMutation({
+    mutationFn: async () => {
+      await api.delete("/workflows/results");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workflow-results"] });
+      toast({ title: "All results cleared" });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Clear failed",
+        description: error.response?.data?.detail || "Something went wrong",
+        variant: "destructive",
+      });
+    },
+  });
+
   const executeMutation = useMutation({
     mutationFn: async ({
       workflowId,
       input,
-      paperId,
+      assetId,
       agentAssignments,
     }: {
       workflowId: string;
       input: string;
-      paperId?: string;
+      assetId?: string;
       agentAssignments?: Record<string, string>;
     }) => {
       const { data } = await api.post("/workflows/execute", {
         workflow_id: workflowId,
         input,
-        paper_id: paperId,
+        paper_id: assetId,
         agent_assignments: agentAssignments,
       });
-      return data;
+      return data as WorkflowExecution;
     },
-    onSuccess: (data) => {
-      setResult(data);
-      toast({ title: "Workflow completed", description: "Check the results below." });
+    onSuccess: () => {
+      setActiveTab("results");
+      toast({ title: "Workflow completed", description: "View the results in the Results tab." });
     },
     onError: (error: any) => {
       toast({
@@ -534,43 +780,105 @@ export default function WorkflowsPage() {
     },
   });
 
+  const sortedExecutions = [...pastExecutions].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">Multi-Agent Workflows</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Multi-Agent Workflows</h1>
         <p className="text-muted-foreground mt-2">
           Orchestrate multiple specialized agents to accomplish complex academic tasks. Each workflow
           chains agents with distinct expertise for end-to-end results.
         </p>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        {WORKFLOWS.map((workflow) => (
-          <WorkflowCard
-            key={workflow.id}
-            workflow={workflow}
-            papers={papers}
-            userConfigs={userConfigs}
-            onExecute={(id, input, paperId, assignments) =>
-              executeMutation.mutate({ workflowId: id, input, paperId, agentAssignments: assignments })
-            }
-            isExecuting={executeMutation.isPending && executeMutation.variables?.workflowId === workflow.id}
-          />
-        ))}
-      </div>
+      <Tabs value={activeTab} onValueChange={setActiveTab} defaultValue="execute">
+        <TabsList>
+          <TabsTrigger value="execute" className="gap-1.5">
+            <Play className="h-3.5 w-3.5" />
+            Execute
+          </TabsTrigger>
+          <TabsTrigger value="results" className="gap-1.5">
+            <LayoutGrid className="h-3.5 w-3.5" />
+            Results
+            {sortedExecutions.length > 0 && (
+              <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5 py-0">
+                {sortedExecutions.length}
+              </Badge>
+            )}
+          </TabsTrigger>
+        </TabsList>
 
-      {result && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Workflow Result</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <pre className="bg-muted p-4 rounded-lg overflow-auto text-sm max-h-[500px]">
-              {JSON.stringify(result, null, 2)}
-            </pre>
-          </CardContent>
-        </Card>
-      )}
+        <TabsContent value="execute">
+          <div className="grid gap-6 lg:grid-cols-2">
+            {WORKFLOWS.map((workflow) => (
+              <WorkflowCard
+                key={workflow.id}
+                workflow={workflow}
+                assets={assets}
+                userConfigs={userConfigs}
+                onExecute={(id, input, assetId, assignments) =>
+                  executeMutation.mutate({
+                    workflowId: id,
+                    input,
+                    assetId,
+                    agentAssignments: assignments,
+                  })
+                }
+                isExecuting={
+                  executeMutation.isPending &&
+                  executeMutation.variables?.workflowId === workflow.id
+                }
+              />
+            ))}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="results">
+          {sortedExecutions.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <Clock className="h-10 w-10 text-muted-foreground/50 mx-auto mb-3" />
+                <p className="text-muted-foreground">No workflow executions yet.</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Run a workflow from the Execute tab to see results here.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-muted-foreground">
+                  {sortedExecutions.length} result{sortedExecutions.length !== 1 ? "s" : ""}
+                </p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                  onClick={() => deleteAllMutation.mutate()}
+                  disabled={deleteAllMutation.isPending}
+                >
+                  {deleteAllMutation.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                  )}
+                  Clear All
+                </Button>
+              </div>
+              {sortedExecutions.map((exec) => (
+                <ExecutionCard
+                  key={exec.id}
+                  execution={exec}
+                  onDelete={(id) => deleteMutation.mutate(id)}
+                />
+              ))}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

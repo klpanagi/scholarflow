@@ -8,22 +8,22 @@ const features = [
   {
     icon: Search,
     title: "Scholar Search",
-    description: "AI-powered academic paper discovery across multiple sources",
+    description: "AI-powered academic asset discovery across multiple sources",
   },
   {
     icon: FileText,
-    title: "Paper Writing",
+    title: "Asset Writing",
     description: "AI-assisted academic writing with citation management",
   },
   {
     icon: BookOpen,
-    title: "Paper Review",
+    title: "Asset Review",
     description: "Automated peer review with detailed feedback",
   },
   {
     icon: Users,
     title: "Recommendations",
-    description: "Personalized paper recommendations based on your research",
+    description: "Personalized asset recommendations based on your research",
   },
 ]
 
@@ -40,7 +40,7 @@ export default function HomePage() {
             <span className="text-primary"> Academic Assistant</span>
           </h1>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-            Streamline your research workflow with multi-agent AI. Search, write, review, and discover academic papers with intelligent assistance.
+            Streamline your research workflow with multi-agent AI. Search, write, review, and discover academic assets with intelligent assistance.
           </p>
           <div className="flex gap-4 justify-center">
             {isAuthenticated ? (

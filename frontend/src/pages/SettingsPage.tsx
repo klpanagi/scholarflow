@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import { Button } from '../components/ui/button'
+import { Input } from '../components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { Badge } from '../components/ui/badge'
 import { useToast } from '../hooks/use-toast'
@@ -20,6 +21,12 @@ interface SettingsData {
   embedding_model: string
 }
 
+interface ApiKeyEntry {
+  service: string
+  is_active: boolean
+  created_at: string
+}
+
 const PROVIDER_DISPLAY: Record<string, { name: string; color: string }> = {
   'opencode': { name: 'OpenCode Go', color: 'bg-blue-500' },
   'opencode-zen': { name: 'OpenCode Zen', color: 'bg-purple-500' },
@@ -27,17 +34,32 @@ const PROVIDER_DISPLAY: Record<string, { name: string; color: string }> = {
   'openai': { name: 'OpenAI', color: 'bg-green-500' },
 }
 
+const ACADEMIC_SERVICES = [
+  { id: 'semantic_scholar', name: 'Semantic Scholar', description: 'Higher rate limits for paper search (free at semanticscholar.org/product/api)' },
+  { id: 'crossref', name: 'CrossRef', description: 'Faster DOI and citation lookups' },
+  { id: 'openalex', name: 'OpenAlex', description: 'Optional API key for polite pool (faster responses). Use your email as the API key.' },
+]
+
 export function SettingsPage() {
   const { toast } = useToast()
   const queryClient = useQueryClient()
   const [testResults, setTestResults] = useState<Record<string, { status: string; message?: string }>>({})
   const [embProvider, setEmbProvider] = useState('')
   const [embModel, setEmbModel] = useState('')
+  const [keyInputs, setKeyInputs] = useState<Record<string, string>>({})
 
   const { data: settings, isLoading } = useQuery<SettingsData>({
     queryKey: ['settings'],
     queryFn: async () => {
       const { data } = await api.get('/settings/providers')
+      return data
+    },
+  })
+
+  const { data: apiKeys = [] } = useQuery<ApiKeyEntry[]>({
+    queryKey: ['api-keys'],
+    queryFn: async () => {
+      const { data } = await api.get('/settings/api-keys')
       return data
     },
   })
@@ -64,6 +86,35 @@ export function SettingsPage() {
     },
     onError: () => {
       toast({ title: 'Error', description: 'Failed to save embedding config', variant: 'destructive' })
+    },
+  })
+
+  const saveApiKeyMutation = useMutation({
+    mutationFn: async ({ service, api_key }: { service: string; api_key: string }) => {
+      const { data } = await api.post('/settings/api-keys', { service, api_key })
+      return data
+    },
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['api-keys'] })
+      setKeyInputs(prev => ({ ...prev, [vars.service]: '' }))
+      toast({ title: 'Saved', description: `${vars.service} API key saved.` })
+    },
+    onError: (_err, vars) => {
+      toast({ title: 'Error', description: `Failed to save ${vars.service} key`, variant: 'destructive' })
+    },
+  })
+
+  const deleteApiKeyMutation = useMutation({
+    mutationFn: async (service: string) => {
+      const { data } = await api.delete(`/settings/api-keys/${service}`)
+      return data
+    },
+    onSuccess: (_data, service) => {
+      queryClient.invalidateQueries({ queryKey: ['api-keys'] })
+      toast({ title: 'Deleted', description: `${service} API key removed.` })
+    },
+    onError: () => {
+      toast({ title: 'Error', description: 'Failed to delete API key', variant: 'destructive' })
     },
   })
 
@@ -212,6 +263,76 @@ export function SettingsPage() {
                             Testing
                           </span>
                         ) : 'Test'}
+                      </Button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-4">
+            <CardTitle className="text-base">Academic API Keys</CardTitle>
+            <CardDescription>
+              Per-user keys for scholarly search. Stored encrypted. Optional — works without them at lower rate limits.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {ACADEMIC_SERVICES.map(svc => {
+                const existing = apiKeys.find(k => k.service === svc.id)
+                const inputValue = keyInputs[svc.id] || ''
+                const isSaving = saveApiKeyMutation.isPending && saveApiKeyMutation.variables?.service === svc.id
+                const isDeleting = deleteApiKeyMutation.isPending && deleteApiKeyMutation.variables === svc.id
+
+                return (
+                  <div key={svc.id} className="flex flex-col gap-2 py-3 px-4 rounded-lg border">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-2 h-2 rounded-full ${existing?.is_active ? 'bg-green-500' : 'bg-zinc-400'}`} />
+                        <div>
+                          <span className="text-sm font-medium">{svc.name}</span>
+                          <span className="text-xs text-muted-foreground ml-2">
+                            {existing ? 'Configured' : 'Not configured'}
+                          </span>
+                        </div>
+                      </div>
+                      {existing && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs text-destructive hover:text-destructive"
+                          onClick={() => deleteApiKeyMutation.mutate(svc.id)}
+                          disabled={isDeleting}
+                        >
+                          {isDeleting ? 'Removing...' : 'Remove'}
+                        </Button>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">{svc.description}</p>
+                    <div className="flex items-end gap-2">
+                      <div className="flex-1">
+                        <Input
+                          type="password"
+                          placeholder={existing ? '••••••••••••••••' : `Enter ${svc.name} API key`}
+                          value={inputValue}
+                          onChange={(e) => setKeyInputs(prev => ({ ...prev, [svc.id]: e.target.value }))}
+                          className="h-8 text-xs"
+                        />
+                      </div>
+                      <Button
+                        size="sm"
+                        className="h-8 text-xs"
+                        onClick={() => {
+                          if (inputValue.trim()) {
+                            saveApiKeyMutation.mutate({ service: svc.id, api_key: inputValue.trim() })
+                          }
+                        }}
+                        disabled={!inputValue.trim() || isSaving}
+                      >
+                        {isSaving ? 'Saving...' : existing ? 'Update' : 'Save'}
                       </Button>
                     </div>
                   </div>
