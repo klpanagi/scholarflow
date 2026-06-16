@@ -184,7 +184,7 @@ CHUNKS_INDEX_MAPPING = {
     "mappings": {
         "properties": {
             "id": {"type": "keyword"},
-            "paper_id": {"type": "keyword"},
+            "asset_id": {"type": "keyword"},
             "chunk_index": {"type": "integer"},
             "content": {"type": "text", "analyzer": "standard"},
             "title": {"type": "text", "analyzer": "standard"},

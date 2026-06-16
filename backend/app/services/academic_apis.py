@@ -1,5 +1,5 @@
-"""Academic API integrations (Semantic Scholar, arXiv, CrossRef)."""
-
+import asyncio
+import logging
 from dataclasses import dataclass
 from typing import Optional
 
@@ -7,11 +7,13 @@ import httpx
 
 from app.core.config import settings
 
+logger = logging.getLogger(__name__)
+
+_FIELDS = "title,abstract,authors,year,url,externalIds,citationCount"
+
 
 @dataclass
 class PaperResult:
-    """Paper from academic API."""
-
     external_id: str
     source: str
     title: str
@@ -21,91 +23,213 @@ class PaperResult:
     url: str | None
     doi: str | None
     citation_count: int | None = None
+    tldr: str | None = None
+    paper_id: str | None = None
+
+    @staticmethod
+    def from_s2(paper: dict) -> "PaperResult":
+        tldr_obj = paper.get("tldr")
+        return PaperResult(
+            external_id=paper.get("paperId", ""),
+            paper_id=paper.get("paperId"),
+            source="semantic_scholar",
+            title=paper.get("title", ""),
+            abstract=paper.get("abstract"),
+            authors=[a.get("name", "") for a in paper.get("authors", [])],
+            year=paper.get("year"),
+            url=paper.get("url"),
+            doi=paper.get("externalIds", {}).get("DOI"),
+            citation_count=paper.get("citationCount"),
+            tldr=tldr_obj.get("text") if tldr_obj else None,
+        )
 
 
 class SemanticScholarAPI:
-    """Semantic Scholar API client."""
 
     BASE_URL = "https://api.semanticscholar.org/graph/v1"
+    REC_URL = "https://api.semanticscholar.org/recommendations/v1"
+
+    def _headers(self, user_api_key: str | None = None) -> dict:
+        key = user_api_key or settings.SEMANTIC_SCHOLAR_API_KEY
+        if key and key != "YOUR_SEMANTIC_SCHOLAR_API_KEY_HERE":
+            return {"x-api-key": key}
+        return {}
 
     async def search(
         self,
         query: str,
         limit: int = 20,
-        offset: int = 0,
+        year: str | None = None,
+        min_citations: int | None = None,
+        sort: str = "citationCount:desc",
+        user_api_key: str | None = None,
     ) -> list[PaperResult]:
-        """Search papers."""
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{self.BASE_URL}/paper/search",
-                params={
-                    "query": query,
-                    "limit": limit,
-                    "offset": offset,
-                    "fields": "title,abstract,authors,year,url,externalIds,citationCount",
-                },
-                headers=(
-                    {"x-api-key": settings.SEMANTIC_SCHOLAR_API_KEY}
-                    if settings.SEMANTIC_SCHOLAR_API_KEY
-                    else {}
-                ),
-                timeout=30.0,
-            )
-            response.raise_for_status()
-            data = response.json()
+        headers = self._headers(user_api_key)
+        params = {
+            "query": query,
+            "fields": _FIELDS,
+            "sort": sort,
+        }
+        if year:
+            params["year"] = year
+        if min_citations:
+            params["minCitationCount"] = str(min_citations)
 
-            return [
-                PaperResult(
-                    external_id=paper.get("paperId", ""),
-                    source="semantic_scholar",
-                    title=paper.get("title", ""),
-                    abstract=paper.get("abstract"),
-                    authors=[a.get("name", "") for a in paper.get("authors", [])],
-                    year=paper.get("year"),
-                    url=paper.get("url"),
-                    doi=paper.get("externalIds", {}).get("DOI"),
-                    citation_count=paper.get("citationCount"),
+        for attempt in range(3):
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    f"{self.BASE_URL}/paper/search/bulk",
+                    params=params,
+                    headers=headers,
+                    timeout=30.0,
                 )
-                for paper in data.get("data", [])
-            ]
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return [PaperResult.from_s2(p) for p in data.get("data", [])[:limit]]
+                if resp.status_code == 429:
+                    wait = 2 ** attempt
+                    logger.warning(f"S2 429, retrying in {wait}s (attempt {attempt+1})")
+                    await asyncio.sleep(wait)
+                    continue
+                logger.warning(f"S2 search failed {resp.status_code}: {resp.text[:200]}")
+                return []
+        return []
 
-    async def get_paper(self, paper_id: str) -> Optional[PaperResult]:
-        """Get paper by ID."""
+    async def get_paper(self, paper_id: str, user_api_key: str | None = None) -> Optional[PaperResult]:
+        headers = self._headers(user_api_key)
         async with httpx.AsyncClient() as client:
-            response = await client.get(
+            resp = await client.get(
                 f"{self.BASE_URL}/paper/{paper_id}",
-                params={
-                    "fields": "title,abstract,authors,year,url,externalIds,citationCount",
-                },
-                headers=(
-                    {"x-api-key": settings.SEMANTIC_SCHOLAR_API_KEY}
-                    if settings.SEMANTIC_SCHOLAR_API_KEY
-                    else {}
-                ),
+                params={"fields": _FIELDS},
+                headers=headers,
                 timeout=30.0,
             )
-            if response.status_code == 404:
+            if resp.status_code == 404:
                 return None
-            response.raise_for_status()
-            paper = response.json()
+            resp.raise_for_status()
+            return PaperResult.from_s2(resp.json())
 
-            return PaperResult(
-                external_id=paper.get("paperId", ""),
-                source="semantic_scholar",
-                title=paper.get("title", ""),
-                abstract=paper.get("abstract"),
-                authors=[a.get("name", "") for a in paper.get("authors", [])],
-                year=paper.get("year"),
-                url=paper.get("url"),
-                doi=paper.get("externalIds", {}).get("DOI"),
-                citation_count=paper.get("citationCount"),
+    async def get_citations(
+        self, paper_id: str, limit: int = 50, user_api_key: str | None = None
+    ) -> list[PaperResult]:
+        headers = self._headers(user_api_key)
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{self.BASE_URL}/paper/{paper_id}/citations",
+                params={"fields": _FIELDS, "limit": str(min(limit, 1000))},
+                headers=headers,
+                timeout=30.0,
             )
+            if resp.status_code != 200:
+                logger.warning(f"S2 citations failed {resp.status_code}")
+                return []
+            data = resp.json()
+            return [
+                PaperResult.from_s2(entry["citingPaper"])
+                for entry in data.get("data", [])
+                if entry.get("citingPaper")
+            ][:limit]
+
+    async def get_references(
+        self, paper_id: str, limit: int = 50, user_api_key: str | None = None
+    ) -> list[PaperResult]:
+        headers = self._headers(user_api_key)
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{self.BASE_URL}/paper/{paper_id}/references",
+                params={"fields": _FIELDS, "limit": str(min(limit, 1000))},
+                headers=headers,
+                timeout=30.0,
+            )
+            if resp.status_code != 200:
+                logger.warning(f"S2 references failed {resp.status_code}")
+                return []
+            data = resp.json()
+            return [
+                PaperResult.from_s2(entry["citedPaper"])
+                for entry in data.get("data", [])
+                if entry.get("citedPaper")
+            ][:limit]
+
+    async def get_recommendations(
+        self,
+        positive_paper_ids: list[str],
+        negative_paper_ids: list[str] | None = None,
+        limit: int = 50,
+        user_api_key: str | None = None,
+    ) -> list[PaperResult]:
+        headers = self._headers(user_api_key)
+        body = {"positivePaperIds": positive_paper_ids}
+        if negative_paper_ids:
+            body["negativePaperIds"] = negative_paper_ids
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{self.REC_URL}/papers",
+                params={"fields": _FIELDS, "limit": str(min(limit, 500))},
+                json=body,
+                headers=headers,
+                timeout=30.0,
+            )
+            if resp.status_code != 200:
+                logger.warning(f"S2 recommendations failed {resp.status_code}")
+                return []
+            data = resp.json()
+            papers = data.get("recommendedPapers", [])
+            return sorted(
+                [PaperResult.from_s2(p) for p in papers],
+                key=lambda x: x.citation_count or 0,
+                reverse=True,
+            )
+
+    async def build_related_work(
+        self,
+        paper_id: str,
+        topic_query: str,
+        limit: int = 20,
+        user_api_key: str | None = None,
+    ) -> list[PaperResult]:
+        seen = set()
+        results = []
+
+        try:
+            refs = await self.get_references(paper_id, limit=30, user_api_key=user_api_key)
+            for p in refs:
+                if p.paper_id and p.paper_id not in seen:
+                    seen.add(p.paper_id)
+                    results.append(p)
+            await asyncio.sleep(1)
+        except Exception:
+            pass
+
+        try:
+            recs = await self.get_recommendations(
+                [paper_id], limit=30, user_api_key=user_api_key
+            )
+            for p in recs:
+                if p.paper_id and p.paper_id not in seen:
+                    seen.add(p.paper_id)
+                    results.append(p)
+            await asyncio.sleep(1)
+        except Exception:
+            pass
+
+        try:
+            search = await self.search(topic_query, limit=20, user_api_key=user_api_key)
+            for p in search:
+                if p.paper_id and p.paper_id not in seen:
+                    seen.add(p.paper_id)
+                    results.append(p)
+        except Exception:
+            pass
+
+        results.sort(key=lambda x: x.citation_count or 0, reverse=True)
+        return results[:limit]
 
 
 class ArXivAPI:
-    """arXiv API client."""
 
-    BASE_URL = "http://export.arxiv.org/api/query"
+    BASE_URL = "https://export.arxiv.org/api/query"
 
     async def search(
         self,
@@ -113,11 +237,10 @@ class ArXivAPI:
         max_results: int = 20,
         start: int = 0,
     ) -> list[PaperResult]:
-        """Search arXiv papers."""
         import xml.etree.ElementTree as ET
 
         async with httpx.AsyncClient() as client:
-            response = await client.get(
+            resp = await client.get(
                 self.BASE_URL,
                 params={
                     "search_query": f"all:{query}",
@@ -126,11 +249,10 @@ class ArXivAPI:
                 },
                 timeout=30.0,
             )
-            response.raise_for_status()
+            resp.raise_for_status()
 
-            root = ET.fromstring(response.text)
+            root = ET.fromstring(resp.text)
             ns = {"atom": "http://www.w3.org/2005/Atom"}
-
             results = []
             for entry in root.findall("atom:entry", ns):
                 title = entry.find("atom:title", ns)
@@ -138,6 +260,14 @@ class ArXivAPI:
                 authors = entry.findall("atom:author", ns)
                 link = entry.find("atom:link", ns)
                 arxiv_id = entry.find("atom:id", ns)
+                published = entry.find("atom:published", ns)
+
+                year = None
+                if published is not None and published.text:
+                    try:
+                        year = int(published.text[:4])
+                    except ValueError:
+                        pass
 
                 results.append(
                     PaperResult(
@@ -150,17 +280,127 @@ class ArXivAPI:
                             for a in authors
                             if a.find("atom:name", ns) is not None
                         ],
-                        year=None,
+                        year=year,
                         url=link.get("href") if link is not None else None,
                         doi=None,
                     )
                 )
-
             return results
 
 
+class OpenAlexAPI:
+    """OpenAlex API — fully free, no key required.
+
+    250M+ works. Set mailto header for polite pool (higher rate limits).
+    """
+
+    BASE_URL = "https://api.openalex.org"
+
+    @staticmethod
+    def _reconstruct_abstract(inverted_index: dict | None) -> str | None:
+        if not inverted_index:
+            return None
+        try:
+            word_positions: list[tuple[int, str]] = []
+            for word, positions in inverted_index.items():
+                for pos in positions:
+                    word_positions.append((pos, word))
+            word_positions.sort(key=lambda x: x[0])
+            return " ".join(word for _, word in word_positions)
+        except Exception:
+            return None
+
+    async def search(
+        self,
+        query: str,
+        limit: int = 20,
+        year: str | None = None,
+        user_api_key: str | None = None,
+    ) -> list[PaperResult]:
+        params: dict = {
+            "search": query,
+            "per_page": min(limit, 200),
+            "sort": "relevance_score:desc",
+        }
+        if year:
+            params["filter"] = f"publication_year:{year}"
+
+        mailto = user_api_key if user_api_key else "academic-pal@example.com"
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{self.BASE_URL}/works",
+                params=params,
+                headers={"User-Agent": f"mailto:{mailto}"},
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+            results = []
+            for item in data.get("results", []):
+                authors = [
+                    a.get("author", {}).get("display_name", "")
+                    for a in item.get("authorships", [])
+                    if a.get("author", {}).get("display_name")
+                ]
+
+                venue_info = item.get("primary_location") or {}
+                source = venue_info.get("source") or {}
+                venue = source.get("display_name")
+
+                doi_raw = item.get("doi") or ""
+                doi = doi_raw.replace("https://doi.org/", "") if doi_raw else None
+
+                results.append(
+                    PaperResult(
+                        external_id=item.get("id", ""),
+                        source="openalex",
+                        title=item.get("title", ""),
+                        abstract=self._reconstruct_abstract(item.get("abstract_inverted_index")),
+                        authors=authors,
+                        year=item.get("publication_year"),
+                        url=item.get("doi") or item.get("id"),
+                        doi=doi,
+                        citation_count=item.get("cited_by_count"),
+                    )
+                )
+            return results
+
+    async def search_authors(
+        self,
+        name: str,
+        limit: int = 5,
+        user_api_key: str | None = None,
+    ) -> list[dict]:
+        mailto = user_api_key if user_api_key else "academic-pal@example.com"
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{self.BASE_URL}/authors",
+                params={"search": name, "per_page": limit},
+                headers={"User-Agent": f"mailto:{mailto}"},
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+            authors = []
+            for item in data.get("results", []):
+                institution = None
+                if item.get("last_known_institutions"):
+                    institution = item["last_known_institutions"][0].get("display_name")
+                authors.append({
+                    "id": item.get("id", ""),
+                    "name": item.get("display_name", ""),
+                    "institution": institution,
+                    "paper_count": item.get("works_count"),
+                    "citation_count": item.get("cited_by_count"),
+                    "h_index": item.get("summary_stats", {}).get("h_index"),
+                    "source": "openalex",
+                })
+            return authors
+
+
 class CrossRefAPI:
-    """CrossRef API client."""
 
     BASE_URL = "https://api.crossref.org"
 
@@ -170,24 +410,19 @@ class CrossRefAPI:
         rows: int = 20,
         offset: int = 0,
     ) -> list[PaperResult]:
-        """Search CrossRef works."""
         async with httpx.AsyncClient() as client:
-            response = await client.get(
+            resp = await client.get(
                 f"{self.BASE_URL}/works",
-                params={
-                    "query": query,
-                    "rows": rows,
-                    "offset": offset,
-                },
+                params={"query": query, "rows": rows, "offset": offset},
                 headers=(
                     {"Crossref-Plus-API-Token": settings.CROSSREF_API_KEY}
-                    if settings.CROSSREF_API_KEY
+                    if settings.CROSSREF_API_KEY and settings.CROSSREF_API_KEY != "YOUR_CROSSREF_API_KEY_HERE"
                     else {}
                 ),
                 timeout=30.0,
             )
-            response.raise_for_status()
-            data = response.json()
+            resp.raise_for_status()
+            data = resp.json()
 
             results = []
             for item in data.get("message", {}).get("items", []):
@@ -212,10 +447,10 @@ class CrossRefAPI:
                         citation_count=item.get("is-referenced-by-count"),
                     )
                 )
-
             return results
 
 
 semantic_scholar = SemanticScholarAPI()
 arxiv_api = ArXivAPI()
 crossref_api = CrossRefAPI()
+openalex_api = OpenAlexAPI()

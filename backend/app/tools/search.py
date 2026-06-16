@@ -3,7 +3,7 @@ from typing import Any
 
 from langchain_core.tools import tool
 
-from app.services.academic_apis import semantic_scholar, arxiv_api, crossref_api
+from app.services.academic_apis import semantic_scholar, arxiv_api, crossref_api, openalex_api
 from app.services.search_service import search_service
 
 logger = logging.getLogger(__name__)
@@ -25,15 +25,9 @@ def _truncate_query(query: str, max_chars: int = 200) -> str:
 async def search_papers(
     query: str,
     source: str = "all",
-    limit: int = 5,
+    limit: int = 20,
 ) -> list[dict[str, Any]]:
-    """Search academic papers across Semantic Scholar, arXiv, and CrossRef.
-
-    Args:
-        query: Search query string
-        source: Source to search ("semantic_scholar", "arxiv", "crossref", or "all")
-        limit: Maximum number of results per source
-    """
+    """Search academic papers across Semantic Scholar, arXiv, CrossRef, and OpenAlex."""
     query = _truncate_query(query)
     results = []
 
@@ -50,6 +44,7 @@ async def search_papers(
                     "url": r.url,
                     "doi": r.doi,
                     "citation_count": r.citation_count,
+                    "tldr": r.tldr,
                 }
                 for r in s2
             ])
@@ -93,7 +88,36 @@ async def search_papers(
         except Exception as e:
             logger.warning(f"CrossRef search failed: {e}")
 
-    return results[:limit]
+    if source in ("all", "openalex"):
+        try:
+            oa = await openalex_api.search(query, limit=limit)
+            results.extend([
+                {
+                    "title": r.title,
+                    "authors": r.authors,
+                    "year": r.year,
+                    "abstract": r.abstract,
+                    "source": r.source,
+                    "url": r.url,
+                    "doi": r.doi,
+                    "citation_count": r.citation_count,
+                }
+                for r in oa
+            ])
+        except Exception as e:
+            logger.warning(f"OpenAlex search failed: {e}")
+
+    # Deduplicate by normalized title
+    seen_titles = set()
+    deduped = []
+    for r in results:
+        title_key = (r.get("title") or "").lower().strip()
+        if title_key and title_key not in seen_titles:
+            seen_titles.add(title_key)
+            deduped.append(r)
+
+    logger.info(f"search_papers('{query[:50]}...'): {len(deduped)} unique results from {len(results)} total")
+    return deduped[:limit]
 
 
 @tool
