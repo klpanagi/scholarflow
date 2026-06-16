@@ -210,7 +210,7 @@ class ChatRequest(BaseModel):
 class ScholarSearchRequest(BaseModel):
     query: str
     limit: int = Field(10, ge=1, le=100)
-    sources: list[str] = ["semantic_scholar", "arxiv"]
+    sources: list[str] = ["semantic_scholar", "arxiv", "openalex"]
     year_from: Optional[int] = None
     year_to: Optional[int] = None
 
@@ -364,3 +364,24 @@ class SkillResponse(SkillBase):
 
 class AgentConfigUpdateWithSkills(BaseModel):
     skill_ids: list[UUID] = []
+
+
+class WorkflowExecutionResponse(BaseModel):
+    id: UUID
+    workflow_id: str
+    workflow_name: str
+    input_text: Optional[str] = None
+    paper_id: Optional[UUID] = None
+    agent_assignments: Optional[dict] = None
+    stages: list[dict]
+    status: str
+    duration_seconds: Optional[float] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class WorkflowExecutionListResponse(BaseModel):
+    items: list[WorkflowExecutionResponse]
+    total: int

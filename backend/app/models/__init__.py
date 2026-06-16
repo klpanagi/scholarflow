@@ -45,6 +45,7 @@ class User(Base):
     papers = relationship("Paper", back_populates="owner")
     agent_configs = relationship("AgentConfig", back_populates="user")
     workspaces = relationship("Workspace", back_populates="user")
+    api_keys = relationship("UserApiKey", back_populates="user", cascade="all, delete-orphan")
 
 
 class AcademicProfile(Base):
@@ -65,7 +66,7 @@ class AcademicProfile(Base):
 
 
 class Paper(Base):
-    __tablename__ = "papers"
+    __tablename__ = "assets"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
@@ -91,10 +92,10 @@ class Paper(Base):
 
 
 class PaperChunk(Base):
-    __tablename__ = "paper_chunks"
+    __tablename__ = "asset_chunks"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    paper_id = Column(UUID(as_uuid=True), ForeignKey("papers.id"), nullable=False)
+    paper_id = Column(UUID(as_uuid=True), ForeignKey("assets.id"), nullable=False)
     chunk_index = Column(Integer, nullable=False)
     section = Column(String(100), nullable=True)
     page = Column(Integer, nullable=True)
@@ -243,3 +244,35 @@ class ChatMessage(Base):
     timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     session = relationship("ChatSession", back_populates="messages")
+
+
+class WorkflowExecution(Base):
+    __tablename__ = "workflow_executions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    workflow_id = Column(String(100), nullable=False)
+    workflow_name = Column(String(255), nullable=False)
+    input_text = Column(Text, nullable=True)
+    paper_id = Column(UUID(as_uuid=True), ForeignKey("assets.id"), nullable=True)
+    agent_assignments = Column(JSON, nullable=True)
+    stages = Column(JSON, nullable=False)
+    status = Column(String(50), default="completed")
+    duration_seconds = Column(Float, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User")
+
+
+class UserApiKey(Base):
+    __tablename__ = "user_api_keys"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    service = Column(String(50), nullable=False)
+    api_key_encrypted = Column(Text, nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User", back_populates="api_keys")
