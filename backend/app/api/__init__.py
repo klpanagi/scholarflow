@@ -1,11 +1,11 @@
 from fastapi import APIRouter
 
-from app.api.routes import auth, papers, agents, workspaces, settings, chat, skills, seeds, workflows
+from app.api.routes import auth, assets, agents, workspaces, settings, chat, skills, seeds, workflows
 
 router = APIRouter(prefix="/api")
 
 router.include_router(auth.router)
-router.include_router(papers.router)
+router.include_router(assets.router)
 router.include_router(agents.router)
 router.include_router(workspaces.router)
 router.include_router(settings.router)

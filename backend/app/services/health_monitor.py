@@ -73,7 +73,12 @@ def _get_provider_config() -> dict[str, dict]:
 
 # Free models available per provider (used for health checks and testing)
 FREE_MODELS: dict[str, list[str]] = {
-    "opencode-zen": ["mimo-v2.5-free", "minimax-m3-free", "deepseek-v4-flash-free"],
+    "openrouter": [
+        "google/gemma-4-31b-it:free",
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "nousresearch/hermes-3-llama-3.1-405b:free",
+        "qwen/qwen3-coder:free",
+    ],
 }
 
 

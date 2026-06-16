@@ -11,6 +11,7 @@ from app.core.database import get_db
 from app.services import llm_service
 from app.services.system_settings import get_setting, set_setting
 from app.services.health_monitor import get_health_status, check_all_providers
+from app.services.user_api_keys import get_user_api_key, set_user_api_key, delete_user_api_key, list_user_api_keys
 from dataclasses import asdict
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -128,3 +129,41 @@ async def force_health_check(current_user: str = Depends(get_current_user)):
     from app.services.health_monitor import cache_health
     await cache_health(health)
     return {"providers": {name: asdict(p) for name, p in health.items()}}
+
+
+class UserApiKeyRequest(BaseModel):
+    service: str
+    api_key: str
+
+
+@router.get("/api-keys")
+async def list_api_keys(
+    current_user: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await list_user_api_keys(db, current_user)
+
+
+@router.post("/api-keys")
+async def save_api_key(
+    body: UserApiKeyRequest,
+    current_user: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    allowed_services = {"semantic_scholar", "crossref", "openai", "openrouter", "openalex"}
+    if body.service not in allowed_services:
+        raise HTTPException(status_code=400, detail=f"Unknown service: {body.service}")
+    await set_user_api_key(db, current_user, body.service, body.api_key)
+    return {"service": body.service, "status": "saved"}
+
+
+@router.delete("/api-keys/{service}")
+async def remove_api_key(
+    service: str,
+    current_user: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    deleted = await delete_user_api_key(db, current_user, service)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"No API key found for service: {service}")
+    return {"service": service, "status": "deleted"}
