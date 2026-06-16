@@ -6,6 +6,7 @@ from langchain_core.language_models import BaseChatModel
 from langgraph.graph import StateGraph, END
 
 from app.agents.base import BaseAgent, AgentState
+from app.utils.context_budget import fit_to_budget, budget_for_stages
 
 
 REVIEW_SYSTEM_PROMPT = """You are a rigorous academic paper reviewer. You follow a structured pipeline to produce comprehensive reviews.
@@ -37,31 +38,42 @@ class PaperReviewAgent(BaseAgent):
         graph.add_node("synthesis", self._synthesis)
 
         graph.set_entry_point("intake")
-        
         graph.add_edge("intake", "structural")
-        graph.add_edge("intake", "claims")
-        graph.add_edge("intake", "methodology")
-        
-        graph.add_edge("claims", "literature")
-        graph.add_edge("claims", "adversarial")
-        graph.add_edge("methodology", "adversarial")
-
-        graph.add_edge("structural", "synthesis")
-        graph.add_edge("literature", "synthesis")
+        graph.add_edge("structural", "claims")
+        graph.add_edge("claims", "methodology")
+        graph.add_edge("methodology", "literature")
+        graph.add_edge("literature", "adversarial")
         graph.add_edge("adversarial", "synthesis")
-        
         graph.add_edge("synthesis", END)
 
         return graph
 
     async def _intake(self, state: AgentState) -> AgentState:
         paper_content = state["context"].get("paper_content", "")
+
+        if not paper_content:
+            for msg in state["messages"]:
+                if isinstance(msg, HumanMessage):
+                    text = msg.content
+                    if text.startswith("You are a Paper Reviewer"):
+                        marker = "Paper:\n"
+                        idx = text.find(marker)
+                        if idx != -1:
+                            paper_content = text[idx + len(marker):]
+                            break
+                    elif text.strip():
+                        paper_content = text
+                        break
+
         if not paper_content:
             file_key = state["context"].get("file_key")
             if file_key:
                 from app.services.minio_service import minio_service
-                paper_content_bytes = minio_service.download_file(file_key)
+                paper_content_bytes = await minio_service.download_file(file_key)
                 paper_content = paper_content_bytes.decode("utf-8", errors="replace")
+
+        budgets = budget_for_stages()
+        paper_fitted = fit_to_budget(paper_content, budgets["paper_content"], label="intake")
 
         messages = [
             SystemMessage(content=self.system_prompt),
@@ -70,7 +82,7 @@ class PaperReviewAgent(BaseAgent):
 Extract structured data: title, authors, abstract, paper type, key sections.
 
 Paper content:
-{paper_content[:5000]}"""),
+{paper_fitted}"""),
         ]
 
         response = await self.llm.ainvoke(messages)
@@ -86,7 +98,7 @@ Paper content:
 
 Evaluate IMRaD completeness, figure/table quality, references, writing quality. Score 1-10.
 
-{intake[:2000]}"""),
+{intake}"""),
         ]
 
         response = await self.llm.ainvoke(messages)
@@ -101,7 +113,7 @@ Evaluate IMRaD completeness, figure/table quality, references, writing quality. 
 
 List the top 5 claims and their evidence strength (Strong/Moderate/Weak/Unsupported).
 
-{intake[:2000]}"""),
+{intake}"""),
         ]
 
         response = await self.llm.ainvoke(messages)
@@ -128,7 +140,7 @@ List the top 5 claims and their evidence strength (Strong/Moderate/Weak/Unsuppor
                 else:
                     from app.tools.search import search_papers
                     result = await search_papers.ainvoke({"query": title_line, "limit": 3})
-                search_results = str(result)[:2000]
+                search_results = str(result)
             except Exception:
                 search_results = "Search unavailable"
 
@@ -138,7 +150,7 @@ List the top 5 claims and their evidence strength (Strong/Moderate/Weak/Unsuppor
 
 Assess literature coverage, baselines, novelty. Are key citations missing?
 
-Claims: {claims[:1500]}
+Claims: {claims}
 Search: {search_results}"""),
         ]
 
@@ -156,8 +168,8 @@ Search: {search_results}"""),
 
 Evaluate statistical rigor, reproducibility, experimental design, threats to validity.
 
-Intake: {intake[:1500]}
-Claims: {claims[:1500]}"""),
+Intake: {intake}
+Claims: {claims}"""),
         ]
 
         response = await self.llm.ainvoke(messages)
@@ -174,8 +186,8 @@ Claims: {claims[:1500]}"""),
 
 Breaker: logical flaws. Butcher: missing experiments. Collector: novelty threats.
 
-Claims: {claims[:1500]}
-Methodology: {methodology[:1500]}"""),
+Claims: {claims}
+Methodology: {methodology}"""),
         ]
 
         response = await self.llm.ainvoke(messages)
@@ -197,12 +209,12 @@ Methodology: {methodology[:1500]}"""),
 Produce a single consolidated review of the paper that synthesizes the prior stages into actionable feedback for the authors.
 
 Inputs:
-- {intake[:1000]}
-- {structural[:1000]}
-- {claims[:1000]}
-- {literature[:1000]}
-- {methodology[:1000]}
-- {adversarial[:1000]}"""),
+- {intake}
+- {structural}
+- {claims}
+- {literature}
+- {methodology}
+- {adversarial}"""),
         ]
 
         response = await self.llm.ainvoke(messages)

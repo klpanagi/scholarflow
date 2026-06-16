@@ -70,10 +70,7 @@ async def run_agent(
             max_tokens = config.max_tokens
             for skill in config.skills:
                 if skill.prompt_template:
-                    template = skill.prompt_template
-                    if len(template) > 1500:
-                        template = template[:1500] + "\n[... truncated for performance ...]"
-                    skill_prompts.append(template)
+                    skill_prompts.append(skill.prompt_template)
                 if skill.builtin_tools:
                     skill_tools.extend(skill.builtin_tools)
 
@@ -175,8 +172,8 @@ async def list_agent_configs(
                 user_id=current_user.id,
                 name="Default Researcher",
                 role=AgentRole.RESEARCHER,
-                provider="opencode-zen",
-                model="mimo-v2.5-free",
+                provider="openrouter",
+                model="google/gemma-4-31b-it:free",
                 strategy=Strategy.DIRECT,
                 system_prompt="You are an expert academic researcher. You find literature, verify novelty, and extract insights.",
                 is_default=True
@@ -185,8 +182,8 @@ async def list_agent_configs(
                 user_id=current_user.id,
                 name="Default Writer",
                 role=AgentRole.WRITER,
-                provider="opencode-zen",
-                model="minimax-m3-free",
+                provider="openrouter",
+                model="google/gemma-4-31b-it:free",
                 strategy=Strategy.DIRECT,
                 system_prompt="You are an expert academic writer. You write clear, well-structured scientific prose following IMRaD and grant proposal standards.",
                 is_default=True
@@ -195,8 +192,8 @@ async def list_agent_configs(
                 user_id=current_user.id,
                 name="Default Reviewer",
                 role=AgentRole.REVIEWER,
-                provider="opencode-zen",
-                model="minimax-m3-free",
+                provider="openrouter",
+                model="google/gemma-4-31b-it:free",
                 strategy=Strategy.CRITIQUE,
                 system_prompt="You are a rigorous peer reviewer. You critique papers for novelty, soundness, and presentation.",
                 is_default=True
@@ -205,8 +202,8 @@ async def list_agent_configs(
                 user_id=current_user.id,
                 name="Default Recommender",
                 role=AgentRole.RECOMMENDER,
-                provider="opencode-zen",
-                model="mimo-v2.5-free",
+                provider="openrouter",
+                model="google/gemma-4-31b-it:free",
                 strategy=Strategy.DIRECT,
                 system_prompt="You are a personalized academic recommendation engine. You suggest relevant papers and venues.",
                 is_default=True
