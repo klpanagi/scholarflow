@@ -1,12 +1,18 @@
 """Application configuration using pydantic-settings."""
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import PostgresDsn, RedisDsn, Field
 from typing import Literal
 
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
+    
+    model_config = SettingsConfigDict(
+        extra="ignore",
+        env_file=".env",
+        case_sensitive=True,
+    )
     
     # Application
     APP_NAME: str = "ScholarFlow"
@@ -26,7 +32,7 @@ class Settings(BaseSettings):
     
     # Elasticsearch
     ELASTICSEARCH_URL: str = "http://localhost:9200"
-    ELASTICSEARCH_PAPERS_INDEX: str = "papers"
+    ELASTICSEARCH_PAPERS_INDEX: str = "assets"
     ELASTICSEARCH_CHUNKS_INDEX: str = "chunks"
     
     # MinIO
@@ -34,7 +40,7 @@ class Settings(BaseSettings):
     MINIO_ACCESS_KEY: str = "minioadmin"
     MINIO_SECRET_KEY: str = "minioadmin"
     MINIO_SECURE: bool = False
-    MINIO_BUCKET_PAPERS: str = "papers"
+    MINIO_BUCKET_PAPERS: str = "assets"
     MINIO_BUCKET_DRAFTS: str = "drafts"
     MINIO_BUCKET_REVIEWS: str = "reviews"
     
@@ -73,10 +79,6 @@ class Settings(BaseSettings):
     TIKA_URL: str = "http://localhost:9998"
     SEMANTIC_SCHOLAR_API_KEY: str = ""
     CROSSREF_API_KEY: str = ""
-    
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
 
 
 settings = Settings()

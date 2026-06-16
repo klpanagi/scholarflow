@@ -28,6 +28,7 @@ langgraph==0.2.0
 # PDF Processing
 pymupdf==1.24.3
 python-magic==0.4.27
+docling>=2.0.0
 
 # Document Processing
 python-docx==1.1.2
@@ -43,7 +44,7 @@ bcrypt==4.0.1
 
 # Validation / Serialization
 pydantic==2.7.1
-pydantic-settings==2.2.1
+pydantic-settings>=2.3.0
 pydantic[email]==2.7.1
 email-validator==2.1.1
 
