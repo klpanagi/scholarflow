@@ -51,3 +51,9 @@ elasticsearch_data/
 
 # Redis data
 redis_data/
+
+# Dev tool artifacts
+.envsitter/
+.playwright-mcp/
+*.png
+API_KEYS.md
