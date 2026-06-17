@@ -48,12 +48,14 @@ export function SettingsPage() {
   const [embModel, setEmbModel] = useState('')
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({})
 
-  const { data: settings, isLoading } = useQuery<SettingsData>({
+  const { data: settings } = useQuery<SettingsData>({
     queryKey: ['settings'],
     queryFn: async () => {
       const { data } = await api.get('/settings/providers')
       return data
     },
+    staleTime: 5 * 60 * 1000, // 5 minutes — provider status doesn't change often
+    refetchOnWindowFocus: false,
   })
 
   const { data: apiKeys = [] } = useQuery<ApiKeyEntry[]>({
@@ -62,6 +64,8 @@ export function SettingsPage() {
       const { data } = await api.get('/settings/api-keys')
       return data
     },
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   useEffect(() => {
@@ -142,8 +146,6 @@ export function SettingsPage() {
       toast({ title: 'Error', description: 'Failed to test provider', variant: 'destructive' })
     },
   })
-
-  if (isLoading) return <div className="p-8">Loading settings...</div>
 
   const providers = settings?.providers || {}
 

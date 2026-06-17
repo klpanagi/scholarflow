@@ -3,6 +3,7 @@ from langchain_core.messages import HumanMessage
 from langgraph.graph import StateGraph, END
 
 from app.agents.base import BaseAgent, AgentState
+from app.utils.pdf_model_support import extract_text_from_message_content
 
 
 class WritingAgent(BaseAgent):
@@ -25,7 +26,7 @@ class WritingAgent(BaseAgent):
 
         async def understand_task(state: AgentState) -> AgentState:
             messages = state["messages"]
-            user_msg = messages[-1].content if messages else ""
+            user_msg = extract_text_from_message_content(messages[-1].content) if messages else ""
 
             task_prompt = (
                 f"Analyze this writing request and determine:\n"

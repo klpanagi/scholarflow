@@ -7,6 +7,7 @@ from langgraph.graph import StateGraph, END
 
 from app.agents.base import BaseAgent, AgentState
 from app.utils.context_budget import fit_to_budget, budget_for_stages
+from app.utils.pdf_model_support import model_supports_pdf, create_multimodal_human_message
 
 
 REVIEW_SYSTEM_PROMPT = """You are a rigorous academic paper reviewer. You follow a structured pipeline to produce comprehensive reviews.
@@ -25,6 +26,13 @@ class PaperReviewAgent(BaseAgent):
             if getattr(t, "name", None) == name:
                 return t
         return None
+
+    def _get_model_name(self) -> str:
+        if hasattr(self.llm, "model_name"):
+            return self.llm.model_name
+        if hasattr(self.llm, "model"):
+            return self.llm.model
+        return ""
 
     def build_graph(self) -> StateGraph:
         graph = StateGraph(AgentState)
@@ -54,15 +62,31 @@ class PaperReviewAgent(BaseAgent):
         if not paper_content:
             for msg in state["messages"]:
                 if isinstance(msg, HumanMessage):
-                    text = msg.content
-                    if text.startswith("You are a Paper Reviewer"):
-                        marker = "Paper:\n"
-                        idx = text.find(marker)
-                        if idx != -1:
-                            paper_content = text[idx + len(marker):]
+                    if isinstance(msg.content, list):
+                        for part in msg.content:
+                            if isinstance(part, dict) and part.get("type") == "text":
+                                text = part["text"]
+                                if text.startswith("You are a Paper Reviewer"):
+                                    marker = "Paper:\n"
+                                    idx = text.find(marker)
+                                    if idx != -1:
+                                        paper_content = text[idx + len(marker):]
+                                        break
+                                elif text.strip():
+                                    paper_content = text
+                                    break
+                    elif isinstance(msg.content, str):
+                        text = msg.content
+                        if text.startswith("You are a Paper Reviewer"):
+                            marker = "Paper:\n"
+                            idx = text.find(marker)
+                            if idx != -1:
+                                paper_content = text[idx + len(marker):]
+                                break
+                        elif text.strip():
+                            paper_content = text
                             break
-                    elif text.strip():
-                        paper_content = text
+                    if paper_content:
                         break
 
         if not paper_content:
@@ -72,22 +96,35 @@ class PaperReviewAgent(BaseAgent):
                 paper_content_bytes = await minio_service.download_file(file_key)
                 paper_content = paper_content_bytes.decode("utf-8", errors="replace")
 
+        state["context"]["paper_content"] = paper_content
+
         budgets = budget_for_stages()
         paper_fitted = fit_to_budget(paper_content, budgets["paper_content"], label="intake")
 
-        messages = [
-            SystemMessage(content=self.system_prompt),
-            HumanMessage(content=f"""Stage 0: INTAKE
+        pdf_bytes = state["context"].get("pdf_bytes")
+        model_name = self._get_model_name()
+        use_pdf = pdf_bytes and model_supports_pdf(model_name)
+
+        intake_prompt = f"""Stage 0: INTAKE
 
 Extract structured data: title, authors, abstract, paper type, key sections.
 
 Paper content:
-{paper_fitted}"""),
-        ]
+{paper_fitted}"""
+
+        if use_pdf:
+            messages = [
+                SystemMessage(content=self.system_prompt),
+                create_multimodal_human_message(pdf_bytes, intake_prompt),
+            ]
+        else:
+            messages = [
+                SystemMessage(content=self.system_prompt),
+                HumanMessage(content=intake_prompt),
+            ]
 
         response = await self.llm.ainvoke(messages)
         state["context"]["intake"] = response.content
-        state["context"]["paper_content"] = paper_content
         return state
 
     async def _structural_analysis(self, state: AgentState) -> AgentState:
@@ -202,9 +239,7 @@ Methodology: {methodology}"""),
         methodology = state["context"].get("methodology", "")
         adversarial = state["context"].get("adversarial", "")
 
-        messages = [
-            SystemMessage(content=self.system_prompt),
-            HumanMessage(content=f"""SYNTHESIS
+        synthesis_prompt = f"""SYNTHESIS
 
 Produce a single consolidated review of the paper that synthesizes the prior stages into actionable feedback for the authors.
 
@@ -214,8 +249,22 @@ Inputs:
 - {claims}
 - {literature}
 - {methodology}
-- {adversarial}"""),
-        ]
+- {adversarial}"""
+
+        pdf_bytes = state["context"].get("pdf_bytes")
+        model_name = self._get_model_name()
+        use_pdf = pdf_bytes and model_supports_pdf(model_name)
+
+        if use_pdf:
+            messages = [
+                SystemMessage(content=self.system_prompt),
+                create_multimodal_human_message(pdf_bytes, synthesis_prompt),
+            ]
+        else:
+            messages = [
+                SystemMessage(content=self.system_prompt),
+                HumanMessage(content=synthesis_prompt),
+            ]
 
         response = await self.llm.ainvoke(messages)
         state["output"] = response.content

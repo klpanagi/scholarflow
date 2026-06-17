@@ -7,48 +7,27 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import {
   ArrowRight,
-  BookOpen,
+  CheckCircle2,
   ChevronDown,
   Clock,
-  FileText,
   FlaskConical,
   LayoutGrid,
   Loader2,
   Play,
-  Search,
-  Shield,
   Trash2,
-  Users,
+  XCircle,
   Zap,
 } from "lucide-react";
+import { WORKFLOWS, type Workflow, type WorkflowStage, type WorkflowExecution } from "@/constants/workflows";
+import { ExecutionResultCard } from "@/components/workflows/ExecutionResultCard";
 
 interface AgentConfig {
   id: string;
   name: string;
   role: string;
   is_default?: boolean;
-}
-
-interface WorkflowStage {
-  id: string;
-  agent: string;
-  role: string;
-  description: string;
-  icon: React.ReactNode;
-  color: string;
-}
-
-interface Workflow {
-  id: string;
-  name: string;
-  description: string;
-  useCase: string;
-  stages: WorkflowStage[];
-  inputPlaceholder: string;
-  inputLabel: string;
 }
 
 interface Asset {
@@ -58,173 +37,6 @@ interface Asset {
   authors?: string[];
   year?: number;
 }
-
-const WORKFLOWS: Workflow[] = [
-  {
-    id: "paper-review",
-    name: "Paper Review Pipeline",
-    description:
-      "A rigorous 7-stage review process that evaluates papers for novelty, technical rigor, reproducibility, and presentation quality.",
-    useCase:
-      "Use when you need a comprehensive review of a research paper before submission or to evaluate a paper for a journal/conference.",
-    inputPlaceholder: "Paste the paper abstract or provide a brief description...",
-    inputLabel: "Paper Content",
-    stages: [
-      {
-        id: "search-related-work",
-        agent: "Scholar",
-        role: "researcher",
-        description: "Search related work, verify citations, assess novelty against existing literature.",
-        icon: <Search className="h-5 w-5" />,
-        color: "bg-blue-500",
-      },
-      {
-        id: "review-paper",
-        agent: "Paper Reviewer",
-        role: "reviewer",
-        description:
-          "Execute 7-stage pipeline: intake, structural analysis, claims, literature grounding, methodology, adversarial red team, synthesis.",
-        icon: <Shield className="h-5 w-5" />,
-        color: "bg-red-500",
-      },
-      {
-        id: "refine-review",
-        agent: "Academic Writer",
-        role: "writer",
-        description:
-          "Refine review into constructive feedback. Generate response-to-authors.md with actionable suggestions.",
-        icon: <FileText className="h-5 w-5" />,
-        color: "bg-green-500",
-      },
-    ],
-  },
-  {
-    id: "proposal-writing",
-    name: "Proposal Writing Pipeline",
-    description:
-      "End-to-end grant proposal creation from literature review through final submission documents.",
-    useCase:
-      "Use when preparing an EU Horizon Europe, NSF, NIH, or ERC grant proposal from scratch.",
-    inputPlaceholder: "Describe your research idea, target funder, and objectives...",
-    inputLabel: "Research Idea",
-    stages: [
-      {
-        id: "research-landscape",
-        agent: "Scholar",
-        role: "researcher",
-        description:
-          "Identify research gaps, verify novelty, find supporting literature, and assess methodology precedents.",
-        icon: <Search className="h-5 w-5" />,
-        color: "bg-blue-500",
-      },
-      {
-        id: "design-methodology",
-        agent: "Research Methodologist",
-        role: "researcher",
-        description:
-          "Design experimental methodology, plan data collection, create FAIR data management plan.",
-        icon: <FlaskConical className="h-5 w-5" />,
-        color: "bg-purple-500",
-      },
-      {
-        id: "write-proposal",
-        agent: "Grant Writer",
-        role: "writer",
-        description:
-          "Write proposal sections: Specific Aims, Research Plan, Budget, Biosketch. Align with evaluation criteria.",
-        icon: <FileText className="h-5 w-5" />,
-        color: "bg-orange-500",
-      },
-      {
-        id: "create-artifacts",
-        agent: "Project Manager",
-        role: "researcher",
-        description:
-          "Create WBS, Gantt charts, risk register. Ensure EU compliance, IP strategy, exploitation plan.",
-        icon: <Users className="h-5 w-5" />,
-        color: "bg-teal-500",
-      },
-    ],
-  },
-  {
-    id: "conference-prep",
-    name: "Conference Preparation",
-    description:
-      "Prepare a complete conference submission: paper, slides, poster, and rehearsal feedback.",
-    useCase:
-      "Use when preparing for a conference submission including paper writing, presentation design, and practice.",
-    inputPlaceholder: "Describe your research findings and target conference...",
-    inputLabel: "Research Findings",
-    stages: [
-      {
-        id: "write-paper",
-        agent: "Academic Writer",
-        role: "writer",
-        description:
-          "Write paper following IMRaD structure. Craft abstract, format for target venue (IEEE, ACM, Springer).",
-        icon: <FileText className="h-5 w-5" />,
-        color: "bg-green-500",
-      },
-      {
-        id: "review-draft",
-        agent: "Paper Reviewer",
-        role: "reviewer",
-        description:
-          "Review draft for novelty, rigor, and presentation. Check claims, verify citations, assess methodology.",
-        icon: <Shield className="h-5 w-5" />,
-        color: "bg-red-500",
-      },
-      {
-        id: "create-materials",
-        agent: "Academic Writer",
-        role: "writer",
-        description:
-          "Create conference slides with visual hierarchy. Design poster layout. Prepare pitch deck.",
-        icon: <BookOpen className="h-5 w-5" />,
-        color: "bg-green-500",
-      },
-    ],
-  },
-  {
-    id: "eu-project",
-    name: "EU Project Lifecycle",
-    description:
-      "Full EU Horizon Europe project management from proposal through periodic reporting and exploitation.",
-    useCase:
-      "Use when managing an EU-funded project: proposal writing, consortium coordination, deliverables, and reporting.",
-    inputPlaceholder: "Describe the EU project scope, consortium, and objectives...",
-    inputLabel: "Project Scope",
-    stages: [
-      {
-        id: "write-proposal",
-        agent: "Grant Writer",
-        role: "writer",
-        description:
-          "Write EU Horizon proposal (RIA/IA/CSA). Structure Part B, budget, WP conventions.",
-        icon: <FileText className="h-5 w-5" />,
-        color: "bg-orange-500",
-      },
-      {
-        id: "create-framework",
-        agent: "Project Manager",
-        role: "researcher",
-        description:
-          "Create WBS, Gantt, RACI. Track KPIs, milestones. Coordinate consortium. Handle periodic reporting.",
-        icon: <Users className="h-5 w-5" />,
-        color: "bg-teal-500",
-      },
-      {
-        id: "review-deliverables",
-        agent: "Paper Reviewer",
-        role: "reviewer",
-        description:
-          "Review deliverables for quality. Ensure compliance with EU requirements. Check exploitation plans.",
-        icon: <Shield className="h-5 w-5" />,
-        color: "bg-red-500",
-      },
-    ],
-  },
-];
 
 function AssetSelector({
   assets,
@@ -366,9 +178,6 @@ function WorkflowCard({
 
   const handleAssetSelect = (asset: Asset | null) => {
     setSelectedAssetId(asset?.id || null);
-    if (asset?.abstract) {
-      setInput(asset.abstract);
-    }
   };
 
   const handleAssignmentChange = (stageId: string, configId: string) => {
@@ -485,203 +294,7 @@ function WorkflowCard({
   );
 }
 
-interface WorkflowExecution {
-  id: string;
-  workflow_id: string;
-  workflow_name: string;
-  input_text?: string;
-  paper_id?: string;
-  agent_assignments?: Record<string, string>;
-  stages: {
-    agent_role?: string;
-    agent_name?: string;
-    status: string;
-    output: string;
-    metadata?: Record<string, any>;
-  }[];
-  status: string;
-  duration_seconds?: number;
-  created_at: string;
-}
 
-function ExecutionCard({ execution, onDelete }: { execution: WorkflowExecution; onDelete?: (id: string) => void }) {
-  const [expanded, setExpanded] = useState(false);
-
-  const formatDuration = (seconds?: number) => {
-    if (!seconds) return "--";
-    if (seconds < 60) return `${seconds.toFixed(1)}s`;
-    return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
-  };
-
-  const formatTime = (iso: string) => {
-    const d = new Date(iso);
-    return d.toLocaleString();
-  };
-
-  const statusStyle = (status: string) => {
-    switch (status) {
-      case "completed":
-        return "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800";
-      case "partial":
-        return "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border-amber-200 dark:border-amber-800";
-      case "failed":
-        return "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300 border-red-200 dark:border-red-800";
-      default:
-        return "bg-muted text-muted-foreground";
-    }
-  };
-
-  const stageStatusStyle = (status: string) => {
-    switch (status) {
-      case "completed":
-        return "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800";
-      case "in_progress":
-      case "running":
-        return "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800";
-      case "failed":
-        return "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-400 dark:border-red-800";
-      case "skipped":
-        return "bg-muted text-muted-foreground border-border";
-      default:
-        return "bg-muted text-muted-foreground border-border";
-    }
-  };
-
-  return (
-    <Card className="overflow-hidden transition-shadow hover:shadow-md group relative">
-      <CardContent className="pt-4">
-        <button
-          type="button"
-          onClick={() => setExpanded(!expanded)}
-          className="w-full text-left"
-        >
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="font-semibold text-sm">{execution.workflow_name}</h3>
-                <span
-                  className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${statusStyle(execution.status)}`}
-                >
-                  {execution.status}
-                </span>
-                <span className="text-xs text-muted-foreground flex items-center gap-1">
-                  <Clock className="h-3 w-3" />
-                  {formatDuration(execution.duration_seconds)}
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {formatTime(execution.created_at)}
-                {execution.input_text &&
-                  ` -- "${execution.input_text.substring(0, 80)}${execution.input_text.length > 80 ? "..." : ""}"`}
-              </p>
-            </div>
-            <ChevronDown
-              className={`h-4 w-4 text-muted-foreground shrink-0 transition-transform duration-200 ${
-                expanded ? "rotate-180" : ""
-              }`}
-            />
-          </div>
-          {onDelete && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(execution.id);
-              }}
-              className="absolute top-3 right-3 p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors opacity-0 group-hover:opacity-100"
-              title="Delete result"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </button>
-
-        {expanded && (
-          <div className="mt-4 space-y-4 border-t pt-4">
-            {execution.input_text && (
-              <div>
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
-                  Input
-                </h4>
-                <p className="text-sm bg-muted/50 rounded-md p-3 text-muted-foreground leading-relaxed">
-                  {execution.input_text}
-                </p>
-              </div>
-            )}
-
-            {execution.agent_assignments &&
-              Object.keys(execution.agent_assignments).length > 0 && (
-                <div>
-                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
-                    Agent Assignments
-                  </h4>
-                  <div className="flex flex-wrap gap-1.5">
-                    {Object.entries(execution.agent_assignments).map(
-                      ([stageId, configId]) => (
-                        <Badge key={stageId} variant="outline" className="text-xs">
-                          {stageId}: {configId.substring(0, 8)}...
-                        </Badge>
-                      )
-                    )}
-                  </div>
-                </div>
-              )}
-
-            <div className="space-y-3">
-              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Stages
-              </h4>
-              {execution.stages.map((stage, i) => (
-                <div
-                  key={i}
-                  className="rounded-lg border bg-card p-4 space-y-3"
-                >
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {stage.agent_role && (
-                      <Badge variant="secondary" className="text-xs capitalize">
-                        {stage.agent_role}
-                      </Badge>
-                    )}
-                    {stage.agent_name && (
-                      <span className="text-xs text-muted-foreground font-medium">
-                        {stage.agent_name}
-                      </span>
-                    )}
-                    <span
-                      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ml-auto ${stageStatusStyle(
-                        stage.status
-                      )}`}
-                    >
-                      {stage.status}
-                    </span>
-                  </div>
-
-                  {stage.output ? (
-                    <MarkdownRenderer content={stage.output} />
-                  ) : (
-                    <p className="text-sm text-muted-foreground italic">No output</p>
-                  )}
-
-                  {stage.metadata &&
-                    Object.keys(stage.metadata).length > 0 && (
-                      <details className="group">
-                        <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors">
-                          Metadata
-                        </summary>
-                        <pre className="text-xs bg-muted rounded-md p-3 mt-2 overflow-auto max-h-[150px] leading-relaxed">
-                          {JSON.stringify(stage.metadata, null, 2)}
-                        </pre>
-                      </details>
-                    )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
 
 export default function WorkflowsPage() {
   const { toast } = useToast();
@@ -838,43 +451,94 @@ export default function WorkflowsPage() {
 
         <TabsContent value="results">
           {sortedExecutions.length === 0 ? (
-            <Card>
-              <CardContent className="py-12 text-center">
-                <Clock className="h-10 w-10 text-muted-foreground/50 mx-auto mb-3" />
-                <p className="text-muted-foreground">No workflow executions yet.</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Run a workflow from the Execute tab to see results here.
-                </p>
+            <Card className="overflow-hidden">
+              <CardContent className="py-16 text-center">
+                <div className="mb-6">
+                  <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/5 ring-1 ring-primary/10 mb-4">
+                    <FlaskConical className="h-8 w-8 text-primary/40" />
+                  </div>
+                  <h3 className="text-lg font-semibold mb-1">No results yet</h3>
+                  <p className="text-sm text-muted-foreground max-w-sm mx-auto">
+                    Run a workflow to see your results here. Each execution shows the full pipeline
+                    with per-stage status and outputs.
+                  </p>
+                </div>
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => setActiveTab("execute")}
+                  className="gap-1.5"
+                >
+                  <Play className="h-3.5 w-3.5" />
+                  Go to Execute
+                </Button>
               </CardContent>
             </Card>
           ) : (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <p className="text-sm text-muted-foreground">
-                  {sortedExecutions.length} result{sortedExecutions.length !== 1 ? "s" : ""}
-                </p>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <p className="text-sm text-muted-foreground">
+                    {sortedExecutions.length} result{sortedExecutions.length !== 1 ? "s" : ""}
+                  </p>
+                  {(() => {
+                    const completed = sortedExecutions.filter((e) => e.status === "completed").length;
+                    const failed = sortedExecutions.filter((e) => e.status === "failed").length;
+                    const partial = sortedExecutions.filter((e) => e.status === "partial").length;
+                    const other = sortedExecutions.length - completed - failed - partial;
+                    return (
+                      <div className="hidden sm:flex items-center gap-1.5">
+                        {completed > 0 && (
+                          <Badge variant="outline" className="gap-1 text-[11px] px-2 py-0 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/30">
+                            <CheckCircle2 className="h-3 w-3" />
+                            {completed}
+                          </Badge>
+                        )}
+                        {failed > 0 && (
+                          <Badge variant="outline" className="gap-1 text-[11px] px-2 py-0 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30">
+                            <XCircle className="h-3 w-3" />
+                            {failed}
+                          </Badge>
+                        )}
+                        {partial > 0 && (
+                          <Badge variant="outline" className="gap-1 text-[11px] px-2 py-0 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30">
+                            <Clock className="h-3 w-3" />
+                            {partial}
+                          </Badge>
+                        )}
+                        {other > 0 && (
+                          <Badge variant="outline" className="gap-1 text-[11px] px-2 py-0 text-muted-foreground">
+                            {other} other
+                          </Badge>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
-                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                  className="h-8 text-xs gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/20 hover:border-destructive/30"
                   onClick={() => deleteAllMutation.mutate()}
                   disabled={deleteAllMutation.isPending}
                 >
                   {deleteAllMutation.isPending ? (
-                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   ) : (
-                    <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                    <Trash2 className="h-3.5 w-3.5" />
                   )}
                   Clear All
                 </Button>
               </div>
-              {sortedExecutions.map((exec) => (
-                <ExecutionCard
-                  key={exec.id}
-                  execution={exec}
-                  onDelete={(id) => deleteMutation.mutate(id)}
-                />
-              ))}
+              <div className="space-y-3">
+                {sortedExecutions.map((exec) => (
+                  <ExecutionResultCard
+                    key={exec.id}
+                    execution={exec}
+                    onDelete={(id) => deleteMutation.mutate(id)}
+                  />
+                ))}
+              </div>
             </div>
           )}
         </TabsContent>

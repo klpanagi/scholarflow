@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
@@ -6,6 +7,9 @@ from langgraph.graph import StateGraph, END
 
 from app.agents.base import BaseAgent, AgentState
 from app.services.academic_apis import semantic_scholar, arxiv_api, crossref_api, openalex_api
+from app.utils.pdf_model_support import extract_text_from_message_content
+
+logger = logging.getLogger(__name__)
 
 
 def _extract_paper_title(full_text: str) -> str:
@@ -197,7 +201,24 @@ class ScholarAgent(BaseAgent):
         graph = StateGraph(AgentState)
 
         async def search_papers(state: AgentState) -> AgentState:
-            message_content = state["messages"][-1].content
+            message_content = extract_text_from_message_content(state["messages"][-1].content)
+            paper_s2_id = state["context"].get("paper_s2_id")
+            topic_query = state["context"].get("topic_query")
+
+            if paper_s2_id:
+                try:
+                    related_results = await semantic_scholar.build_related_work(
+                        paper_id=paper_s2_id,
+                        topic_query=topic_query or _extract_paper_title(message_content),
+                        limit=20,
+                    )
+                    if related_results:
+                        state["context"]["search_results"] = related_results
+                        state["context"]["search_queries"] = [f"S2 related work for {paper_s2_id}"]
+                        return state
+                except Exception as e:
+                    logger.warning(f"build_related_work failed, falling back to keyword search: {e}")
+
             queries = _extract_search_queries(message_content)
             tool_names = _extract_tool_names(message_content)
 

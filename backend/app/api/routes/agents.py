@@ -16,8 +16,45 @@ from app.schemas import (
 )
 from app.agents.factory import create_agent, list_agents
 from app.tools import get_tools_by_names
+from app.seeds.scholarflow_skills import seed_scholarflow
 
 router = APIRouter(prefix="/agents", tags=["agents"])
+
+# Default agent config definitions — used for diff-based seeding
+_DEFAULT_AGENT_CONFIGS: list[dict] = [
+    {
+        "name": "Default Researcher",
+        "role": AgentRole.RESEARCHER,
+        "provider": "openrouter",
+        "model": "google/gemma-4-31b-it:free",
+        "strategy": Strategy.DIRECT,
+        "system_prompt": "You are an expert academic researcher. You find literature, verify novelty, and extract insights.",
+    },
+    {
+        "name": "Default Writer",
+        "role": AgentRole.WRITER,
+        "provider": "openrouter",
+        "model": "google/gemma-4-31b-it:free",
+        "strategy": Strategy.DIRECT,
+        "system_prompt": "You are an expert academic writer. You write clear, well-structured scientific prose following IMRaD and grant proposal standards.",
+    },
+    {
+        "name": "Default Reviewer",
+        "role": AgentRole.REVIEWER,
+        "provider": "openrouter",
+        "model": "google/gemma-4-31b-it:free",
+        "strategy": Strategy.CRITIQUE,
+        "system_prompt": "You are a rigorous peer reviewer. You critique papers for novelty, soundness, and presentation.",
+    },
+    {
+        "name": "Default Recommender",
+        "role": AgentRole.RECOMMENDER,
+        "provider": "openrouter",
+        "model": "google/gemma-4-31b-it:free",
+        "strategy": Strategy.DIRECT,
+        "system_prompt": "You are a personalized academic recommendation engine. You suggest relevant papers and venues.",
+    },
+]
 
 
 async def _get_user(user_id: str, db: AsyncSession) -> User:
@@ -26,6 +63,10 @@ async def _get_user(user_id: str, db: AsyncSession) -> User:
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     return user
+
+
+def _get_existing_roles(configs: list[AgentConfig]) -> set[AgentRole]:
+    return {c.role for c in configs}
 
 
 @router.get("/types", response_model=AgentListResponse)
@@ -68,6 +109,8 @@ async def run_agent(
             system_prompt = config.system_prompt
             temperature = config.temperature
             max_tokens = config.max_tokens
+            if config.tools:
+                skill_tools.extend(config.tools)
             for skill in config.skills:
                 if skill.prompt_template:
                     skill_prompts.append(skill.prompt_template)
@@ -164,56 +207,54 @@ async def list_agent_configs(
         .where(AgentConfig.user_id == current_user.id)
     )
     configs = result.scalars().all()
-    
-    if not configs:
-        # Create default configs
-        defaults = [
-            AgentConfig(
-                user_id=current_user.id,
-                name="Default Researcher",
-                role=AgentRole.RESEARCHER,
-                provider="openrouter",
-                model="google/gemma-4-31b-it:free",
-                strategy=Strategy.DIRECT,
-                system_prompt="You are an expert academic researcher. You find literature, verify novelty, and extract insights.",
-                is_default=True
-            ),
-            AgentConfig(
-                user_id=current_user.id,
-                name="Default Writer",
-                role=AgentRole.WRITER,
-                provider="openrouter",
-                model="google/gemma-4-31b-it:free",
-                strategy=Strategy.DIRECT,
-                system_prompt="You are an expert academic writer. You write clear, well-structured scientific prose following IMRaD and grant proposal standards.",
-                is_default=True
-            ),
-            AgentConfig(
-                user_id=current_user.id,
-                name="Default Reviewer",
-                role=AgentRole.REVIEWER,
-                provider="openrouter",
-                model="google/gemma-4-31b-it:free",
-                strategy=Strategy.CRITIQUE,
-                system_prompt="You are a rigorous peer reviewer. You critique papers for novelty, soundness, and presentation.",
-                is_default=True
-            ),
-            AgentConfig(
-                user_id=current_user.id,
-                name="Default Recommender",
-                role=AgentRole.RECOMMENDER,
-                provider="openrouter",
-                model="google/gemma-4-31b-it:free",
-                strategy=Strategy.DIRECT,
-                system_prompt="You are a personalized academic recommendation engine. You suggest relevant papers and venues.",
-                is_default=True
-            )
-        ]
-        db.add_all(defaults)
+
+    # First login: full ScholarFlow seed (skills + configs)
+    if len(configs) == 0:
+        seeded_configs = await seed_scholarflow(db, str(current_user.id))
+        # Also create bare defaults for any roles not covered by seeds
+        seeded_roles = {c.role for c in seeded_configs}
+        for default_def in _DEFAULT_AGENT_CONFIGS:
+            if default_def["role"] not in seeded_roles:
+                config = AgentConfig(
+                    user_id=current_user.id,
+                    name=default_def["name"],
+                    role=default_def["role"],
+                    provider=default_def["provider"],
+                    model=default_def["model"],
+                    strategy=default_def["strategy"],
+                    system_prompt=default_def["system_prompt"],
+                    is_default=True,
+                )
+                db.add(config)
+                seeded_configs.append(config)
         await db.commit()
-        for d in defaults:
-            await db.refresh(d)
-        configs = defaults
+        for c in seeded_configs:
+            await db.refresh(c)
+        return seeded_configs
+
+    # Subsequent visits: diff-based bare defaults for missing roles
+    existing_roles = _get_existing_roles(configs)
+    created = []
+    for default_def in _DEFAULT_AGENT_CONFIGS:
+        if default_def["role"] not in existing_roles:
+            config = AgentConfig(
+                user_id=current_user.id,
+                name=default_def["name"],
+                role=default_def["role"],
+                provider=default_def["provider"],
+                model=default_def["model"],
+                strategy=default_def["strategy"],
+                system_prompt=default_def["system_prompt"],
+                is_default=True,
+            )
+            db.add(config)
+            created.append(config)
+
+    if created:
+        await db.commit()
+        for c in created:
+            await db.refresh(c)
+        configs = configs + created
 
     return configs
 

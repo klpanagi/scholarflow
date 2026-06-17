@@ -24,6 +24,7 @@ import {
   Settings2,
   ChevronRight,
   Puzzle,
+  Wrench,
 } from "lucide-react"
 
 interface AgentType {
@@ -292,13 +293,7 @@ export default function AgentsPage() {
 
   const handleRun = () => {
     if (!runInput.trim()) return
-    const roleToType: Record<string, string> = {
-      researcher: "scholar",
-      writer: "writing",
-      reviewer: "review",
-      recommender: "recommendation",
-    }
-    const agentType = roleToType[selectedConfig?.role || "researcher"] || "scholar"
+    const agentType = selectedConfig?.role || "researcher"
     runMutation.mutate({
       agentType,
       message: runInput,
@@ -565,6 +560,54 @@ export default function AgentsPage() {
                 </div>
               </CardContent>
             </Card>
+
+            {selectedConfig && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Wrench className="h-5 w-5" /> Tools & Capabilities
+                  </CardTitle>
+                  <CardDescription>
+                    Tools available to this agent from direct config and assigned skills
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {(() => {
+                    const toolSources = new Map<string, Set<string>>()
+                    for (const t of selectedConfig.tools ?? []) {
+                      if (!toolSources.has(t)) toolSources.set(t, new Set())
+                      toolSources.get(t)!.add("Direct")
+                    }
+                    for (const skill of selectedConfig.skills ?? []) {
+                      for (const t of skill.builtin_tools ?? []) {
+                        if (!toolSources.has(t)) toolSources.set(t, new Set())
+                        toolSources.get(t)!.add(skill.name)
+                      }
+                    }
+                    const entries = Array.from(toolSources.entries()).sort((a, b) => a[0].localeCompare(b[0]))
+                    if (entries.length === 0) {
+                      return <p className="text-sm text-muted-foreground">No tools assigned. Add skills or configure tools directly.</p>
+                    }
+                    return (
+                      <div className="flex flex-wrap gap-2">
+                        {entries.map(([tool, sources]) => (
+                          <div key={tool} className="group relative">
+                            <Badge variant="secondary" className="text-xs cursor-default">
+                              {tool}
+                            </Badge>
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-10">
+                              <div className="bg-popover text-popover-foreground text-xs rounded-md px-2 py-1 shadow-md whitespace-nowrap border">
+                                From: {Array.from(sources).join(", ")}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  })()}
+                </CardContent>
+              </Card>
+            )}
 
             <Card>
               <CardHeader>

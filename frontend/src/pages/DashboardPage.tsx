@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { Link } from "react-router-dom"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Skeleton } from "@/components/ui/skeleton"
 import { useAuthStore } from "@/stores/auth"
 import { FileText, Search, BookOpen, MessageSquare, Upload, Tag, MapPin } from "lucide-react"
 import { HealthStatus } from "@/components/HealthStatus"
@@ -34,14 +35,14 @@ interface RecentAsset {
 export default function DashboardPage() {
   const { user } = useAuthStore()
 
-  const { data: stats } = useQuery<DashboardStats>({
+  const { data: stats, isLoading: statsLoading } = useQuery<DashboardStats>({
     queryKey: ["dashboard-stats"],
     queryFn: async () => {
       return { assets: 0, conversations: 0, workspaces: 0 }
     },
   })
 
-  const { data: recentAssets = [] } = useQuery<RecentAsset[]>({
+  const { data: recentAssets = [], isLoading: assetsLoading } = useQuery<RecentAsset[]>({
     queryKey: ["recent-assets"],
     queryFn: async () => {
       const { data } = await api.get("/assets?size=5")
@@ -96,33 +97,43 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Assets</CardTitle>
-            <FileText className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats?.assets || 0}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Conversations</CardTitle>
-            <MessageSquare className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats?.conversations || 0}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Workspaces</CardTitle>
-            <BookOpen className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats?.workspaces || 0}</div>
-          </CardContent>
-        </Card>
+        {statsLoading ? (
+          <>
+            <Card><CardContent className="pt-6"><Skeleton className="h-24 w-full" /></CardContent></Card>
+            <Card><CardContent className="pt-6"><Skeleton className="h-24 w-full" /></CardContent></Card>
+            <Card><CardContent className="pt-6"><Skeleton className="h-24 w-full" /></CardContent></Card>
+          </>
+        ) : (
+          <>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Assets</CardTitle>
+                <FileText className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{stats?.assets || 0}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Conversations</CardTitle>
+                <MessageSquare className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{stats?.conversations || 0}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Workspaces</CardTitle>
+                <BookOpen className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{stats?.workspaces || 0}</div>
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
 
       <h2 className="text-xl font-semibold mb-4">Quick Actions</h2>
@@ -142,14 +153,30 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {recentAssets.length > 0 && (
+      {(assetsLoading || recentAssets.length > 0) && (
         <>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-semibold">Recent Assets</h2>
             <Link to="/assets" className="text-sm text-primary hover:underline">View all</Link>
           </div>
           <div className="grid gap-4">
-            {recentAssets.map((asset) => (
+            {assetsLoading ? (
+              <>
+                {[1, 2, 3].map((i) => (
+                  <Card key={i}>
+                    <CardContent className="pt-4">
+                      <Skeleton className="h-5 w-3/4 mb-2" />
+                      <Skeleton className="h-4 w-1/2 mb-2" />
+                      <div className="flex gap-2 mt-2">
+                        <Skeleton className="h-5 w-16" />
+                        <Skeleton className="h-5 w-20" />
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </>
+            ) : (
+              recentAssets.map((asset) => (
               <Link key={asset.id} to="/assets">
                 <Card className="hover:shadow-md transition-shadow cursor-pointer">
                   <CardContent className="pt-4">
@@ -199,7 +226,7 @@ export default function DashboardPage() {
                   </CardContent>
                 </Card>
               </Link>
-            ))}
+            )))}
           </div>
         </>
       )}

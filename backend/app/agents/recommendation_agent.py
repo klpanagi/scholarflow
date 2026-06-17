@@ -6,6 +6,7 @@ from app.agents.base import BaseAgent, AgentState
 from app.services.search_service import search_service
 from app.services.academic_apis import semantic_scholar, openalex_api
 from app.agents.scholar_agent import _extract_paper_title
+from app.utils.pdf_model_support import extract_text_from_message_content
 
 
 class RecommendationAgent(BaseAgent):
@@ -34,7 +35,7 @@ class RecommendationAgent(BaseAgent):
 
         async def analyze_preferences(state: AgentState) -> AgentState:
             messages = state["messages"]
-            user_msg = messages[-1].content if messages else ""
+            user_msg = extract_text_from_message_content(messages[-1].content) if messages else ""
 
             pref_prompt = (
                 f"Analyze the user's research interests and preferences:\n\n"
@@ -53,7 +54,7 @@ class RecommendationAgent(BaseAgent):
 
         async def find_recommendations(state: AgentState) -> AgentState:
             preferences = state["context"].get("preferences", "")
-            original_query = state["messages"][-1].content
+            original_query = extract_text_from_message_content(state["messages"][-1].content)
             short_query = _extract_paper_title(original_query)
 
             search_tool = self._get_tool("search_papers")
