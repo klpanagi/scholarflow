@@ -726,6 +726,9 @@ async def execute_workflow(
         context = paper_content.text
         pdf_bytes = paper_content.pdf_bytes
 
+        if req.input:
+            context = f"{context}\n\n## Custom Instructions\n{req.input}"
+
         # Resolve S2 paper ID from DOI or arXiv ID for related work search
         paper_result = await db.execute(
             select(Paper).where(Paper.id == req.paper_id, Paper.owner_id == user_id)

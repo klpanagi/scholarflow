@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import * as Dialog from "@radix-ui/react-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -19,6 +20,8 @@ import {
   Trash2,
   XCircle,
   Zap,
+  X,
+  Settings2,
 } from "lucide-react";
 import { WORKFLOWS, type Workflow, type WorkflowStage, type WorkflowExecution } from "@/constants/workflows";
 import { ExecutionResultCard } from "@/components/workflows/ExecutionResultCard";
@@ -136,22 +139,87 @@ function PipelineDiagram({ stages }: { stages: WorkflowStage[] }) {
   );
 }
 
-function WorkflowCard({
+function WorkflowCardCompact({
+  workflow,
+  onConfigure,
+}: {
+  workflow: Workflow;
+  onConfigure: () => void;
+}) {
+  return (
+    <Card className="overflow-hidden transition-all duration-200 hover:shadow-md cursor-pointer" onClick={onConfigure}>
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Zap className="h-4 w-4 text-primary shrink-0" />
+              <span className="truncate">{workflow.name}</span>
+            </CardTitle>
+            <CardDescription className="mt-1.5 line-clamp-2">
+              {workflow.description}
+            </CardDescription>
+          </div>
+          <Badge variant="secondary" className="shrink-0 text-[10px] px-2 py-0 h-5">
+            {workflow.stages.length} agents
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <p className="text-xs text-muted-foreground line-clamp-2 mb-4 leading-relaxed">
+          {workflow.useCase}
+        </p>
+        <div className="flex items-center gap-2 flex-wrap">
+          {workflow.stages.map((stage) => (
+            <Badge
+              key={stage.id}
+              variant="outline"
+              className="text-[10px] px-2 py-0 h-5 capitalize"
+            >
+              {stage.role}
+            </Badge>
+          ))}
+        </div>
+        <Button
+          variant="default"
+          size="sm"
+          className="w-full mt-4 gap-1.5"
+          onClick={(e) => { e.stopPropagation(); onConfigure(); }}
+        >
+          <Settings2 className="h-3.5 w-3.5" />
+          Configure & Run
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function WorkflowDialog({
   workflow,
   assets,
   userConfigs,
+  open,
+  onOpenChange,
   onExecute,
   isExecuting,
 }: {
   workflow: Workflow;
   assets: Asset[];
   userConfigs: AgentConfig[];
-  onExecute: (id: string, input: string, assetId?: string, assignments?: Record<string, string>) => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onExecute: (id: string, customPrompt: string, assetId?: string, assignments?: Record<string, string>) => void;
   isExecuting: boolean;
 }) {
-  const [input, setInput] = useState("");
+  const [customPrompt, setCustomPrompt] = useState("");
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [assignments, setAssignments] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (open) {
+      setCustomPrompt("");
+      setSelectedAssetId(null);
+    }
+  }, [open, workflow.id]);
 
   useEffect(() => {
     const newAssignments = { ...assignments };
@@ -174,7 +242,7 @@ function WorkflowCard({
     if (changed) {
       setAssignments(newAssignments);
     }
-  }, [workflow.stages, userConfigs]);
+  }, [workflow.stages, userConfigs, open]);
 
   const handleAssetSelect = (asset: Asset | null) => {
     setSelectedAssetId(asset?.id || null);
@@ -188,109 +256,128 @@ function WorkflowCard({
     const missingStages = workflow.stages
       .map((s) => s.id)
       .filter((stageId) => !assignments[stageId]);
-    
+
     if (missingStages.length > 0) {
       return;
     }
-    
-    onExecute(workflow.id, input, selectedAssetId || undefined, assignments);
+
+    onExecute(workflow.id, customPrompt, selectedAssetId || undefined, assignments);
+    onOpenChange(false);
   };
 
   const isMissingAssignments = workflow.stages.some((stage) => !assignments[stage.id]);
 
   return (
-    <Card className="overflow-hidden">
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
-            <Zap className="h-5 w-5 text-primary" />
-            {workflow.name}
-          </CardTitle>
-          <Badge variant="secondary">{workflow.stages.length} agents</Badge>
-        </div>
-        <CardDescription>{workflow.description}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <div className="bg-muted/50 rounded-lg p-4">
-          <p className="text-sm font-medium mb-1">When to use:</p>
-          <p className="text-sm text-muted-foreground">{workflow.useCase}</p>
-        </div>
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[85vh] w-full max-w-3xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border bg-background p-6 shadow-2xl data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]">
+          <Dialog.Title className="sr-only">{workflow.name}</Dialog.Title>
 
-        <div>
-          <p className="text-sm font-medium mb-3">Pipeline:</p>
-          <PipelineDiagram stages={workflow.stages} />
-        </div>
-
-        <div className="space-y-4 border-t pt-4">
-          <p className="text-sm font-medium">Agent Assignments</p>
-          <div className="grid gap-3">
-            {workflow.stages.map((stage, index) => {
-              const availableConfigs = userConfigs.filter((c) => c.role === stage.role);
-              return (
-                <div key={stage.id} className="flex items-center justify-between gap-4">
-                  <div className="text-sm font-medium min-w-24 capitalize">Step {index + 1} ({stage.role}):</div>
-                  <div className="flex-1">
-                    <select
-                      className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                      value={assignments[stage.id] || ""}
-                      onChange={(e) => handleAssignmentChange(stage.id, e.target.value)}
-                    >
-                      <option value="" disabled>
-                        Select {stage.role} agent for step {index + 1}...
-                      </option>
-                      {availableConfigs.map((config) => (
-                        <option key={config.id} value={config.id}>
-                          {config.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              );
-            })}
+          <div className="flex items-start justify-between mb-6">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <Zap className="h-5 w-5 text-primary" />
+                <h2 className="text-xl font-bold">{workflow.name}</h2>
+                <Badge variant="secondary" className="text-[10px] px-2 py-0 h-5">
+                  {workflow.stages.length} agents
+                </Badge>
+              </div>
+              <p className="text-sm text-muted-foreground mt-1">{workflow.description}</p>
+            </div>
+            <Dialog.Close asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
+                <X className="h-4 w-4" />
+              </Button>
+            </Dialog.Close>
           </div>
-          {isMissingAssignments && (
-            <p className="text-xs text-destructive">
-              * Please assign an agent for each required step to run this workflow.
-            </p>
-          )}
-        </div>
 
-        <div className="space-y-3 border-t pt-4">
-          <label className="text-sm font-medium">Select Asset (optional)</label>
-          <AssetSelector
-            assets={assets}
-            selectedAssetId={selectedAssetId}
-            onSelect={handleAssetSelect}
-          />
+          <div className="bg-muted/50 rounded-lg p-4 mb-6">
+            <p className="text-sm font-medium mb-1">When to use:</p>
+            <p className="text-sm text-muted-foreground">{workflow.useCase}</p>
+          </div>
 
-          <label className="text-sm font-medium">{workflow.inputLabel}</label>
-          <Textarea
-            placeholder={workflow.inputPlaceholder}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            rows={3}
-          />
-          <Button
-            onClick={handleExecute}
-            disabled={!input.trim() || isExecuting || isMissingAssignments}
-            className="w-full"
-          >
-            {isExecuting ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Executing Pipeline...
-              </>
-            ) : (
-              <>
-                <Play className="h-4 w-4 mr-2" />
-                Run Workflow
-              </>
+          <div className="mb-6">
+            <p className="text-sm font-medium mb-3">Pipeline:</p>
+            <PipelineDiagram stages={workflow.stages} />
+          </div>
+
+          <div className="space-y-4 mb-6">
+            <p className="text-sm font-medium">Agent Assignments</p>
+            <div className="grid gap-3">
+              {workflow.stages.map((stage, index) => {
+                const availableConfigs = userConfigs.filter((c) => c.role === stage.role);
+                return (
+                  <div key={stage.id} className="flex items-center justify-between gap-4">
+                    <div className="text-sm font-medium min-w-24 capitalize">Step {index + 1} ({stage.role}):</div>
+                    <div className="flex-1">
+                      <select
+                        className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                        value={assignments[stage.id] || ""}
+                        onChange={(e) => handleAssignmentChange(stage.id, e.target.value)}
+                      >
+                        <option value="" disabled>
+                          Select {stage.role} agent for step {index + 1}...
+                        </option>
+                        {availableConfigs.map((config) => (
+                          <option key={config.id} value={config.id}>
+                            {config.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {isMissingAssignments && (
+              <p className="text-xs text-destructive">
+                * Please assign an agent for each required step to run this workflow.
+              </p>
             )}
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+          </div>
+
+          <div className="space-y-3 border-t pt-4">
+            <label className="text-sm font-medium">Select Asset (optional)</label>
+            <AssetSelector
+              assets={assets}
+              selectedAssetId={selectedAssetId}
+              onSelect={handleAssetSelect}
+            />
+
+            <label className="text-sm font-medium">Custom Instructions (optional)</label>
+            <p className="text-xs text-muted-foreground -mt-2">
+              Add specific instructions for the agents. If an asset is selected, these instructions will be
+              appended to its content.
+            </p>
+            <Textarea
+              placeholder="E.g., Focus on novelty assessment, check for reproducibility, compare against recent tools..."
+              value={customPrompt}
+              onChange={(e) => setCustomPrompt(e.target.value)}
+              rows={3}
+            />
+
+            <Button
+              onClick={handleExecute}
+              disabled={isExecuting || isMissingAssignments}
+              className="w-full"
+            >
+              {isExecuting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Executing Pipeline...
+                </>
+              ) : (
+                <>
+                  <Play className="h-4 w-4 mr-2" />
+                  Run Workflow
+                </>
+              )}
+            </Button>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 
@@ -300,6 +387,7 @@ export default function WorkflowsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState("execute");
+  const [dialogWorkflow, setDialogWorkflow] = useState<Workflow | null>(null);
 
   const { data: assetsData } = useQuery({
     queryKey: ["assets"],
@@ -363,19 +451,19 @@ export default function WorkflowsPage() {
   const executeMutation = useMutation({
     mutationFn: async ({
       workflowId,
-      input,
+      customPrompt,
       assetId,
       agentAssignments,
     }: {
       workflowId: string;
-      input: string;
+      customPrompt: string;
       assetId?: string;
       agentAssignments?: Record<string, string>;
     }) => {
       const { data } = await api.post("/workflows/execute", {
         workflow_id: workflowId,
-        input,
-        paper_id: assetId,
+        input: customPrompt || null,
+        paper_id: assetId || null,
         agent_assignments: agentAssignments,
       });
       return data as WorkflowExecution;
@@ -400,9 +488,9 @@ export default function WorkflowsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Multi-Agent Workflows</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Agentic Workflows</h1>
         <p className="text-muted-foreground mt-2">
-          Orchestrate multiple specialized agents to accomplish complex academic tasks. Each workflow
+          Orchestrate specialized AI agents to accomplish complex academic tasks. Each workflow
           chains agents with distinct expertise for end-to-end results.
         </p>
       </div>
@@ -427,31 +515,18 @@ export default function WorkflowsPage() {
         <TabsContent value="execute">
           <div className="grid gap-6 lg:grid-cols-2">
             {WORKFLOWS.map((workflow) => (
-              <WorkflowCard
+              <WorkflowCardCompact
                 key={workflow.id}
                 workflow={workflow}
-                assets={assets}
-                userConfigs={userConfigs}
-                onExecute={(id, input, assetId, assignments) =>
-                  executeMutation.mutate({
-                    workflowId: id,
-                    input,
-                    assetId,
-                    agentAssignments: assignments,
-                  })
-                }
-                isExecuting={
-                  executeMutation.isPending &&
-                  executeMutation.variables?.workflowId === workflow.id
-                }
+                onConfigure={() => setDialogWorkflow(workflow)}
               />
             ))}
           </div>
         </TabsContent>
 
         <TabsContent value="results">
-          {sortedExecutions.length === 0 ? (
-            <Card className="overflow-hidden">
+          {sortedExecutions.length === 0 && (
+            <Card>
               <CardContent className="py-16 text-center">
                 <div className="mb-6">
                   <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/5 ring-1 ring-primary/10 mb-4">
@@ -474,7 +549,8 @@ export default function WorkflowsPage() {
                 </Button>
               </CardContent>
             </Card>
-          ) : (
+          )}
+          {sortedExecutions.length > 0 && (
             <div className="space-y-4">
               <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
@@ -543,6 +619,29 @@ export default function WorkflowsPage() {
           )}
         </TabsContent>
       </Tabs>
+
+      {dialogWorkflow && (
+        <WorkflowDialog
+          key={dialogWorkflow.id}
+          workflow={dialogWorkflow}
+          assets={assets}
+          userConfigs={userConfigs}
+          open={!!dialogWorkflow}
+          onOpenChange={(open) => { if (!open) setDialogWorkflow(null); }}
+          onExecute={(id, customPrompt, assetId, assignments) =>
+            executeMutation.mutate({
+              workflowId: id,
+              customPrompt,
+              assetId,
+              agentAssignments: assignments,
+            })
+          }
+          isExecuting={
+            executeMutation.isPending &&
+            executeMutation.variables?.workflowId === dialogWorkflow.id
+          }
+        />
+      )}
     </div>
   );
 }
