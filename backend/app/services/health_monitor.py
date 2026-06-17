@@ -71,13 +71,12 @@ def _get_provider_config() -> dict[str, dict]:
     }
 
 
-# Free models available per provider (used for health checks and testing)
+# Free models available per provider (used as fallback when no AgentConfig is using a model)
 FREE_MODELS: dict[str, list[str]] = {
     "openrouter": [
-        "google/gemma-4-31b-it:free",
+        "google/gemini-2.0-flash-exp:free",
         "meta-llama/llama-3.3-70b-instruct:free",
-        "nousresearch/hermes-3-llama-3.1-405b:free",
-        "qwen/qwen3-coder:free",
+        "qwen/qwen-2.5-72b-instruct:free",
     ],
 }
 
@@ -213,9 +212,10 @@ async def _check_provider_health(
     if not active_models:
         return ProviderHealth(
             provider=provider_name,
-            status="unknown",
+            status="idle",
             models=[],
             last_checked=time.time(),
+            api_reachable=True,
         )
 
     models_to_check = list(active_models)
@@ -227,7 +227,6 @@ async def _check_provider_health(
         ]
         model_results = await asyncio.gather(*tasks)
 
-    # Determine overall provider status
     statuses = [m.status for m in model_results]
     if all(s == "healthy" for s in statuses):
         overall = "healthy"
@@ -248,7 +247,12 @@ async def _check_provider_health(
 
 
 async def check_all_providers() -> dict[str, ProviderHealth]:
-    """Check health of providers that have API keys. Uses free models when available."""
+    """Check health of providers that have API keys.
+
+    Only models that are actually in use (referenced by a user AgentConfig)
+    are checked. Providers with an API key but no active models are reported
+    as "idle" rather than "unhealthy".
+    """
     try:
         configs = _get_provider_config()
         active_models = await _get_active_models()
@@ -258,9 +262,9 @@ async def check_all_providers() -> dict[str, ProviderHealth]:
             api_key = config.get("api_key", "")
             if not api_key:
                 continue
-            models = set(active_models.get(name, set()))
-            models.update(FREE_MODELS.get(name, []))
+            models = active_models.get(name, set())
             if not models:
+                results[name] = await _check_provider_health(name, config, set())
                 continue
             try:
                 results[name] = await _check_provider_health(name, config, models)
