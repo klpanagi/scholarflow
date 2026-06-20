@@ -14,6 +14,7 @@ from app.services.minio_service import minio_service
 from app.services.llm_service import PROVIDER_CONFIG
 from app.core.database import AsyncSessionLocal, get_db
 from app.core.security import get_current_user
+from app.utils.context_budget import fit_to_budget
 from app.models import (
     RevisionSession,
     RevisionMessage,
@@ -77,15 +78,58 @@ async def _build_workflow_context(
         stage_parts = []
         for i, stage in enumerate(workflow.stages):
             output = stage.get("output", "")
-            if output:
-                role = stage.get("agent_role", "unknown")
-                name = stage.get("agent_name", "")
-                label = f"{role}" + (f" \u2014 {name}" if name else "")
-                stage_parts.append(f"[Stage {i + 1}: {label}]\n{output}")
+            if not output:
+                continue
+
+            role = stage.get("agent_role", "unknown")
+            name = stage.get("agent_name", "")
+            status = stage.get("status", "unknown")
+            metadata = stage.get("metadata", {}) or {}
+            usage = metadata.get("usage", {}) or {}
+            duration_seconds = metadata.get("duration_seconds")
+            input_tokens = usage.get("input_tokens", 0) or 0
+            output_tokens = usage.get("output_tokens", 0) or 0
+            cost_usd = usage.get("cost_usd", 0.0) or 0.0
+            rating = stage.get("rating")
+
+            label = f"{role}" + (f" \u2014 {name}" if name else "")
+            duration_str = (
+                f"{duration_seconds:.1f}s"
+                if duration_seconds is not None
+                else "n/a"
+            )
+            tokens_str = f"{input_tokens}/{output_tokens}"
+            cost_str = f"${cost_usd:.6f}"
+
+            marker_segments = [
+                f"status={status}",
+                f"duration={duration_str}",
+                f"tokens={tokens_str}",
+                f"cost={cost_str}",
+            ]
+            if rating:
+                score = rating.get("overall_score")
+                confidence = rating.get("confidence", "unknown")
+                if score is not None:
+                    marker_segments.append(f"rating={score}/100 ({confidence})")
+            marker_segments.append(f"agent={name or 'unknown'}")
+
+            marker = (
+                f"[Stage {i + 1}: {label} | " + " | ".join(marker_segments) + "]"
+            )
+
+            truncated_output = fit_to_budget(
+                output, 12000, label=f"stage-{i + 1}"
+            )
+            stage_parts.append(f"{marker}\n{truncated_output}")
         if stage_parts:
             parts.append("WORKFLOW STAGE OUTPUTS:\n" + "\n\n".join(stage_parts))
 
-    return "\n\n---\n\n".join(parts)
+    context = "\n\n---\n\n".join(parts)
+    MAX_CONTEXT_CHARS = 16_000
+    if len(context) > MAX_CONTEXT_CHARS:
+        context = context[:MAX_CONTEXT_CHARS]
+    return context
 
 
 async def _stream_llm_response(
