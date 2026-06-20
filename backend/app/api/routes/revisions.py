@@ -1,14 +1,16 @@
 import json
 import uuid
 from datetime import datetime, timezone
+from io import BytesIO
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.services.minio_service import minio_service
 from app.services.llm_service import PROVIDER_CONFIG
 from app.core.database import AsyncSessionLocal, get_db
 from app.core.security import get_current_user
@@ -25,6 +27,7 @@ from app.schemas import (
     RevisionSessionResponse,
     RevisionMessageCreate,
     RevisionMessageResponse,
+    RevisionFileUploadResponse,
 )
 from app.agents.revision_agent import RevisionAgent
 
@@ -216,6 +219,48 @@ async def list_revision_messages(
         .order_by(RevisionMessage.timestamp)
     )
     return msg_result.scalars().all()
+
+
+@router.post(
+    "/sessions/{session_id}/upload",
+    response_model=RevisionFileUploadResponse,
+)
+async def upload_file(
+    session_id: uuid.UUID,
+    file: UploadFile = File(...),
+    user_id: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload a file to MinIO for use in revision sessions."""
+    result = await db.execute(
+        select(RevisionSession).where(
+            RevisionSession.id == session_id,
+            RevisionSession.user_id == user_id,
+        )
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    ALLOWED_EXTENSIONS = {".pdf", ".md", ".txt", ".docx", ".png", ".jpg", ".jpeg", ".gif", ".webp"}
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    if f".{ext}" not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"File extension '.{ext}' is not allowed. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}",
+        )
+
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File size exceeds 10MB limit")
+
+    object_key = f"revisions/{session_id}/{uuid.uuid4().hex}.{ext}"
+    await minio_service.upload_file(
+        BytesIO(content),
+        object_key,
+        content_type=file.content_type or "application/octet-stream",
+    )
+
+    return RevisionFileUploadResponse(file_key=object_key, file_name=file.filename)
 
 
 @router.post("/sessions/{session_id}/stream")
