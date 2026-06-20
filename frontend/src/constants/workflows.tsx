@@ -6,6 +6,7 @@ import {
   Users,
   BookOpen,
   MessageSquare,
+  FileCheck,
 } from "lucide-react";
 
 export interface WorkflowStage {
@@ -81,7 +82,7 @@ export const WORKFLOWS: Workflow[] = [
     id: "paper-review",
     name: "Paper Review Pipeline",
     description:
-      "A rigorous 4-stage review process: literature search, in-depth review, structured debate between paper and review, and final polished peer review document.",
+      "A rigorous 5-stage review process: literature search, in-depth review, structured debate, polished Response to Authors, and a separate Response to Editor document.",
     useCase:
       "Use when you need a comprehensive review of a research paper before submission or to evaluate a paper for a journal/conference.",
     inputPlaceholder: "Paste the paper abstract or provide a brief description...",
@@ -118,9 +119,18 @@ export const WORKFLOWS: Workflow[] = [
         agent: "Paper Review Writer",
         role: "writer",
         description:
-          "Produce the final polished peer review document with reviewer summary, related work analysis, and response to authors with recommendation.",
+          "Produce the editorial-manager-format peer review: Metadata, Summary, Major Comments ([C1]...prefixed), Minor Comments, and Recommendation.",
         icon: <FileText className="h-5 w-5" />,
         color: "bg-green-500",
+      },
+      {
+        id: "response-to-editor",
+        agent: "Editor Response Writer",
+        role: "writer",
+        description:
+          "Produce a short Response to Editor document for the Action Editor. Summarizes the contribution, key strengths, key concerns, and justification for the recommendation.",
+        icon: <FileCheck className="h-5 w-5" />,
+        color: "bg-indigo-500",
       },
     ],
   },
