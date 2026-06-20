@@ -29,6 +29,14 @@ langgraph==0.2.0
 pymupdf==1.24.3
 python-magic==0.4.27
 docling>=2.0.0
+# PDF export (workflow results → markdown → HTML → PDF)
+# markdown renders stage outputs to HTML; pygments powers codehilite syntax highlighting.
+# weasyprint converts the styled HTML to PDF (chosen over pymupdf.Story due to a
+# long-standing API bug in pymupdf.Story.draw that fails with `FzDevice` type errors).
+markdown==3.7
+pygments==2.19.2
+weasyprint==53.4
+pydyf==0.10.0
 
 # Document Processing
 python-docx==1.1.2
