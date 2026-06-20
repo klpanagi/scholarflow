@@ -6,6 +6,7 @@ from typing import Optional
 import httpx
 
 from app.core.config import settings
+from app.utils.rate_limiters import arxiv_rate_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -62,12 +63,16 @@ class SemanticScholarAPI:
         year: str | None = None,
         min_citations: int | None = None,
         sort: str = "citationCount:desc",
+        venue: str | None = None,
         user_api_key: str | None = None,
     ) -> list[PaperResult]:
         headers = self._headers(user_api_key)
+        fields = _FIELDS
+        if venue:
+            fields = _FIELDS + ",venue"
         params = {
             "query": query,
-            "fields": _FIELDS,
+            "fields": fields,
             "sort": sort,
         }
         if year:
@@ -85,7 +90,13 @@ class SemanticScholarAPI:
                 )
                 if resp.status_code == 200:
                     data = resp.json()
-                    return [PaperResult.from_s2(p) for p in data.get("data", [])[:limit]]
+                    papers = data.get("data", [])[:limit]
+                    if venue:
+                        papers = [
+                            p for p in papers
+                            if venue.lower() in (p.get("venue") or "").lower()
+                        ]
+                    return [PaperResult.from_s2(p) for p in papers]
                 if resp.status_code == 429:
                     wait = 2 ** attempt
                     logger.warning(f"S2 429, retrying in {wait}s (attempt {attempt+1})")
@@ -272,6 +283,8 @@ class ArXivAPI:
     ) -> list[PaperResult]:
         import xml.etree.ElementTree as ET
 
+        await arxiv_rate_limiter.acquire()
+
         async with httpx.AsyncClient() as client:
             resp = await client.get(
                 self.BASE_URL,
@@ -348,6 +361,8 @@ class OpenAlexAPI:
         query: str,
         limit: int = 20,
         year: str | None = None,
+        venue: str | None = None,
+        min_citation_count: int | None = None,
         user_api_key: str | None = None,
     ) -> list[PaperResult]:
         params: dict = {
@@ -355,8 +370,13 @@ class OpenAlexAPI:
             "per_page": min(limit, 200),
             "sort": "relevance_score:desc",
         }
+        filters: list[str] = []
         if year:
-            params["filter"] = f"publication_year:{year}"
+            filters.append(f"publication_year:{year}")
+        if min_citation_count is not None:
+            filters.append(f"cited_by_count:>{min_citation_count}")
+        if filters:
+            params["filter"] = ",".join(filters)
 
         mailto = user_api_key if user_api_key else "academic-pal@example.com"
         async with httpx.AsyncClient() as client:
@@ -379,7 +399,10 @@ class OpenAlexAPI:
 
                 venue_info = item.get("primary_location") or {}
                 source = venue_info.get("source") or {}
-                venue = source.get("display_name")
+                item_venue = source.get("display_name")
+
+                if venue and venue.lower() not in (item_venue or "").lower():
+                    continue
 
                 doi_raw = item.get("doi") or ""
                 doi = doi_raw.replace("https://doi.org/", "") if doi_raw else None
