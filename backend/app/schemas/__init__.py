@@ -385,3 +385,38 @@ class WorkflowExecutionResponse(BaseModel):
 class WorkflowExecutionListResponse(BaseModel):
     items: list[WorkflowExecutionResponse]
     total: int
+
+
+class RevisionSessionCreate(BaseModel):
+    workflow_execution_id: UUID
+    agent_config_id: Optional[UUID] = None
+    title: Optional[str] = None
+
+
+class RevisionSessionResponse(BaseModel):
+    id: UUID
+    workflow_execution_id: UUID
+    user_id: UUID
+    agent_config_id: Optional[UUID] = None
+    title: Optional[str] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class RevisionMessageCreate(BaseModel):
+    content: str
+
+
+class RevisionMessageResponse(BaseModel):
+    id: UUID
+    revision_session_id: UUID
+    role: str
+    content: str
+    extra_metadata: Optional[dict] = None
+    timestamp: datetime
+
+    class Config:
+        from_attributes = True

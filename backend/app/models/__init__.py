@@ -18,6 +18,10 @@ class AgentRole(str, enum.Enum):
     WRITER = "writer"
     REVIEWER = "reviewer"
     RECOMMENDER = "recommender"
+    REVISION = "revision"
+    MANAGER = "manager"
+    DEBATER = "debater"
+    DEEP_REVIEWER = "deep_reviewer"
 
 
 class Strategy(str, enum.Enum):
@@ -262,6 +266,35 @@ class WorkflowExecution(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     user = relationship("User")
+    revision_sessions = relationship("RevisionSession", back_populates="workflow_execution")
+
+
+class RevisionSession(Base):
+    __tablename__ = "revision_sessions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    workflow_execution_id = Column(UUID(as_uuid=True), ForeignKey("workflow_executions.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    agent_config_id = Column(UUID(as_uuid=True), ForeignKey("agent_configs.id"), nullable=True)
+    title = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    workflow_execution = relationship("WorkflowExecution", back_populates="revision_sessions")
+    messages = relationship("RevisionMessage", back_populates="session", order_by="RevisionMessage.timestamp")
+
+
+class RevisionMessage(Base):
+    __tablename__ = "revision_messages"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    revision_session_id = Column(UUID(as_uuid=True), ForeignKey("revision_sessions.id"), nullable=False)
+    role = Column(String(50), nullable=False)
+    content = Column(Text, nullable=False)
+    extra_metadata = Column("metadata", JSON, nullable=True)
+    timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    session = relationship("RevisionSession", back_populates="messages")
 
 
 class UserApiKey(Base):
