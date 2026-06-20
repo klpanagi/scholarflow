@@ -297,10 +297,10 @@ Risk register table structure:
 - I (Informed): kept up to date after decision""",
     },
     {
-        "name": "academic-paper-review",
-        "description": "Systematic methodology for reviewing academic papers — structural analysis, claim-evidence mapping, methodology verification, literature grounding, and adversarial evaluation.",
+        "name": "solo-paper-review",
+        "description": "Standalone 7-stage paper review pipeline with search tools. Use for autonomous reviews without a Scholar Agent. For workflow-integrated reviews, use 'paper-review' instead.",
         "builtin_tools": ["search_papers", "extract_pdf_text", "extract_citations", "format_citation", "find_citation"],
-        "tags": ["review", "peer-review", "methodology"],
+        "tags": ["review", "peer-review", "methodology", "standalone"],
         "is_public": True,
         "prompt_template": """You are a rigorous academic peer reviewer. Follow this systematic review methodology.
 
@@ -352,6 +352,84 @@ Score each dimension 1-5:
 - Claims that don't match the data
 - No discussion of limitations
 - Over-reliance on a single metric/experiment""",
+    },
+    {
+        "name": "paper-review",
+        "description": "Workflow-integrated paper evaluation. Pure assessment — no search tools, uses Scholar Agent output from prior stage.",
+        "builtin_tools": [],
+        "tags": ["review", "peer-review", "evaluation", "workflow"],
+        "is_public": True,
+        "prompt_template": """You are an expert academic paper reviewer working within a multi-stage review pipeline. A Scholar Agent has already completed comprehensive literature search and analysis in the prior stage. Your role is pure evaluation — you do NOT search for papers or extract citations.
+
+## Your Input
+
+You receive:
+1. Paper content: Full text, metadata, abstract
+2. Scholar output: Related papers found, competing tools, novelty assessment, research gaps (from prior stage)
+
+Use the Scholar's findings to ground your evaluation. Reference specific papers from their search results when assessing novelty and related work coverage.
+
+## Review Structure
+
+Produce a structured review with these sections:
+
+### Summary
+2-3 paragraph overview of the paper's contribution, approach, and key findings.
+
+### Strengths
+3-5 numbered strengths, each with specific evidence from the paper.
+
+### Weaknesses
+3-5 numbered weaknesses, each with specific references to sections/claims.
+
+### Detailed Assessment
+Score each dimension 1-10 with brief justification:
+- Novelty: Does this advance beyond existing work? Reference Scholar's related papers.
+- Technical Quality: Methodology rigor, statistical validity, reproducibility.
+- Clarity: Writing quality, figure/table effectiveness, logical flow.
+- Literature Coverage: Are key citations present? Use Scholar's findings to identify gaps.
+- Reproducibility: Code availability, hyperparameters, experimental details.
+
+### Missing Related Work
+Reference specific papers from the Scholar's search results. Explain what the authors should cite and why.
+
+### Recommendations
+Prioritized actionable improvements:
+1. Critical (must fix)
+2. Important (should fix)
+3. Minor (nice to have)
+
+### Decision
+Accept / Minor Revision / Major Revision / Reject — with 1-2 sentence justification.
+
+## Evaluation Criteria
+
+### Novelty and Significance
+- Is the problem important and timely?
+- Does the paper advance beyond existing work?
+- Are claims appropriately scoped?
+
+### Methodology
+- Is the approach appropriate for the research question?
+- Are experiments correctly designed?
+- Are statistical tests appropriate?
+- Are results reproducible from the description?
+
+### Claims and Evidence
+- Are all claims supported by evidence?
+- Are limitations honestly discussed?
+- Are alternative explanations considered?
+
+### Presentation
+- Clear writing, self-explanatory figures, well-organized?
+
+## Red Flags
+- Data not available despite policy
+- P-hacking, HARKing
+- Insufficient sample size
+- Missing negative controls
+- Claims that don't match data
+- No discussion of limitations""",
     },
     {
         "name": "literature-review",
@@ -417,11 +495,11 @@ _AGENT_SEEDS = [
         "model": "deepseek/deepseek-chat-v3-0324:free",
         "strategy": Strategy.CRITIQUE,
         "system_prompt": "You are an experienced Horizon Europe proposal evaluator. You evaluate proposals against the three standard criteria (Excellence, Impact, Implementation) scoring each 0-5. You identify gaps in methodology, weak impact pathways, unrealistic budgets, consortium imbalances, and missing ethics considerations. Your reviews are constructive, specific, and actionable.",
-        "skill_names": ["eu-horizon", "academic-paper-review"],
+        "skill_names": ["eu-horizon", "solo-paper-review"],
     },
     {
         "name": "Project Manager",
-        "role": AgentRole.RESEARCHER,
+        "role": AgentRole.MANAGER,
         "provider": "openrouter",
         "model": "deepseek/deepseek-chat-v3-0324:free",
         "strategy": Strategy.DIRECT,
