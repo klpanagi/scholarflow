@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,15 +14,20 @@ from sqlalchemy.orm import selectinload
 from langchain_core.messages import HumanMessage
 import io
 
-from app.core.database import get_db
+from app.core.database import get_db, AsyncSessionLocal
 from app.core.security import get_current_user
-from app.models import AgentConfig, Paper, PaperChunk, AgentRole, WorkflowExecution
+from app.models import AgentConfig, Paper, PaperChunk, AgentRole, WorkflowExecution, RevisionSession, RevisionMessage
 from app.agents.factory import create_agent
 from app.utils.context_budget import fit_to_budget, budget_for_stages
 from app.utils.pdf_model_support import model_supports_pdf, create_multimodal_human_message
+from app.services.llm_service import fetch_model_pricing, calculate_cost, llm_service
+from app.services.rubric_evaluation import evaluate_rubric
 
-STAGE_TIMEOUT_SECONDS = 300.0
+STAGE_TIMEOUT_SECONDS = 1800.0  # 30 minutes per stage
 STAGE_DELAY_SECONDS = 15
+
+# In-memory cancel flags — key = str(execution_id), value = True if cancelled
+_cancel_flags: dict[str, bool] = {}
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +127,26 @@ WORKFLOW_DEFINITIONS = {
                 ),
             },
             {
+                "id": "debate-review",
+                "role": AgentRole.DEBATER.value,
+                "task_template": (
+                    "You are a Neutral Debate Moderator. The paper and its review have both been presented. "
+                    "Run a structured debate to stress-test the review's criticisms against the paper's evidence.\n\n"
+                    "REVIEW AND PAPER CONTEXT:\n{input}\n\n"
+                    "Structure your response as three sections:\n\n"
+                    "## 1. Paper Defense\n"
+                    "For each major criticism in the review, present the paper's strongest possible defense with specific evidence. "
+                    "Acknowledge valid criticisms.\n\n"
+                    "## 2. Review Rebuttal\n"
+                    "Evaluate each defense. Is the evidence sufficient? Are there gaps? "
+                    "Identify criticisms from the review that the defense did not address.\n\n"
+                    "## 3. Balanced Synthesis\n"
+                    "Resolve disagreements. Identify points of agreement. "
+                    "Provide a final recommendation: Accept / Minor Revision / Major Revision / Reject, with justification. "
+                    "List required revisions and optional improvements."
+                ),
+            },
+            {
                 "id": "refine-review",
                 "role": AgentRole.WRITER.value,
                 "task_template": (
@@ -183,7 +208,7 @@ WORKFLOW_DEFINITIONS = {
             },
             {
                 "id": "design-methodology",
-                "role": AgentRole.RESEARCHER.value,
+                "role": AgentRole.MANAGER.value,
                 "task_template": (
                     "You are a Research Methodologist designing the methodology for a research proposal.\n\n"
                     "Proposal context:\n{input}\n\n"
@@ -430,7 +455,7 @@ WORKFLOW_DEFINITIONS = {
             },
             {
                 "id": "create-framework",
-                "role": AgentRole.RESEARCHER.value,
+                "role": AgentRole.MANAGER.value,
                 "task_template": (
                     "You are a Project Manager creating management frameworks for an EU Horizon Europe project.\n\n"
                     "Project context:\n{input}\n\n"
@@ -503,6 +528,68 @@ WORKFLOW_DEFINITIONS = {
             },
         ],
     },
+    "review-debate": {
+        "name": "Review Debate",
+        "stages": [
+            {
+                "id": "defend-paper",
+                "role": AgentRole.DEBATER.value,
+                "task_template": (
+                    "You are a Paper Advocate. Your job is to DEFEND the paper against the criticisms in the review.\n\n"
+                    "PAPER:\n{input}\n\n"
+                    "For each criticism in the review, provide:\n"
+                    "1. The specific criticism being addressed\n"
+                    "2. Evidence from the paper that counters or mitigates the criticism\n"
+                    "3. Additional context the reviewer may have missed\n\n"
+                    "Be specific and evidence-based. Reference exact sections, figures, or results from the paper.\n"
+                    "If a criticism is valid, acknowledge it and explain how the paper could be improved.\n\n"
+                    "OUTPUT FORMAT:\n"
+                    "## Defense Summary\n[Brief overview of defense strategy]\n\n"
+                    "## Point-by-Point Defense\n[For each major criticism: criticism → defense → evidence]\n\n"
+                    "## Concessions\n[Any valid criticisms acknowledged]\n\n"
+                    "## Suggested Improvements\n[Concrete changes the authors should make]"
+                ),
+            },
+            {
+                "id": "defend-review",
+                "role": AgentRole.DEBATER.value,
+                "task_template": (
+                    "You are a Review Advocate. Your job is to EVALUATE whether the paper's defense is substantiated.\n\n"
+                    "ORIGINAL REVIEW:\n{input}\n\n"
+                    "For each defense point, assess:\n"
+                    "1. Does the defense actually address the criticism?\n"
+                    "2. Is the evidence cited relevant and sufficient?\n"
+                    "3. Are there gaps in the defense?\n\n"
+                    "Be fair but rigorous. A good defense should cite specific evidence, not general claims.\n\n"
+                    "OUTPUT FORMAT:\n"
+                    "## Assessment Summary\n[Overall quality of the defense]\n\n"
+                    "## Point-by-Point Assessment\n[For each defense: supported/partially supported/not supported → justification]\n\n"
+                    "## Unaddressed Criticisms\n[Criticisms from the original review that the defense did not address]\n\n"
+                    "## Updated Verdict\n[Based on both the review and defense: Accept / Minor Revision / Major Revision / Reject]"
+                ),
+            },
+            {
+                "id": "synthesize-debate",
+                "role": AgentRole.DEBATER.value,
+                "task_template": (
+                    "You are a Neutral Moderator. Synthesize the debate between the paper advocate and review advocate into a balanced final assessment.\n\n"
+                    "DEBATE:\n{input}\n\n"
+                    "Produce a balanced, evidence-based synthesis that:\n"
+                    "1. Identifies points of agreement between both sides\n"
+                    "2. Resolves remaining disagreements with your own assessment\n"
+                    "3. Provides a final recommendation with clear justification\n\n"
+                    "OUTPUT FORMAT:\n"
+                    "## Debate Summary\n[Key points of contention and resolution]\n\n"
+                    "## Points of Agreement\n[Where both sides agree]\n\n"
+                    "## Resolved Disagreements\n[Your assessment of disputed points]\n\n"
+                    "## Final Recommendation\n[Accept / Minor Revision / Major Revision / Reject]\n"
+                    "### Justification\n[Detailed reasoning]\n\n"
+                    "## Required Revisions\n[Specific, actionable list of changes needed before acceptance]\n\n"
+                    "## Optional Improvements\n[Suggestions that would strengthen the paper but are not required]"
+                ),
+            },
+        ],
+    },
 }
 
 
@@ -511,12 +598,22 @@ class WorkflowExecuteRequest(BaseModel):
     input: str | None = None
     paper_id: UUID | None = None
     agent_assignments: dict[str, UUID]
+    include_full_paper: bool = True
+    rubric_standard: str = "general"
+    review_text: str | None = None
 
 
 class WorkflowExecuteResponse(BaseModel):
     workflow_id: str
     workflow_name: str
     stages: list[dict]
+
+
+class WorkflowStartResponse(BaseModel):
+    execution_id: UUID
+    status: str
+    workflow_id: str
+    workflow_name: str
 
 
 async def _get_user_config_by_id(db: AsyncSession, user_id: str, config_id: UUID) -> AgentConfig | None:
@@ -531,6 +628,19 @@ async def _get_user_config_by_id(db: AsyncSession, user_id: str, config_id: UUID
     return result.scalar_one_or_none()
 
 
+import re
+
+
+def _sanitize_output(text: str) -> str:
+    if not text:
+        return text
+    text = re.sub(r"\n{3,}", "\n\n", text)       # 3+ newlines → paragraph break
+    text = "\n".join(line.rstrip() for line in text.split("\n"))
+    text = re.sub(r" {5,}", "  ", text)           # collapse excessive spaces (keep ≤4 for code blocks)
+    text = re.sub(r"\t{3,}", "\t", text)
+    return text.strip()
+
+
 async def _run_stage(
     db: AsyncSession,
     user_id: str,
@@ -540,6 +650,8 @@ async def _run_stage(
     pdf_bytes: Optional[bytes] = None,
     paper_s2_id: str | None = None,
     topic_query: str | None = None,
+    paper_content: str | None = None,
+    rubric_standard: str = "general",
 ) -> dict:
     config = await _get_user_config_by_id(db, user_id, config_id)
     if not config:
@@ -570,7 +682,7 @@ async def _run_stage(
         agent_type=agent_type,
         model=config.model,
         provider=config.provider,
-        strategy="direct",
+        strategy=config.strategy.value if hasattr(config.strategy, "value") else (config.strategy or "direct"),
         system_prompt=system_prompt,
         tools=resolved_tools,
         temperature=config.temperature,
@@ -591,18 +703,65 @@ async def _run_stage(
         agent_context["paper_s2_id"] = paper_s2_id
     if topic_query:
         agent_context["topic_query"] = topic_query
+    if paper_content:
+        agent_context["paper_content"] = paper_content
+    if rubric_standard:
+        agent_context["rubric_standard"] = rubric_standard
 
     max_retries = 3
     last_error = None
     for attempt in range(max_retries):
         try:
             result = await asyncio.wait_for(agent.run(messages, context=agent_context), timeout=STAGE_TIMEOUT_SECONDS)
+            usage = result.get("metadata", {}).get("usage", {})
+            input_tokens = usage.get("input_tokens", 0) or 0
+            output_tokens = usage.get("output_tokens", 0) or 0
+            total_tokens = usage.get("total_tokens", 0) or 0
+
+            model_name = str(config.model) if config.model else ""
+            pricing = await fetch_model_pricing()
+            cost = calculate_cost(model_name, input_tokens, output_tokens, pricing)
+
+            metadata = result.get("metadata", {})
+            metadata["usage"] = {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "total_tokens": total_tokens,
+                "model": model_name,
+                "cost_usd": round(cost, 8),
+            }
+            metadata["agent_role"] = stage_def["role"]
+            metadata["agent_name"] = config.name
+
+            rating = result.get("context", {}).get("rating")
+
+            if not rating and rubric_standard and rubric_standard != "none":
+                review_text = result.get("output", "")
+                if review_text:
+                    try:
+                        eval_llm = llm_service.get_llm(
+                            model=config.model,
+                            provider=config.provider,
+                            temperature=0.3,
+                            max_tokens=2048,
+                        )
+                        rating = await evaluate_rubric(
+                            llm=eval_llm,
+                            review_text=review_text,
+                            rubric_standard=rubric_standard,
+                            system_prompt="You are an expert academic rubric evaluator. Score the review objectively.",
+                        )
+                    except Exception as e:
+                        logger.warning(f"Rubric evaluation failed: {e}")
+                        rating = None
+
             return {
                 "agent_role": stage_def["role"],
                 "agent_name": config.name,
                 "status": "completed",
-                "output": result.get("output", ""),
-                "metadata": result.get("metadata", {}),
+                "output": _sanitize_output(result.get("output", "")),
+                "metadata": metadata,
+                "rating": rating,
             }
         except asyncio.TimeoutError:
             logger.warning(f"Stage for role {stage_def['role']} timed out after {STAGE_TIMEOUT_SECONDS}s")
@@ -611,7 +770,7 @@ async def _run_stage(
                 "agent_name": config.name,
                 "status": "timeout",
                 "output": f"Stage timed out after {STAGE_TIMEOUT_SECONDS} seconds. Previous stage output preserved.",
-                "metadata": {"timeout_seconds": STAGE_TIMEOUT_SECONDS},
+                "metadata": {"timeout_seconds": STAGE_TIMEOUT_SECONDS, "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "model": str(config.model) if config.model else "", "cost_usd": 0.0}},
             }
         except Exception as e:
             last_error = e
@@ -629,7 +788,7 @@ async def _run_stage(
         "agent_name": config.name,
         "status": "error",
         "output": f"Stage failed: {type(last_error).__name__}: {str(last_error)[:500]}",
-        "metadata": {"error_type": type(last_error).__name__},
+        "metadata": {"error_type": type(last_error).__name__, "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "model": str(config.model) if config.model else "", "cost_usd": 0.0}},
     }
 
 
@@ -704,17 +863,25 @@ def _build_stage_context(original_input: str, prior_findings: list[dict]) -> str
     return "\n".join(parts)
 
 
-@router.post("/execute", response_model=WorkflowExecuteResponse)
+@router.post("/execute")
 async def execute_workflow(
     req: WorkflowExecuteRequest,
+    background_tasks: BackgroundTasks,
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     if req.workflow_id not in WORKFLOW_DEFINITIONS:
-        return WorkflowExecuteResponse(
-            workflow_id=req.workflow_id,
-            workflow_name="Unknown",
-            stages=[{"status": "error", "output": f"Unknown workflow: {req.workflow_id}"}],
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown workflow: {req.workflow_id}",
+        )
+
+    workflow = WORKFLOW_DEFINITIONS[req.workflow_id]
+
+    if not req.paper_id and not req.input:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Either input or paper_id must be provided",
         )
 
     paper_content: Optional[PaperContent] = None
@@ -726,10 +893,11 @@ async def execute_workflow(
         context = paper_content.text
         pdf_bytes = paper_content.pdf_bytes
 
-        if req.input:
+        if req.review_text:
+            context = f"PAPER:\n{context}\n\nREVIEW TO ANALYZE:\n{req.review_text}"
+        elif req.input:
             context = f"{context}\n\n## Custom Instructions\n{req.input}"
 
-        # Resolve S2 paper ID from DOI or arXiv ID for related work search
         paper_result = await db.execute(
             select(Paper).where(Paper.id == req.paper_id, Paper.owner_id == user_id)
         )
@@ -739,7 +907,6 @@ async def execute_workflow(
                 paper_s2_id = f"DOI:{paper.doi}"
             elif paper.arxiv_id:
                 paper_s2_id = f"ARXIV:{paper.arxiv_id}"
-            # Build topic query from title + keywords for fallback search
             parts = []
             if paper.title:
                 parts.append(paper.title)
@@ -749,56 +916,17 @@ async def execute_workflow(
     elif req.input:
         context = req.input
         topic_query = req.input[:200] if len(req.input) > 200 else req.input
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Either input or paper_id must be provided",
-        )
 
-    workflow = WORKFLOW_DEFINITIONS[req.workflow_id]
-    stage_results = []
-    start_time = time.time()
-
-    original_context = context
-    prior_findings = []
-
-    for i, stage_def in enumerate(workflow["stages"]):
-        role = stage_def["role"]
-        stage_id = stage_def.get("id")
-        config_id = req.agent_assignments.get(stage_id)
-        if not config_id:
-            return WorkflowExecuteResponse(
-                workflow_id=req.workflow_id,
-                workflow_name=workflow["name"],
-                stages=[{"status": "error", "output": f"Missing agent assignment for stage: {stage_id}"}],
-            )
-
-        stage_context = _build_stage_context(original_context, prior_findings)
-
-        result = await _run_stage(
-            db, user_id, stage_def, stage_context, config_id,
-            pdf_bytes=pdf_bytes, paper_s2_id=paper_s2_id, topic_query=topic_query,
-        )
-        stage_results.append(result)
-
-        prev_output = result.get("output", "")
-        if prev_output:
-            prior_findings.append({
-                "stage": stage_def.get("id", f"stage-{i}"),
-                "role": role,
-                "agent_name": result.get("agent_name", ""),
-                "output": prev_output,
-            })
-
-        if i < len(workflow["stages"]) - 1:
-            await asyncio.sleep(STAGE_DELAY_SECONDS)
-
-    duration = time.time() - start_time
-    overall_status = "completed"
-    for s in stage_results:
-        if s.get("status") in ("timeout", "error"):
-            overall_status = "partial"
-            break
+    stage_placeholders = [
+        {
+            "agent_role": s["role"],
+            "agent_name": "",
+            "status": "pending",
+            "output": "",
+            "metadata": {},
+        }
+        for s in workflow["stages"]
+    ]
 
     execution = WorkflowExecution(
         user_id=user_id,
@@ -807,18 +935,187 @@ async def execute_workflow(
         input_text=req.input,
         paper_id=req.paper_id,
         agent_assignments={k: str(v) for k, v in req.agent_assignments.items()},
-        stages=stage_results,
-        status=overall_status,
-        duration_seconds=round(duration, 2),
+        stages=stage_placeholders,
+        status="running",
     )
     db.add(execution)
     await db.commit()
+    await db.refresh(execution)
 
-    return WorkflowExecuteResponse(
+    execution_id = str(execution.id)
+    _cancel_flags[execution_id] = False
+
+    paper_content_to_pass = context if req.include_full_paper and req.paper_id else None
+
+    background_tasks.add_task(
+        _run_workflow_background,
+        execution_id=execution_id,
+        user_id=user_id,
+        workflow_id=req.workflow_id,
+        original_context=context,
+        pdf_bytes=pdf_bytes,
+        paper_s2_id=paper_s2_id,
+        topic_query=topic_query,
+        agent_assignments={k: str(v) for k, v in req.agent_assignments.items()},
+        paper_content=paper_content_to_pass,
+        rubric_standard=req.rubric_standard,
+    )
+
+    return WorkflowStartResponse(
+        execution_id=execution.id,
+        status="running",
         workflow_id=req.workflow_id,
         workflow_name=workflow["name"],
-        stages=stage_results,
     )
+
+
+async def _run_workflow_background(
+    execution_id: str,
+    user_id: str,
+    workflow_id: str,
+    original_context: str,
+    pdf_bytes: Optional[bytes],
+    paper_s2_id: Optional[str],
+    topic_query: Optional[str],
+    agent_assignments: dict[str, str],
+    paper_content: Optional[str] = None,
+    rubric_standard: str = "general",
+):
+    workflow = WORKFLOW_DEFINITIONS[workflow_id]
+    start_time = time.time()
+
+    try:
+        async with AsyncSessionLocal() as db:
+            stage_results = []
+            prior_findings = []
+
+            for i, stage_def in enumerate(workflow["stages"]):
+                if _cancel_flags.get(execution_id, False):
+                    for r in stage_results:
+                        if r.get("status") == "pending":
+                            r["status"] = "cancelled"
+                            r["output"] = "Cancelled by user."
+                    stage_results.append({
+                        "agent_role": stage_def["role"],
+                        "agent_name": "",
+                        "status": "cancelled",
+                        "output": "Workflow cancelled by user.",
+                        "metadata": {},
+                    })
+                    break
+
+                stage_id = stage_def.get("id")
+                config_id_str = agent_assignments.get(stage_id)
+                if not config_id_str:
+                    stage_results.append({
+                        "agent_role": stage_def["role"],
+                        "agent_name": "",
+                        "status": "error",
+                        "output": f"Missing agent assignment for stage: {stage_id}",
+                        "metadata": {},
+                    })
+                    continue
+
+                result = await db.execute(
+                    select(WorkflowExecution).where(WorkflowExecution.id == execution_id)
+                )
+                execution = result.scalar_one_or_none()
+                if execution:
+                    stages_copy = list(execution.stages) if execution.stages else []
+                    while len(stages_copy) <= i:
+                        stages_copy.append({
+                            "agent_role": stage_def["role"],
+                            "agent_name": "",
+                            "status": "pending",
+                            "output": "",
+                            "metadata": {},
+                        })
+                    stages_copy[i] = {
+                        "agent_role": stage_def["role"],
+                        "agent_name": "",
+                        "status": "running",
+                        "output": "",
+                        "metadata": {},
+                    }
+                    execution.stages = stages_copy
+                    await db.commit()
+
+                stage_context = _build_stage_context(original_context, prior_findings)
+
+                result = await _run_stage(
+                    db, user_id, stage_def, stage_context, UUID(config_id_str),
+                    pdf_bytes=pdf_bytes, paper_s2_id=paper_s2_id, topic_query=topic_query,
+                    paper_content=paper_content, rubric_standard=rubric_standard,
+                )
+                stage_results.append(result)
+
+                prev_output = result.get("output", "")
+                if prev_output:
+                    prior_findings.append({
+                        "stage": stage_def.get("id", f"stage-{i}"),
+                        "role": stage_def["role"],
+                        "agent_name": result.get("agent_name", ""),
+                        "output": prev_output,
+                    })
+
+                result_update = await db.execute(
+                    select(WorkflowExecution).where(WorkflowExecution.id == execution_id)
+                )
+                exec_to_update = result_update.scalar_one_or_none()
+                if exec_to_update:
+                    stages_copy = list(exec_to_update.stages) if exec_to_update.stages else []
+                    while len(stages_copy) <= i:
+                        stages_copy.append(result)
+                    stages_copy[i] = result
+                    exec_to_update.stages = stages_copy
+                    await db.commit()
+
+                if i < len(workflow["stages"]) - 1:
+                    await asyncio.sleep(STAGE_DELAY_SECONDS)
+
+            duration = time.time() - start_time
+            overall_status = "completed"
+            if _cancel_flags.get(execution_id, False):
+                overall_status = "cancelled"
+            else:
+                for s in stage_results:
+                    if s.get("status") in ("timeout", "error"):
+                        overall_status = "partial"
+                        break
+
+            total_input = sum(s.get("metadata", {}).get("usage", {}).get("input_tokens", 0) for s in stage_results)
+            total_output = sum(s.get("metadata", {}).get("usage", {}).get("output_tokens", 0) for s in stage_results)
+            total_tokens = sum(s.get("metadata", {}).get("usage", {}).get("total_tokens", 0) for s in stage_results)
+            total_cost = sum(s.get("metadata", {}).get("usage", {}).get("cost_usd", 0.0) for s in stage_results)
+
+            final_result = await db.execute(
+                select(WorkflowExecution).where(WorkflowExecution.id == execution_id)
+            )
+            final_exec = final_result.scalar_one_or_none()
+            if final_exec:
+                final_exec.stages = stage_results
+                final_exec.status = overall_status
+                final_exec.duration_seconds = round(duration, 2)
+                await db.commit()
+
+            logger.info(f"Workflow {workflow_id} [{execution_id}] finished: {overall_status} ({duration:.1f}s) | tokens: {total_input}+{total_output}={total_tokens} | cost: ${total_cost:.6f}")
+
+    except Exception as e:
+        logger.error(f"Background workflow {execution_id} failed: {e}")
+        try:
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(
+                    select(WorkflowExecution).where(WorkflowExecution.id == execution_id)
+                )
+                exec_obj = result.scalar_one_or_none()
+                if exec_obj:
+                    exec_obj.status = "error"
+                    exec_obj.duration_seconds = round(time.time() - start_time, 2)
+                    await db.commit()
+        except Exception:
+            logger.error(f"Failed to update error status for {execution_id}")
+    finally:
+        _cancel_flags.pop(execution_id, None)
 
 
 @router.get("/")
@@ -877,9 +1174,84 @@ async def delete_workflow_result(
     execution = result.scalar_one_or_none()
     if not execution:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Execution not found")
+    sessions_result = await db.execute(
+        select(RevisionSession.id).where(RevisionSession.workflow_execution_id == execution_id)
+    )
+    session_ids = [row[0] for row in sessions_result.all()]
+    if session_ids:
+        await db.execute(
+            select(RevisionMessage).where(RevisionMessage.revision_session_id.in_(session_ids))
+        )
+        for sid in session_ids:
+            msg_result = await db.execute(
+                select(RevisionMessage).where(RevisionMessage.revision_session_id == sid)
+            )
+            for msg in msg_result.scalars().all():
+                await db.delete(msg)
+        for sid in session_ids:
+            sess_result = await db.execute(
+                select(RevisionSession).where(RevisionSession.id == sid)
+            )
+            sess = sess_result.scalar_one_or_none()
+            if sess:
+                await db.delete(sess)
     await db.delete(execution)
     await db.commit()
     return {"status": "deleted", "id": str(execution_id)}
+
+
+@router.post("/cancel/{execution_id}")
+async def cancel_workflow(
+    execution_id: UUID,
+    user_id: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(WorkflowExecution)
+        .where(WorkflowExecution.id == execution_id, WorkflowExecution.user_id == user_id)
+    )
+    execution = result.scalar_one_or_none()
+    if not execution:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Execution not found")
+
+    if execution.status not in ("running", "pending"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot cancel execution with status '{execution.status}'",
+        )
+
+    _cancel_flags[str(execution_id)] = True
+    execution.status = "cancelling"
+    await db.commit()
+
+    return {"status": "cancelling", "id": str(execution_id)}
+
+
+@router.get("/results/{execution_id}")
+async def get_workflow_result(
+    execution_id: UUID,
+    user_id: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(WorkflowExecution)
+        .where(WorkflowExecution.id == execution_id, WorkflowExecution.user_id == user_id)
+    )
+    execution = result.scalar_one_or_none()
+    if not execution:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Execution not found")
+    return {
+        "id": str(execution.id),
+        "workflow_id": execution.workflow_id,
+        "workflow_name": execution.workflow_name,
+        "input_text": execution.input_text,
+        "paper_id": str(execution.paper_id) if execution.paper_id else None,
+        "agent_assignments": execution.agent_assignments,
+        "stages": execution.stages,
+        "status": execution.status,
+        "duration_seconds": execution.duration_seconds,
+        "created_at": execution.created_at.isoformat() if execution.created_at else None,
+    }
 
 
 @router.delete("/results")
@@ -892,6 +1264,23 @@ async def delete_all_workflow_results(
     )
     executions = result.scalars().all()
     count = len(executions)
+    if executions:
+        exec_ids = [e.id for e in executions]
+        sessions_result = await db.execute(
+            select(RevisionSession.id).where(RevisionSession.workflow_execution_id.in_(exec_ids))
+        )
+        session_ids = [row[0] for row in sessions_result.all()]
+        if session_ids:
+            msgs_result = await db.execute(
+                select(RevisionMessage).where(RevisionMessage.revision_session_id.in_(session_ids))
+            )
+            for msg in msgs_result.scalars().all():
+                await db.delete(msg)
+            sess_result = await db.execute(
+                select(RevisionSession).where(RevisionSession.id.in_(session_ids))
+            )
+            for sess in sess_result.scalars().all():
+                await db.delete(sess)
     for e in executions:
         await db.delete(e)
     await db.commit()
@@ -1115,7 +1504,7 @@ def _build_markdown_from_execution(execution: WorkflowExecution) -> str:
             lines.append(f"*{status_text}*{dur_str}")
             lines.append("")
 
-            output = stage.get("output", "")
+            output = _sanitize_output(stage.get("output", ""))
             if output:
                 lines.append(output)
             else:
@@ -1172,12 +1561,12 @@ async def export_workflow_pdf(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Execution not found")
 
     try:
-        import pymupdf
         import markdown as md_lib
-    except ImportError:
+        from weasyprint import HTML as WeasyprintHTML
+    except ImportError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="PDF generation library not available",
+            detail=f"PDF generation library not available: {e}",
         )
 
     md_content = _build_markdown_from_execution(execution)
@@ -1195,18 +1584,14 @@ async def export_workflow_pdf(
 </body>
 </html>"""
 
-    doc = pymupdf.open()
-    story = pymupdf.Story(html=full_html)
-
-    while True:
-        page = doc.new_page()
-        more, _ = story.place(page.rect)
-        story.draw(page)
-        if not more:
-            break
-
-    pdf_bytes = doc.tobytes()
-    doc.close()
+    try:
+        pdf_bytes = WeasyprintHTML(string=full_html).write_pdf()
+    except Exception as e:
+        logger.exception("WeasyPrint PDF rendering failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"PDF rendering failed: {e}",
+        )
 
     filename = f"{execution.workflow_name.lower().replace(' ', '_')}_{execution.id}.pdf"
 
@@ -1215,3 +1600,33 @@ async def export_workflow_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/pricing")
+async def get_model_pricing():
+    pricing = await fetch_model_pricing()
+    return {"pricing": pricing}
+
+
+@router.get("/rubrics")
+async def list_rubric_standards():
+    from app.services.rubric_standards import list_rubric_standards as _list
+    return {"standards": _list()}
+
+
+@router.get("/rubrics/detect")
+async def detect_rubric(
+    paper_id: UUID | None = None,
+    user_id: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.rubric_standards import detect_rubric_from_paper
+    if not paper_id:
+        return {"standard": "general"}
+    result = await db.execute(
+        select(Paper).where(Paper.id == paper_id, Paper.owner_id == user_id)
+    )
+    paper = result.scalar_one_or_none()
+    if not paper:
+        return {"standard": "general"}
+    return {"standard": detect_rubric_from_paper(paper.venue, paper.doi, paper.arxiv_id)}
