@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ChevronDown,
@@ -292,6 +292,7 @@ export function ExecutionResultCard({
     null
   );
   const [creatingRevision, setCreatingRevision] = useState(false);
+  const isCreatingRef = useRef(false);
   const [cancelling, setCancelling] = useState(false);
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -331,6 +332,8 @@ export function ExecutionResultCard({
   };
 
   const handleCreateRevision = async () => {
+    if (isCreatingRef.current) return;
+    isCreatingRef.current = true;
     setCreatingRevision(true);
     try {
       const response = await api.post("/revisions/sessions", {
@@ -346,6 +349,7 @@ export function ExecutionResultCard({
         variant: "destructive",
       });
     } finally {
+      isCreatingRef.current = false;
       setCreatingRevision(false);
     }
   };
