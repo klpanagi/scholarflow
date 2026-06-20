@@ -7,10 +7,17 @@ evaluates and how. The agent itself is a thin 2-node pipeline (analyze → respo
 Replaces both PaperReviewAgent (lightweight) and HardcorePaperReviewer (7-stage monolith).
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from langchain_core.messages import HumanMessage
 from langgraph.graph import StateGraph, END
 
 from app.agents.base import BaseAgent, AgentState
+
+if TYPE_CHECKING:
+    from app.agents.dossier import ResearchDossier
 
 
 DEFAULT_REVIEW_PROMPT = """You are an expert academic reviewer. You evaluate documents rigorously, providing structured, evidence-based reviews.
@@ -25,6 +32,41 @@ Your review must include:
 
 Be constructive, specific, and fair. Always cite evidence from the document to support your assessments.
 """
+
+
+def _format_dossier_context(dossier: ResearchDossier) -> str:
+    """Format a ResearchDossier into a prompt section for the analyze node."""
+    sections: list[str] = []
+
+    sections.append("Top related papers:")
+    if dossier.papers:
+        for i, p in enumerate(dossier.papers[:10], 1):
+            year = str(p.year) if p.year is not None else "n/a"
+            citations = str(p.citation_count) if p.citation_count is not None else "0"
+            sections.append(f"{i}. {p.title} ({year}, {citations} citations)")
+    else:
+        sections.append("0 related papers found.")
+
+    sections.append("")
+    sections.append("Identified research gaps:")
+    if dossier.gaps:
+        for g in dossier.gaps[:5]:
+            sections.append(f"- {g.concept_a} + {g.concept_b}: {g.description}")
+    else:
+        sections.append("- No research gaps identified.")
+
+    sections.append("")
+    sections.append("Methodology landscape:")
+    if dossier.methodologies:
+        sections.append("| Method | Dataset | Metrics | Result |")
+        sections.append("| --- | --- | --- | --- |")
+        for m in dossier.methodologies[:10]:
+            metrics_str = ", ".join(m.metrics) if m.metrics else "n/a"
+            sections.append(f"| {m.method_name} | {m.dataset} | {metrics_str} | {m.result} |")
+    else:
+        sections.append("| No methodology entries found. |")
+
+    return "## Available Evidence Corpus (from Scholar Agent)\n\n" + "\n".join(sections)
 
 
 class ReviewerAgent(BaseAgent):
@@ -51,7 +93,13 @@ class ReviewerAgent(BaseAgent):
 
             content_preview = user_msg[:10000]
 
+            dossier = state["context"].get("research_dossier")
+            dossier_context = ""
+            if dossier is not None:
+                dossier_context = _format_dossier_context(dossier) + "\n\n"
+
             analysis_prompt = (
+                f"{dossier_context}"
                 "Analyze this document and identify:\n"
                 "1. Core contribution and significance\n"
                 "2. Key methodology or approach\n"
