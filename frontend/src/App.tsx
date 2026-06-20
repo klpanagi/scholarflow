@@ -9,6 +9,7 @@ import AssetsPage from './pages/AssetsPage'
 import CultPage from './pages/CultPage'
 import WorkspacePage from './pages/WorkspacePage'
 import WorkflowsPage from './pages/WorkflowsPage'
+import RevisionPage from './pages/RevisionPage'
 import { SettingsPage } from './pages/SettingsPage'
 
 export default function App() {
@@ -22,6 +23,7 @@ export default function App() {
         <Route path="assets" element={<ProtectedRoute><AssetsPage /></ProtectedRoute>} />
         <Route path="cult" element={<ProtectedRoute><CultPage /></ProtectedRoute>} />
         <Route path="workflows" element={<ProtectedRoute><WorkflowsPage /></ProtectedRoute>} />
+        <Route path="revisions/:id" element={<ProtectedRoute><RevisionPage /></ProtectedRoute>} />
         <Route path="workspaces/:id" element={<ProtectedRoute><WorkspacePage /></ProtectedRoute>} />
         <Route path="settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
       </Route>
