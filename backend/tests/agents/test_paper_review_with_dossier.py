@@ -1,4 +1,4 @@
-"""Tests for ReviewerAgent dossier augmentation (Task 11).
+"""Tests for PaperReviewAgent dossier augmentation (Task 11).
 
 Verifies that the analyze node prepends a ResearchDossier context section
 to the analysis prompt when a dossier is present in state["context"].
@@ -16,7 +16,7 @@ from app.agents.dossier import (
     ResearchDossier,
     ResearchGap,
 )
-from app.agents.reviewer_agent import ReviewerAgent
+from app.agents.paper_review_agent import PaperReviewAgent
 
 
 def _make_dossier(
@@ -87,7 +87,7 @@ def _make_state(
 class TestReviewerUsesDossierWhenPresent:
     @pytest.mark.asyncio
     async def test_reviewer_uses_dossier_when_present(self, mock_llm):
-        agent = ReviewerAgent(llm=mock_llm)
+        agent = PaperReviewAgent(llm=mock_llm)
         dossier = _make_dossier(n_papers=3, n_gaps=2, n_methods=2)
         state = _make_state(context={"research_dossier": dossier})
 
@@ -117,7 +117,7 @@ class TestReviewerUsesDossierWhenPresent:
 class TestReviewerUnchangedWithoutDossier:
     @pytest.mark.asyncio
     async def test_reviewer_unchanged_without_dossier(self, mock_llm):
-        agent = ReviewerAgent(llm=mock_llm)
+        agent = PaperReviewAgent(llm=mock_llm)
         state = _make_state(context={})
 
         captured_content = []
@@ -144,7 +144,7 @@ class TestReviewerUnchangedWithoutDossier:
 class TestReviewerHandlesEmptyDossier:
     @pytest.mark.asyncio
     async def test_reviewer_handles_empty_dossier(self, mock_llm):
-        agent = ReviewerAgent(llm=mock_llm)
+        agent = PaperReviewAgent(llm=mock_llm)
         dossier = _make_dossier(n_papers=0, n_gaps=0, n_methods=0)
         state = _make_state(context={"research_dossier": dossier})
 

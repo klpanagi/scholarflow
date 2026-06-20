@@ -6,7 +6,7 @@ from app.agents.base import BaseAgent
 from app.agents.scholar_agent import ScholarAgent
 from app.agents.writing_agent import WritingAgent
 from app.agents.recommendation_agent import RecommendationAgent
-from app.agents.reviewer_agent import ReviewerAgent
+from app.agents.paper_review_agent import PaperReviewAgent
 from app.agents.revision_agent import RevisionAgent
 from app.agents.review_pipeline import DeepReviewer
 from app.services.llm_service import llm_service
@@ -17,11 +17,11 @@ from app.models import AgentRole
 AGENT_REGISTRY: dict[str, type[BaseAgent]] = {
     AgentRole.RESEARCHER.value: ScholarAgent,
     AgentRole.WRITER.value: WritingAgent,
-    AgentRole.REVIEWER.value: ReviewerAgent,
+    AgentRole.REVIEWER.value: PaperReviewAgent,
     AgentRole.RECOMMENDER.value: RecommendationAgent,
     AgentRole.REVISION.value: RevisionAgent,
     AgentRole.MANAGER.value: WritingAgent,
-    AgentRole.DEBATER.value: ReviewerAgent,
+    AgentRole.DEBATER.value: PaperReviewAgent,
     AgentRole.DEEP_REVIEWER.value: DeepReviewer,
 }
 
