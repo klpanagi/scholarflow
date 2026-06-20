@@ -1,7 +1,9 @@
 import asyncio
 import json
 import logging
+import math
 import re
+from datetime import datetime
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
@@ -9,7 +11,16 @@ from langgraph.graph import StateGraph, END
 
 from app.agents.base import BaseAgent, AgentState
 from app.agents.dedup import deduplicate_papers, levenshtein
-from app.agents.dossier import MethodologyEntry, ResearchGap
+from app.agents.dossier import (
+    MethodologyEntry,
+    PaperRecord,
+    PaperSource,
+    ResearchDossier,
+    ResearchGap,
+    SearchMetadata,
+    _coerce_source_name,
+    _resolve_paper_id,
+)
 from app.services.academic_apis import semantic_scholar, arxiv_api, crossref_api, openalex_api
 from app.utils.pdf_model_support import extract_text_from_message_content
 from app.utils.rate_limiters import arxiv_rate_limiter
@@ -903,125 +914,243 @@ class ScholarAgent(BaseAgent):
         )
         return state
 
+    async def synthesize(self, state: AgentState) -> AgentState:
+        """Build a ResearchDossier, apply hybrid ranking, and produce LLM synthesis."""
+        ctx = state["context"]
+        deduped: list[dict] = ctx.get("deduplicated_results", []) or []
+        gaps: list[ResearchGap] = ctx.get("gaps", []) or []
+        methodology_table: list[MethodologyEntry] = ctx.get("methodology_table", []) or []
+        search_metadata_raw: dict = ctx.get("search_metadata", {}) or {}
+        queries_used: list[str] = ctx.get("search_queries", [])
+        expanded_used: list[str] = ctx.get("expanded_queries", [])
+        s2_seed_id: str | None = ctx.get("recommendations_seed_id")
+
+        logger.info(
+            f"synthesize: {len(deduped)} deduped results, {len(gaps)} gaps, "
+            f"{len(methodology_table)} methods"
+        )
+
+        if not deduped:
+            state["output"] = "No papers found for your query."
+            return state
+
+        now = datetime.now()
+        n = len(deduped)
+        scored_papers: list[tuple[float, PaperRecord]] = []
+
+        for raw in deduped:
+            if not isinstance(raw, dict):
+                continue
+
+            raw_rank = raw.get("final_rank", 0)
+            relevance_score = 1.0 - (raw_rank / max(n - 1, 1)) if n > 1 else 1.0
+
+            citation_count = raw.get("citation_count", 0) or 0
+            try:
+                citation_count = int(citation_count)
+            except (TypeError, ValueError):
+                citation_count = 0
+            citation_normalized = min(citation_count / 100, 1.0)
+
+            year = raw.get("year")
+            try:
+                year_int: int | None = int(year) if year is not None else None
+            except (TypeError, ValueError):
+                year_int = None
+            recency_score = (
+                max(0.0, min(1.0, math.exp(-0.1 * (2026 - year_int))))
+                if year_int is not None
+                else 0.0
+            )
+
+            composite = 0.50 * relevance_score + 0.30 * citation_normalized + 0.20 * recency_score
+
+            merged_sources: list[str] = raw.get("merged_sources", []) or []
+            source_list: list[PaperSource] = []
+            for src_name in merged_sources:
+                coerced = _coerce_source_name(src_name)
+                if coerced is not None:
+                    source_list.append(
+                        PaperSource(
+                            source=coerced,
+                            matched_in=raw.get("matched_in", ["title"]) or ["title"],
+                            fetched_at=now,
+                            raw_id=raw.get("paper_id", ""),
+                        )
+                    )
+
+            doi_val = raw.get("doi")
+            arxiv_val = raw.get("arxiv_id")
+            url_val = raw.get("url")
+            paper_id = _resolve_paper_id(
+                doi=doi_val if isinstance(doi_val, str) else None,
+                arxiv_id=arxiv_val if isinstance(arxiv_val, str) else None,
+                paper_id=raw.get("paper_id"),
+                url=url_val if isinstance(url_val, str) else None,
+                title=raw.get("title") if isinstance(raw.get("title"), str) else None,
+            )
+
+            authors = raw.get("authors") or []
+            if not isinstance(authors, list):
+                authors = [str(authors)]
+            authors = [str(a) for a in authors]
+
+            record = PaperRecord(
+                paper_id=paper_id,
+                doi=doi_val if isinstance(doi_val, str) else None,
+                arxiv_id=arxiv_val if isinstance(arxiv_val, str) else None,
+                title=raw.get("title") or "",
+                authors=authors,
+                year=year_int,
+                venue=raw.get("venue") if isinstance(raw.get("venue"), str) else None,
+                citation_count=citation_count,
+                abstract=raw.get("abstract") if isinstance(raw.get("abstract"), str) else None,
+                sources=source_list,
+                relevance_score=round(relevance_score, 4),
+                recency_score=round(recency_score, 4),
+                final_rank=0,
+            )
+            scored_papers.append((composite, record))
+
+        scored_papers.sort(key=lambda x: x[0], reverse=True)
+        papers: list[PaperRecord] = []
+        for rank, (_, rec) in enumerate(scored_papers):
+            papers.append(rec.model_copy(update={"final_rank": rank}))
+
+        search_metadata: SearchMetadata | None = None
+        if search_metadata_raw:
+            try:
+                search_metadata = SearchMetadata(**search_metadata_raw)
+            except Exception:
+                logger.warning("synthesize: failed to build SearchMetadata from raw dict")
+
+        dossier = ResearchDossier(
+            papers=papers,
+            gaps=gaps,
+            methodologies=methodology_table,
+            search_metadata=search_metadata,
+            generated_at=now,
+        )
+        ctx["research_dossier"] = dossier
+
+        legacy_results: list[dict] = []
+        for p in papers:
+            legacy_results.append(
+                {
+                    "paper_id": p.paper_id,
+                    "title": p.title,
+                    "authors": p.authors,
+                    "year": p.year,
+                    "venue": p.venue,
+                    "citation_count": p.citation_count,
+                    "doi": p.doi,
+                    "arxiv_id": p.arxiv_id,
+                    "abstract": p.abstract,
+                    "source": p.sources[0].source if p.sources else "",
+                    "url": p.doi and f"https://doi.org/{p.doi}" or "",
+                }
+            )
+        ctx["search_results"] = legacy_results
+
+        async def _verify(r: dict) -> tuple[dict, dict]:
+            title = r.get("title", "Untitled")
+            doi = r.get("doi")
+            verification = await verify_paper_exists(title, doi)
+            return r, verification
+
+        verification_tasks = [_verify(r) for r in legacy_results[:15]]
+        verification_results = await asyncio.gather(*verification_tasks)
+
+        verified_results: list[dict] = []
+        for r, verification in verification_results:
+            if verification["verified"]:
+                r["verified"] = True
+                r["verification_source"] = verification["source"]
+                verified_results.append(r)
+
+        lines: list[str] = []
+        for r in verified_results:
+            title = r.get("title", "Untitled")
+            authors = r.get("authors", []) or []
+            year = r.get("year")
+            source = r.get("source", "")
+            citations = r.get("citation_count")
+            abstract = r.get("abstract")
+            verified = r.get("verified", False)
+
+            authors_str = ", ".join(authors[:3]) + ("..." if len(authors) > 3 else "")
+            verified_tag = " ✓" if verified else ""
+            line = (
+                f"- **{title}**{verified_tag} ({year or 'N/A'})\n"
+                f"  Authors: {authors_str}\n"
+                f"  Source: {source} | Citations: {citations or 'N/A'}"
+            )
+            if abstract:
+                line += f"\n  {abstract[:200]}..."
+            lines.append(line)
+
+        results_text = "\n\n".join(lines)
+        queries_text = ", ".join(queries_used)
+        expanded_text = (
+            f"\nLLM-expanded queries (synonyms/related concepts): {', '.join(expanded_used)}"
+            if expanded_used else ""
+        )
+        seed_text = (
+            f"\nS2 recommendations seed paperId: {s2_seed_id}"
+            if s2_seed_id else ""
+        )
+
+        top5 = papers[:5]
+        top5_text = "\n".join(
+            f"  - {p.title} ({p.year or 'N/A'}) [{p.citation_count} cites]" for p in top5
+        ) or "  (none)"
+
+        gaps_text = "\n".join(
+            f"  - {g.concept_a} ↔ {g.concept_b}: {g.description}" for g in gaps[:3]
+        ) or "  (none)"
+
+        methods_text = "\n".join(
+            f"  - {m.method_name} on {m.dataset}: {m.result}" for m in methodology_table[:5]
+        ) or "  (none)"
+
+        synthesis_prompt = (
+            f"Search queries used: {queries_text}{expanded_text}{seed_text}\n\n"
+            f"Found {len(verified_results)} verified papers (out of {len(deduped)} total). "
+            f"Papers marked with ✓ have been verified in academic databases. "
+            f"ONLY cite papers marked with ✓ in your review.\n\n"
+            f"Top papers:\n{top5_text}\n\n"
+            f"Research gaps:\n{gaps_text}\n\n"
+            f"Methodology highlights:\n{methods_text}\n\n"
+            f"Results:\n{results_text}"
+        )
+
+        response = await self.strategy.execute(
+            self.llm,
+            state["messages"] + [HumanMessage(content=synthesis_prompt)],
+            self.system_prompt,
+        )
+        state["output"] = response.content
+
+        usage = getattr(response, "additional_kwargs", {}).get("usage")
+        if usage:
+            existing = state["context"].get("_usage", {})
+            if existing:
+                usage = {
+                    "input_tokens": usage.get("input_tokens", 0) + existing.get("input_tokens", 0),
+                    "output_tokens": usage.get("output_tokens", 0) + existing.get("output_tokens", 0),
+                    "total_tokens": usage.get("total_tokens", 0) + existing.get("total_tokens", 0),
+                }
+            state["context"]["_usage"] = usage
+        return state
+
     def build_graph(self) -> StateGraph:
         graph = StateGraph(AgentState)
-
-        async def synthesize(state: AgentState) -> AgentState:
-            results = state["context"].get("search_results", [])
-            queries_used = state["context"].get("search_queries", [])
-            expanded_used = state["context"].get("expanded_queries", [])
-            s2_seed_id = state["context"].get("recommendations_seed_id")
-            logger.info(f"synthesize: {len(results)} results, {len(queries_used)} queries, {len(expanded_used)} expanded, seed={s2_seed_id}")
-            if not results:
-                state["output"] = "No papers found for your query."
-                return state
-
-            async def _verify(r):
-                if isinstance(r, dict):
-                    title = r.get("title", "Untitled")
-                    doi = r.get("doi")
-                else:
-                    title = getattr(r, "title", "Untitled")
-                    doi = getattr(r, "doi", None)
-                verification = await verify_paper_exists(title, doi)
-                return r, verification
-
-            verification_tasks = [_verify(r) for r in results[:15]]
-            verification_results = await asyncio.gather(*verification_tasks)
-
-            verified_results = []
-            for r, verification in verification_results:
-                if verification["verified"]:
-                    if isinstance(r, dict):
-                        r["verified"] = True
-                        r["verification_source"] = verification["source"]
-                    else:
-                        r = {
-                            "title": getattr(r, "title", "Untitled"),
-                            "authors": getattr(r, "authors", []) or [],
-                            "year": getattr(r, "year", None),
-                            "source": getattr(r, "source", ""),
-                            "citation_count": getattr(r, "citation_count", None),
-                            "abstract": getattr(r, "abstract", None),
-                            "doi": getattr(r, "doi", None),
-                            "verified": True,
-                            "verification_source": verification["source"],
-                        }
-                    verified_results.append(r)
-
-            lines = []
-            for r in verified_results:
-                if isinstance(r, dict):
-                    title = r.get("title", "Untitled")
-                    authors = r.get("authors", []) or []
-                    year = r.get("year")
-                    source = r.get("source", "")
-                    citations = r.get("citation_count")
-                    abstract = r.get("abstract")
-                    verified = r.get("verified", False)
-                else:
-                    title = getattr(r, "title", "Untitled")
-                    authors = getattr(r, "authors", []) or []
-                    year = getattr(r, "year", None)
-                    source = getattr(r, "source", "")
-                    citations = getattr(r, "citation_count", None)
-                    abstract = getattr(r, "abstract", None)
-                    verified = False
-
-                authors_str = ", ".join(authors[:3]) + ("..." if len(authors) > 3 else "")
-                verified_tag = " ✓" if verified else ""
-                line = (
-                    f"- **{title}**{verified_tag} ({year or 'N/A'})\n"
-                    f"  Authors: {authors_str}\n"
-                    f"  Source: {source} | Citations: {citations or 'N/A'}"
-                )
-                if abstract:
-                    line += f"\n  {abstract[:200]}..."
-                lines.append(line)
-
-            results_text = "\n\n".join(lines)
-            queries_text = ", ".join(queries_used)
-            expanded_text = (
-                f"\nLLM-expanded queries (synonyms/related concepts): {', '.join(expanded_used)}"
-                if expanded_used else ""
-            )
-            seed_text = (
-                f"\nS2 recommendations seed paperId: {s2_seed_id}"
-                if s2_seed_id else ""
-            )
-
-            synthesis_prompt = (
-                f"Search queries used: {queries_text}{expanded_text}{seed_text}\n\n"
-                f"Found {len(verified_results)} verified papers (out of {len(results)} total). "
-                f"Papers marked with ✓ have been verified in academic databases. "
-                f"ONLY cite papers marked with ✓ in your review.\n\n"
-                f"Results:\n{results_text}"
-            )
-
-            response = await self.strategy.execute(
-                self.llm,
-                state["messages"] + [HumanMessage(content=synthesis_prompt)],
-                self.system_prompt,
-            )
-            state["output"] = response.content
-            # Capture token usage from strategy
-            usage = getattr(response, "additional_kwargs", {}).get("usage")
-            if usage:
-                existing = state["context"].get("_usage", {})
-                if existing:
-                    usage = {
-                        "input_tokens": usage.get("input_tokens", 0) + existing.get("input_tokens", 0),
-                        "output_tokens": usage.get("output_tokens", 0) + existing.get("output_tokens", 0),
-                        "total_tokens": usage.get("total_tokens", 0) + existing.get("total_tokens", 0),
-                    }
-                state["context"]["_usage"] = usage
-            return state
 
         graph.add_node("search_papers", self.search_papers)
         graph.add_node("deduplicate", self.deduplicate)
         graph.add_node("evaluate_methods", self.evaluate_methods)
         graph.add_node("identify_gaps", self.identify_gaps)
-        graph.add_node("synthesize", synthesize)
+        graph.add_node("synthesize", self.synthesize)
 
         graph.set_entry_point("search_papers")
         graph.add_edge("search_papers", "deduplicate")
