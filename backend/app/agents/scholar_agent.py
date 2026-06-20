@@ -1,16 +1,167 @@
 import asyncio
+import json
 import logging
+import re
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from langgraph.graph import StateGraph, END
 
 from app.agents.base import BaseAgent, AgentState
+from app.agents.dedup import deduplicate_papers
+from app.agents.dossier import MethodologyEntry
 from app.services.academic_apis import semantic_scholar, arxiv_api, crossref_api, openalex_api
 from app.utils.pdf_model_support import extract_text_from_message_content
 from app.utils.rate_limiters import arxiv_rate_limiter
 
 logger = logging.getLogger(__name__)
+
+
+_METHODS_TOP_N = 15
+
+
+def _parse_llm_json(text: str) -> dict | None:
+    """Recover a JSON object from an LLM response, tolerating code fences and prose.
+
+    Tries in order:
+    1. Strip ```json ... ``` (or plain ```) fences and parse the captured block
+    2. Parse the whole text as JSON
+    3. Find the first {...} block via regex and parse that
+
+    Returns the parsed dict, or None if all attempts fail.
+    """
+    if not text or not isinstance(text, str):
+        return None
+
+    candidates = [text]
+
+    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL | re.IGNORECASE)
+    if fenced:
+        candidates.append(fenced.group(1))
+
+    for cand in candidates:
+        try:
+            obj = json.loads(cand)
+            if isinstance(obj, dict):
+                return obj
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    first_obj = re.search(r"\{.*\}", text, re.DOTALL)
+    if first_obj:
+        try:
+            obj = json.loads(first_obj.group(0))
+            if isinstance(obj, dict):
+                return obj
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    return None
+
+
+def _resolve_paper_id_for_methodology(paper: dict) -> str:
+    """Pick a stable paper_id for a MethodologyEntry row.
+
+    Priority: explicit paper_id > doi > arxiv:arxiv_id > url > title:<title> > "".
+    """
+    pid = paper.get("paper_id")
+    if pid:
+        return str(pid)
+    doi = paper.get("doi")
+    if doi:
+        return str(doi)
+    arxiv = paper.get("arxiv_id")
+    if arxiv:
+        return f"arxiv:{arxiv}"
+    url = paper.get("url")
+    if url:
+        return str(url)
+    title = paper.get("title")
+    if title:
+        return f"title:{title}"
+    return ""
+
+
+async def _extract_methodology_for_paper(
+    llm: BaseChatModel,
+    paper: dict,
+) -> MethodologyEntry:
+    """Ask the LLM to extract a methodology row from a paper abstract.
+
+    Returns a MethodologyEntry with confidence="low" if the LLM call or JSON
+    recovery fails — never raises. The fallback row uses the paper title as
+    method_name and "unknown" for dataset/result so downstream consumers
+    can still distinguish a failed extraction from an absent one.
+    """
+    paper_id = _resolve_paper_id_for_methodology(paper)
+    abstract = (paper.get("abstract") or "").strip()
+    title = paper.get("title") or "Untitled"
+
+    prompt = (
+        "You extract structured methodology information from academic paper abstracts.\n\n"
+        f"Paper title: {title}\n"
+        f"Abstract:\n{abstract}\n\n"
+        "Extract the following from the abstract and return ONLY a JSON object "
+        "with exactly these keys (no commentary, no markdown):\n"
+        "1. method_name: name of the proposed/analysed method as written in the paper\n"
+        "2. dataset: dataset or benchmark on which the result was measured "
+        "(string; use \"unknown\" if not stated)\n"
+        "3. metrics: list of metric names reported "
+        "(e.g. [\"BLEU\", \"ROUGE-L\"]; use [] if none stated)\n"
+        "4. baseline_methods: list of baseline method names the proposed method is "
+        "compared against (use [] if none stated)\n"
+        "5. result: reported main result string "
+        "(e.g. \"28.4 BLEU\", \"91.2% accuracy\"; use \"unknown\" if not stated)\n"
+        "6. confidence: your confidence in this extraction — \"high\", \"medium\", or \"low\"\n\n"
+        "Example output:\n"
+        "{\"method_name\": \"...\", \"dataset\": \"...\", \"metrics\": [\"...\"], "
+        "\"baseline_methods\": [\"...\"], \"result\": \"...\", \"confidence\": \"high\"}"
+    )
+
+    try:
+        response = await llm.ainvoke([HumanMessage(content=prompt)])
+        text = response.content if isinstance(response.content, str) else str(response.content)
+    except Exception as e:
+        logger.warning(f"evaluate_methods: LLM call failed for paper {paper_id!r}: {e}")
+        return MethodologyEntry(
+            paper_id=paper_id,
+            method_name=title,
+            dataset="unknown",
+            metrics=[],
+            baseline_methods=[],
+            result="unknown",
+            confidence="low",
+        )
+
+    parsed = _parse_llm_json(text)
+    if not parsed:
+        logger.warning(
+            f"evaluate_methods: could not recover JSON for paper {paper_id!r}; "
+            f"raw response (first 200 chars): {text[:200]!r}"
+        )
+        return MethodologyEntry(
+            paper_id=paper_id,
+            method_name=title,
+            dataset="unknown",
+            metrics=[],
+            baseline_methods=[],
+            result="unknown",
+            confidence="low",
+        )
+
+    confidence = parsed.get("confidence") or "medium"
+    if confidence not in ("high", "medium", "low"):
+        confidence = "medium"
+
+    return MethodologyEntry(
+        paper_id=paper_id,
+        method_name=parsed.get("method_name") or title,
+        dataset=parsed.get("dataset") or "unknown",
+        metrics=list(parsed.get("metrics") or []),
+        baseline_methods=list(parsed.get("baseline_methods") or []),
+        result=parsed.get("result") or "unknown",
+        confidence=confidence,
+    )
 
 
 async def _expand_queries_with_llm(
@@ -475,6 +626,69 @@ class ScholarAgent(BaseAgent):
         )
         return state
 
+    async def deduplicate(self, state: AgentState) -> AgentState:
+        """Deduplicate raw search results using DOI, arXiv ID, and fuzzy title matching.
+
+        Reads context["raw_search_results"] (set by search_papers) and writes
+        context["deduplicated_results"] with merged papers. Each merged paper
+        carries a merged_sources list for provenance tracking.
+        """
+        ctx = state["context"]
+        raw = ctx.get("raw_search_results", [])
+
+        deduplicated = deduplicate_papers(raw)
+
+        ctx["deduplicated_results"] = deduplicated
+        ctx["search_metadata"]["papers_after_dedup"] = len(deduplicated)
+
+        logger.info(
+            f"deduplicate: {len(raw)} raw → {len(deduplicated)} unique"
+        )
+        return state
+
+    async def evaluate_methods(self, state: AgentState) -> AgentState:
+        """Extract a methodology row per top-15 deduplicated paper using the LLM.
+
+        Reads context["deduplicated_results"] (set by `deduplicate`) and writes
+        context["methodology_table"] = list[MethodologyEntry]. Caps processing
+        at the top 15 papers (by `final_rank` when present, else first 15).
+        Skips papers without an abstract. LLM failures and unparseable JSON
+        produce a MethodologyEntry with confidence="low" so the pipeline keeps
+        moving.
+        """
+        ctx = state["context"]
+        papers = ctx.get("deduplicated_results", []) or []
+
+        # Sort by final_rank when it's an int (any value, including 0). Papers
+        # without an int final_rank fall through to the unranked tail, which
+        # preserves their insertion order.
+        ranked = [p for p in papers if isinstance(p.get("final_rank"), int)]
+        unranked = [p for p in papers if not isinstance(p.get("final_rank"), int)]
+        ranked.sort(key=lambda p: p.get("final_rank", 0))
+        ordered = ranked + unranked
+        top_papers = ordered[:_METHODS_TOP_N]
+
+        methodology_table: list[MethodologyEntry] = []
+        for paper in top_papers:
+            abstract = (paper.get("abstract") or "").strip()
+            if not abstract:
+                logger.info(
+                    f"evaluate_methods: skipping paper {paper.get('paper_id') or paper.get('title')!r} "
+                    f"(no abstract)"
+                )
+                continue
+
+            entry = await _extract_methodology_for_paper(self.llm, paper)
+            methodology_table.append(entry)
+
+        ctx["methodology_table"] = methodology_table
+
+        logger.info(
+            f"evaluate_methods: processed {len(methodology_table)} papers "
+            f"(out of {len(top_papers)} with abstracts, top-{_METHODS_TOP_N} of {len(papers)})"
+        )
+        return state
+
     def build_graph(self) -> StateGraph:
         graph = StateGraph(AgentState)
 
@@ -590,10 +804,14 @@ class ScholarAgent(BaseAgent):
             return state
 
         graph.add_node("search_papers", self.search_papers)
+        graph.add_node("deduplicate", self.deduplicate)
+        graph.add_node("evaluate_methods", self.evaluate_methods)
         graph.add_node("synthesize", synthesize)
 
         graph.set_entry_point("search_papers")
-        graph.add_edge("search_papers", "synthesize")
+        graph.add_edge("search_papers", "deduplicate")
+        graph.add_edge("deduplicate", "evaluate_methods")
+        graph.add_edge("evaluate_methods", "synthesize")
         graph.add_edge("synthesize", END)
 
         return graph
