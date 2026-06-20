@@ -8,6 +8,7 @@ from langgraph.graph import StateGraph, END
 from app.agents.base import BaseAgent, AgentState
 from app.services.academic_apis import semantic_scholar, arxiv_api, crossref_api, openalex_api
 from app.utils.pdf_model_support import extract_text_from_message_content
+from app.utils.rate_limiters import arxiv_rate_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -197,6 +198,66 @@ def _extract_search_queries(full_text: str, max_queries: int = 8) -> list[str]:
     return unique[:max_queries]
 
 
+def _compute_matched_in(paper, query: str) -> list[str]:
+    """Return field names where `query` appears in `paper` (case-insensitive).
+
+    Accepts either a dict or a PaperResult. Returns ["title"] as fallback when
+    the query doesn't appear in any field — the paper was still returned by a
+    source, so title is the safest attribution.
+    """
+    q = (query or "").lower().strip()
+    if not q:
+        return ["unknown"]
+    if isinstance(paper, dict):
+        title = (paper.get("title") or "").lower()
+        abstract = (paper.get("abstract") or "").lower()
+    else:
+        title = (getattr(paper, "title", "") or "").lower()
+        abstract = (getattr(paper, "abstract", "") or "").lower()
+    matches: list[str] = []
+    if q in title:
+        matches.append("title")
+    if q in abstract:
+        matches.append("abstract")
+    return matches or ["title"]
+
+
+def _paper_to_dict(
+    paper,
+    matched_in: list[str] | None = None,
+    query: str | None = None,
+) -> dict:
+    """Normalize PaperResult (or pre-staged dict) → dict with `matched_in` populated.
+
+    Downstream nodes (dedup, identify_gaps) operate on dict shapes, so PaperResult
+    is converted here. Either pass `matched_in` explicitly (for pre-query results
+    like citation_graph, s2_recommendation) or `query` to compute it automatically.
+    """
+    if isinstance(paper, dict):
+        d = dict(paper)
+    else:
+        d = {
+            "external_id": getattr(paper, "external_id", None),
+            "paper_id": getattr(paper, "paper_id", None),
+            "source": getattr(paper, "source", ""),
+            "title": getattr(paper, "title", "Untitled"),
+            "abstract": getattr(paper, "abstract", None),
+            "authors": getattr(paper, "authors", []) or [],
+            "year": getattr(paper, "year", None),
+            "url": getattr(paper, "url", None),
+            "doi": getattr(paper, "doi", None),
+            "citation_count": getattr(paper, "citation_count", None),
+            "venue": getattr(paper, "venue", None),
+        }
+    if matched_in is not None:
+        d["matched_in"] = list(matched_in)
+    elif query is not None:
+        d["matched_in"] = _compute_matched_in(d, query)
+    else:
+        d["matched_in"] = ["unknown"]
+    return d
+
+
 def _extract_tool_names(full_text: str) -> list[str]:
     """Extract specific tool/framework names from message content.
 
@@ -269,122 +330,153 @@ class ScholarAgent(BaseAgent):
         "Always cite sources with title, authors, year, and venue when available."
     )
 
-    def build_graph(self) -> StateGraph:
-        graph = StateGraph(AgentState)
+    async def search_papers(
+        self,
+        state: AgentState,
+        *,
+        year: str | None = None,
+        min_citation_count: int | None = None,
+        venue: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> AgentState:
+        """Search all 4 sources per query with new filters, matched_in, and per-source failure isolation.
 
-        async def search_papers(state: AgentState) -> AgentState:
-            message_content = extract_text_from_message_content(state["messages"][-1].content)
-            paper_s2_id = state["context"].get("paper_s2_id")
-            topic_query = state["context"].get("topic_query")
+        Pre-query strategies (build_related_work, _expand_queries_with_llm, _resolve_to_recommendations)
+        still run first to seed the result set with citation-graph and S2-recommendation papers.
+        Per-source calls are wrapped in try/except so a single source failure populates
+        `context["search_metadata"]["sources_failed"]` without killing the whole node.
+        Manual dedup is REMOVED — Task 7's `deduplicate` node (using `app.agents.dedup`) handles it.
+        """
+        message_content = extract_text_from_message_content(state["messages"][-1].content)
+        paper_s2_id = state["context"].get("paper_s2_id")
+        topic_query = state["context"].get("topic_query")
 
-            title = _extract_paper_title(message_content)
-            base_queries = _extract_search_queries(message_content)
-            tool_names = _extract_tool_names(message_content)
-            for tool_name in tool_names:
-                if tool_name.lower() not in [q.lower() for q in base_queries]:
-                    base_queries.append(tool_name)
+        ctx = state["context"]
+        year = year if year is not None else ctx.get("year")
+        min_citation_count = (
+            min_citation_count if min_citation_count is not None
+            else ctx.get("min_citation_count")
+        )
+        venue = venue if venue is not None else ctx.get("venue")
+        date_from = date_from if date_from is not None else ctx.get("date_from")
+        date_to = date_to if date_to is not None else ctx.get("date_to")
+        min_citations = min_citation_count
 
-            # Run all three search strategies in parallel:
-            # 1. build_related_work (S2 citation graph) — best quality signal
-            # 2. LLM-expanded queries (synonyms/related concepts)
-            # 3. S2 recommendations (title→paperId→similar papers)
-            async def _build_related():
-                if not paper_s2_id:
-                    return []
-                try:
-                    return await semantic_scholar.build_related_work(
-                        paper_id=paper_s2_id,
-                        topic_query=topic_query or _extract_paper_title(message_content),
-                        limit=20,
-                    )
-                except Exception as e:
-                    logger.warning(f"build_related_work failed: {e}")
-                    return []
+        ctx.setdefault("search_metadata", {})
+        ctx["search_metadata"].setdefault("sources_failed", [])
 
-            related_results, expanded_queries, (s2_seed_id, recommendations) = await asyncio.gather(
-                _build_related(),
-                _expand_queries_with_llm(self.llm, base_queries, message_content),
-                _resolve_to_recommendations(title),
-            )
+        title = _extract_paper_title(message_content)
+        base_queries = _extract_search_queries(message_content)
+        tool_names = _extract_tool_names(message_content)
+        for tool_name in tool_names:
+            if tool_name.lower() not in [q.lower() for q in base_queries]:
+                base_queries.append(tool_name)
 
-            # Merge expanded queries with base queries (deduped, capped at 12)
-            all_queries = list(base_queries)
-            seen_lower = {q.lower() for q in all_queries}
-            for q in expanded_queries:
-                if q.lower() not in seen_lower:
-                    all_queries.append(q)
-                    seen_lower.add(q.lower())
-            all_queries = all_queries[:12]
-
-            all_results: list = []
-            seen_keys: set = set()
-
-            def _key(p):
-                if isinstance(p, dict):
-                    doi = p.get("doi")
-                    title_p = p.get("title", "")
-                else:
-                    doi = getattr(p, "doi", None)
-                    title_p = getattr(p, "title", "")
-                if doi:
-                    return ("doi", doi.lower())
-                return ("title", (title_p or "").lower().strip())
-
-            def _add(r):
-                k = _key(r)
-                if k[0] == "title" and len(k[1]) <= 5:
-                    return
-                if k in seen_keys:
-                    return
-                seen_keys.add(k)
-                all_results.append(r)
-
-            # Add build_related_work results first (highest quality — citation graph)
-            for r in related_results:
-                _add(r)
-
-            # Add S2 recommendations (second priority)
-            for r in recommendations or []:
-                _add(r)
-
-            async def _search_one_source(q: str, source_name: str):
-                try:
-                    if source_name == "s2":
-                        return await semantic_scholar.search(q, limit=5)
-                    elif source_name == "arxiv":
-                        return await arxiv_api.search(q, max_results=5)
-                    elif source_name == "crossref":
-                        return await crossref_api.search(q, rows=3)
-                    elif source_name == "openalex":
-                        return await openalex_api.search(q, limit=5)
-                except Exception:
-                    pass
+        async def _build_related():
+            if not paper_s2_id:
+                return []
+            try:
+                return await semantic_scholar.build_related_work(
+                    paper_id=paper_s2_id,
+                    topic_query=topic_query or _extract_paper_title(message_content),
+                    limit=20,
+                )
+            except Exception as e:
+                logger.warning(f"build_related_work failed: {e}")
                 return []
 
-            # Fan-out: each query across all 4 sources
-            for q in all_queries:
-                results_by_source = await asyncio.gather(
-                    _search_one_source(q, "s2"),
-                    _search_one_source(q, "arxiv"),
-                    _search_one_source(q, "crossref"),
-                    _search_one_source(q, "openalex"),
-                )
-                for source_results in results_by_source:
-                    for r in source_results:
-                        _add(r)
+        related_results, expanded_queries, (s2_seed_id, recommendations) = await asyncio.gather(
+            _build_related(),
+            _expand_queries_with_llm(self.llm, base_queries, message_content),
+            _resolve_to_recommendations(title),
+        )
 
-            def _cites(p):
-                if isinstance(p, dict):
-                    return p.get("citation_count") or 0
-                return getattr(p, "citation_count", None) or 0
+        all_queries = list(base_queries)
+        seen_lower = {q.lower() for q in all_queries}
+        for q in expanded_queries:
+            if q.lower() not in seen_lower:
+                all_queries.append(q)
+                seen_lower.add(q.lower())
+        all_queries = all_queries[:12]
 
-            all_results.sort(key=_cites, reverse=True)
-            state["context"]["search_results"] = all_results[:30]
-            state["context"]["search_queries"] = all_queries
-            state["context"]["expanded_queries"] = expanded_queries
-            state["context"]["recommendations_seed_id"] = s2_seed_id
-            logger.info(f"search_papers: {len(all_results)} results, {len(all_queries)} queries ({len(expanded_queries)} expanded), seed={s2_seed_id}")
-            return state
+        raw_results: list[dict] = []
+
+        for r in related_results:
+            raw_results.append(_paper_to_dict(r, matched_in=["citation_graph"]))
+
+        for r in recommendations or []:
+            raw_results.append(_paper_to_dict(r, matched_in=["s2_recommendation"]))
+
+        def _record_failure(source: str, query: str, exc: Exception) -> None:
+            ctx["search_metadata"]["sources_failed"].append({
+                "source": source,
+                "query": query,
+                "reason": str(exc),
+            })
+            logger.warning(f"{source} search failed for {query!r}: {exc}")
+
+        async def _search_one_source(q: str, source_name: str):
+            if source_name == "s2":
+                try:
+                    return await semantic_scholar.search(
+                        q, limit=5, year=year, min_citations=min_citations, venue=venue,
+                    )
+                except Exception as e:
+                    _record_failure("semantic_scholar", q, e)
+                    return []
+            if source_name == "arxiv":
+                try:
+                    await arxiv_rate_limiter.acquire()
+                    return await arxiv_api.search(q, max_results=5)
+                except Exception as e:
+                    _record_failure("arxiv", q, e)
+                    return []
+            if source_name == "crossref":
+                try:
+                    return await crossref_api.search(q, rows=3)
+                except Exception as e:
+                    _record_failure("crossref", q, e)
+                    return []
+            if source_name == "openalex":
+                try:
+                    return await openalex_api.search(
+                        q, limit=5,
+                        year=year, min_citation_count=min_citation_count, venue=venue,
+                    )
+                except Exception as e:
+                    _record_failure("openalex", q, e)
+                    return []
+            return []
+
+        for q in all_queries:
+            results_by_source = await asyncio.gather(
+                _search_one_source(q, "s2"),
+                _search_one_source(q, "arxiv"),
+                _search_one_source(q, "crossref"),
+                _search_one_source(q, "openalex"),
+            )
+            for source_results in results_by_source:
+                for r in source_results:
+                    raw_results.append(_paper_to_dict(r, query=q))
+
+        raw_results.sort(key=lambda p: p.get("citation_count") or 0, reverse=True)
+
+        ctx["raw_search_results"] = raw_results
+        ctx["search_results"] = raw_results[:30]
+        ctx["search_queries"] = all_queries
+        ctx["expanded_queries"] = expanded_queries
+        ctx["recommendations_seed_id"] = s2_seed_id
+
+        logger.info(
+            f"search_papers: {len(raw_results)} raw results, {len(all_queries)} queries "
+            f"({len(expanded_queries)} expanded), seed={s2_seed_id}, "
+            f"failed={len(ctx['search_metadata']['sources_failed'])}"
+        )
+        return state
+
+    def build_graph(self) -> StateGraph:
+        graph = StateGraph(AgentState)
 
         async def synthesize(state: AgentState) -> AgentState:
             results = state["context"].get("search_results", [])
@@ -497,7 +589,7 @@ class ScholarAgent(BaseAgent):
                 state["context"]["_usage"] = usage
             return state
 
-        graph.add_node("search_papers", search_papers)
+        graph.add_node("search_papers", self.search_papers)
         graph.add_node("synthesize", synthesize)
 
         graph.set_entry_point("search_papers")
