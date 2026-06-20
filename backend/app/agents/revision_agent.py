@@ -3,11 +3,14 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, END
 
 from app.agents.base import BaseAgent, AgentState
+from app.tools.document_reader import read_document
 
 
 class RevisionAgent(BaseAgent):
     name = "revision"
     description = "Interactively revise and improve workflow results with fact-checking"
+    default_tools: list = [read_document]
+
     system_prompt = (
         "You are an expert academic editor specializing in revising review documents.\n\n"
         "YOUR ROLE: You help users revise and improve the REVIEW DOCUMENT produced by a workflow — "
@@ -37,8 +40,20 @@ class RevisionAgent(BaseAgent):
         "IMPORTANT: You are revising the REVIEW, not the PAPER. If the user asks about "
         "revising the actual paper (e.g., 'improve my methodology'), redirect them to "
         "explain that you can help improve the REVIEW'S analysis of their methodology, "
-        "not the paper itself."
+        "not the paper itself.\n\n"
+        "TOOLS AVAILABLE: read_document(file_path: str) - reads a local file (PDF, DOCX, "
+        "MD, TXT, etc.). Use this to fetch uploaded files when the user references them. "
+        "Example: if the user says 'cite section 4 of the PDF I uploaded', use this tool "
+        "to fetch the file first.\n\n"
+        "KNOWN LIMITATION: The streaming chat path may not bind tools to the LLM, so "
+        "tool calls may not execute end-to-end. If the user references an uploaded file, "
+        "ask them to paste the relevant excerpt directly into the chat so you can revise "
+        "the document with the exact source content."
     )
+
+    def __init__(self, llm, strategy_name="direct", tools=None, system_prompt=None):
+        super().__init__(llm, strategy_name, tools=[], system_prompt=system_prompt)
+        self.tools = tools if tools is not None else self.default_tools
 
     def build_graph(self) -> StateGraph:
         graph = StateGraph(AgentState)
@@ -73,6 +88,18 @@ class RevisionAgent(BaseAgent):
             workflow_result = state["context"].get("workflow_result", "")
             revision_analysis = state["context"].get("revision_analysis", "")
             user_request = state["messages"][-1].content if state["messages"] else ""
+            attached_files = state["context"].get("attached_files") or []
+
+            attached_files_block = ""
+            if attached_files:
+                attached_files_block = (
+                    f"\n\nATTACHED FILES (use read_document to fetch):\n"
+                    + "\n".join(
+                        f"- {f.get('file_name', 'unknown')}: {f.get('file_key', 'unknown')}"
+                        for f in attached_files
+                    )
+                    + "\nUse the read_document tool with the local file path to access the file content.\n"
+                )
 
             revision_prompt = (
                 f"Based on the analysis:\n{revision_analysis}\n\n"
@@ -81,6 +108,7 @@ class RevisionAgent(BaseAgent):
                 f"Apply the requested revision. Produce the complete revised document "
                 f"with all changes integrated. Maintain the original structure unless "
                 f"the request specifically asks for restructuring."
+                f"{attached_files_block}"
             )
 
             response = await self.strategy.execute(
