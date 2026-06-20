@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from typing import AsyncGenerator, Optional
 
 import httpx
@@ -8,6 +9,77 @@ from langchain_openai import ChatOpenAI
 from ..core.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+_model_pricing_cache: dict[str, dict[str, float]] = {}
+_pricing_cache_ts: float = 0.0
+_PRICING_CACHE_TTL: float = 3600.0
+
+
+def _build_pricing_index(raw: dict[str, dict[str, float]]) -> dict[str, dict[str, float]]:
+    """Build a normalized lookup from OpenRouter pricing data.
+
+    Stores both full model IDs (``xiaomi/mimo-v2.5``) and short names
+    (``mimo-v2.5``) so callers can use either format.  Short-name keys
+    are only added when they don't collide with an existing full ID.
+    """
+    index = dict(raw)
+    for model_id, price in raw.items():
+        short = model_id.split("/", 1)[-1] if "/" in model_id else model_id
+        if short not in index:
+            index[short] = price
+    return index
+
+
+async def fetch_model_pricing(force: bool = False) -> dict[str, dict[str, float]]:
+    """Fetch per-model pricing from OpenRouter /api/v1/models.
+
+    Returns a normalized lookup ``{model_key: {"input": $/token, "output": $/token}}``
+    where keys include both full IDs and short names.  Cached for
+    ``_PRICING_CACHE_TTL`` seconds.
+    """
+    global _model_pricing_cache, _pricing_cache_ts
+
+    now = time.monotonic()
+    if not force and _model_pricing_cache and (now - _pricing_cache_ts) < _PRICING_CACHE_TTL:
+        return _model_pricing_cache
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get("https://openrouter.ai/api/v1/models")
+            resp.raise_for_status()
+            data = resp.json()
+
+        raw: dict[str, dict[str, float]] = {}
+        for m in data.get("data", []):
+            model_id = m.get("id", "")
+            p = m.get("pricing", {})
+            prompt_price = float(p.get("prompt", 0) or 0)
+            completion_price = float(p.get("completion", 0) or 0)
+            if prompt_price < 0:
+                prompt_price = 0.0
+            if completion_price < 0:
+                completion_price = 0.0
+            raw[model_id] = {"input": prompt_price, "output": completion_price}
+
+        _model_pricing_cache = _build_pricing_index(raw)
+        _pricing_cache_ts = now
+        logger.info(f"Loaded pricing for {len(raw)} models ({len(_model_pricing_cache)} keys) from OpenRouter")
+        return _model_pricing_cache
+    except Exception as e:
+        logger.warning(f"Failed to fetch model pricing from OpenRouter: {e}")
+        return _model_pricing_cache
+
+
+def calculate_cost(model: str, input_tokens: int, output_tokens: int, pricing: dict | None = None) -> float:
+    """Calculate cost in USD for a given model and token counts.
+
+    Returns 0.0 if the model is not found (free/unknown).
+    """
+    p = (pricing or _model_pricing_cache).get(model, {})
+    input_price = p.get("input", 0.0)
+    output_price = p.get("output", 0.0)
+    return input_tokens * input_price + output_tokens * output_price
 
 
 PROVIDER_CONFIG = {

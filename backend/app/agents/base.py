@@ -62,4 +62,14 @@ class BaseAgent(ABC):
         )
         config = {"configurable": {"thread_id": thread_id or "default"}}
         result = await self.graph.ainvoke(state, config=config)
+
+        usage = result["context"].get("_usage")
+        if not usage:
+            for msg in reversed(result["messages"]):
+                if hasattr(msg, "additional_kwargs") and "usage" in msg.additional_kwargs:
+                    usage = msg.additional_kwargs["usage"]
+                    break
+        if usage:
+            result["metadata"]["usage"] = usage
+
         return result

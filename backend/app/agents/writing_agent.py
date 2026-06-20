@@ -42,6 +42,10 @@ class WritingAgent(BaseAgent):
                 self.system_prompt,
             )
             state["context"]["task_analysis"] = response.content
+            # Capture token usage from strategy
+            usage = getattr(response, "additional_kwargs", {}).get("usage")
+            if usage:
+                state["context"]["_usage"] = usage
             return state
 
         async def generate_content(state: AgentState) -> AgentState:
@@ -60,6 +64,17 @@ class WritingAgent(BaseAgent):
                 self.system_prompt,
             )
             state["output"] = response.content
+            # Capture token usage from strategy (accumulate with prior calls)
+            usage = getattr(response, "additional_kwargs", {}).get("usage")
+            if usage:
+                existing = state["context"].get("_usage", {})
+                if existing:
+                    usage = {
+                        "input_tokens": usage.get("input_tokens", 0) + existing.get("input_tokens", 0),
+                        "output_tokens": usage.get("output_tokens", 0) + existing.get("output_tokens", 0),
+                        "total_tokens": usage.get("total_tokens", 0) + existing.get("total_tokens", 0),
+                    }
+                state["context"]["_usage"] = usage
             return state
 
         graph.add_node("understand_task", understand_task)

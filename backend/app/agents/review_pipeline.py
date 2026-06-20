@@ -1,25 +1,47 @@
 import json
+import logging
+import re
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from langchain_core.language_models import BaseChatModel
 from langgraph.graph import StateGraph, END
+from pydantic import BaseModel, Field
 
 from app.agents.base import BaseAgent, AgentState
 from app.utils.context_budget import fit_to_budget, budget_for_stages
 from app.utils.pdf_model_support import model_supports_pdf, create_multimodal_human_message
+from app.services.rubric_standards import get_rubric_standard, RubricStandard
+
+logger = logging.getLogger(__name__)
+
+class RubricCriterionScore(BaseModel):
+    name: str = Field(description="Criterion name exactly as defined in the rubric")
+    score: int = Field(ge=1, le=100, description="Score from 1 to 100")
+    justification: str = Field(description="1-2 sentence justification for this score")
 
 
-REVIEW_SYSTEM_PROMPT = """You are a rigorous academic paper reviewer. You follow a structured pipeline to produce comprehensive reviews.
+class RubricRatingModel(BaseModel):
+    overall_score: int = Field(ge=1, le=100, description="Weighted average score 1-100")
+    confidence: str = Field(description="high, medium, or low")
+    confidence_reason: str = Field(description="Brief explanation of confidence level")
+    criteria: list[RubricCriterionScore] = Field(description="Per-criterion scores")
+    scoring_notes: str = Field(description="1-2 sentence overall assessment summary")
 
-Produce a single consolidated review that is thorough, evidence-based, and constructive. Never be dismissive.
+
+DEEP_REVIEW_SYSTEM_PROMPT = """You are a rigorous document reviewer specializing in academic and professional content. You follow a structured 7-stage pipeline to produce comprehensive, evidence-based reviews of papers, grants, proposals, deliverables, and other formal documents.
+
+Produce a single consolidated review that is thorough, evidence-based, and constructive. Never be dismissive. Adapt your evaluation criteria to the document type:
+- Papers: novelty, methodology, validity, reproducibility, clarity
+- Grants/Proposals: feasibility, impact, methodology, budget justification, innovation
+- Deliverables: completeness, quality, alignment with requirements, actionable insights
 """
 
 
-class PaperReviewAgent(BaseAgent):
-    name = "paper-review"
-    description = "Structured academic paper review pipeline producing a single consolidated review"
-    system_prompt = REVIEW_SYSTEM_PROMPT
+class DeepReviewer(BaseAgent):
+    name = "deep-reviewer"
+    description = "7-stage deep review pipeline (intake→structural→claims→literature→methodology→adversarial→synthesis). Heavy: 8-10 LLM calls, 130-150K tokens. Config-driven via system_prompt and skills."
+    system_prompt = DEEP_REVIEW_SYSTEM_PROMPT
 
     def _get_tool(self, name: str):
         for t in self.tools:
@@ -33,6 +55,21 @@ class PaperReviewAgent(BaseAgent):
         if hasattr(self.llm, "model"):
             return self.llm.model
         return ""
+
+    async def _invoke_with_usage(
+        self, state: AgentState | None, messages: list, accumulate: bool = True
+    ) -> AIMessage:
+        response = await self.llm.ainvoke(messages)
+        if accumulate and state is not None:
+            um = getattr(response, "usage_metadata", None) or {}
+            usage = {
+                "input_tokens": um.get("input_tokens", 0) or 0,
+                "output_tokens": um.get("output_tokens", 0) or 0,
+                "total_tokens": um.get("total_tokens", 0) or 0,
+            }
+            acc = state["context"].get("_usage", {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0})
+            state["context"]["_usage"] = {k: acc[k] + usage[k] for k in acc}
+        return response
 
     def build_graph(self) -> StateGraph:
         graph = StateGraph(AgentState)
@@ -58,6 +95,7 @@ class PaperReviewAgent(BaseAgent):
 
     async def _intake(self, state: AgentState) -> AgentState:
         paper_content = state["context"].get("paper_content", "")
+        from_context = bool(paper_content)
 
         if not paper_content:
             for msg in state["messages"]:
@@ -98,8 +136,11 @@ class PaperReviewAgent(BaseAgent):
 
         state["context"]["paper_content"] = paper_content
 
-        budgets = budget_for_stages()
-        paper_fitted = fit_to_budget(paper_content, budgets["paper_content"], label="intake")
+        if from_context:
+            paper_fitted = paper_content
+        else:
+            budgets = budget_for_stages()
+            paper_fitted = fit_to_budget(paper_content, budgets["paper_content"], label="intake")
 
         pdf_bytes = state["context"].get("pdf_bytes")
         model_name = self._get_model_name()
@@ -107,9 +148,9 @@ class PaperReviewAgent(BaseAgent):
 
         intake_prompt = f"""Stage 0: INTAKE
 
-Extract structured data: title, authors, abstract, paper type, key sections.
+Extract structured data: title, authors/creators, abstract/executive summary, document type, key sections, and domain.
 
-Paper content:
+Document content:
 {paper_fitted}"""
 
         if use_pdf:
@@ -123,7 +164,7 @@ Paper content:
                 HumanMessage(content=intake_prompt),
             ]
 
-        response = await self.llm.ainvoke(messages)
+        response = await self._invoke_with_usage(state, messages)
         state["context"]["intake"] = response.content
         return state
 
@@ -138,7 +179,7 @@ Evaluate IMRaD completeness, figure/table quality, references, writing quality. 
 {intake}"""),
         ]
 
-        response = await self.llm.ainvoke(messages)
+        response = await self._invoke_with_usage(state, messages)
         state["context"]["structural"] = response.content
         return state
 
@@ -153,7 +194,7 @@ List the top 5 claims and their evidence strength (Strong/Moderate/Weak/Unsuppor
 {intake}"""),
         ]
 
-        response = await self.llm.ainvoke(messages)
+        response = await self._invoke_with_usage(state, messages)
         state["context"]["claims"] = response.content
         return state
 
@@ -161,37 +202,28 @@ List the top 5 claims and their evidence strength (Strong/Moderate/Weak/Unsuppor
         claims = state["context"].get("claims", "")
         intake = state["context"].get("intake", "")
 
-        paper_content = state["context"].get("paper_content", "")
-        title_line = ""
-        for line in paper_content.split("\n")[:20]:
-            if len(line.strip()) > 10:
-                title_line = line.strip()[:80]
+        scholar_output = ""
+        for msg in state.get("messages", []):
+            text = msg.content if hasattr(msg, "content") else ""
+            if "--- PRIOR STAGE OUTPUTS ---" in text:
+                idx = text.find("--- PRIOR STAGE OUTPUTS ---")
+                scholar_output = text[idx:idx + 4000]
                 break
-
-        search_results = ""
-        search_tool = self._get_tool("search_papers")
-        if title_line:
-            try:
-                if search_tool:
-                    result = await search_tool.ainvoke({"query": title_line, "limit": 3})
-                else:
-                    from app.tools.search import search_papers
-                    result = await search_papers.ainvoke({"query": title_line, "limit": 3})
-                search_results = str(result)
-            except Exception:
-                search_results = "Search unavailable"
 
         messages = [
             SystemMessage(content=self.system_prompt),
             HumanMessage(content=f"""Stage 3: LITERATURE GROUNDING
 
 Assess literature coverage, baselines, novelty. Are key citations missing?
+Use the Scholar Agent's search results below to evaluate related work coverage.
 
 Claims: {claims}
-Search: {search_results}"""),
+
+Scholar Output (from prior stage):
+{scholar_output[:3000]}"""),
         ]
 
-        response = await self.llm.ainvoke(messages)
+        response = await self._invoke_with_usage(state, messages)
         state["context"]["literature"] = response.content
         return state
 
@@ -209,7 +241,7 @@ Intake: {intake}
 Claims: {claims}"""),
         ]
 
-        response = await self.llm.ainvoke(messages)
+        response = await self._invoke_with_usage(state, messages)
         state["context"]["methodology"] = response.content
         return state
 
@@ -227,9 +259,143 @@ Claims: {claims}
 Methodology: {methodology}"""),
         ]
 
-        response = await self.llm.ainvoke(messages)
+        response = await self._invoke_with_usage(state, messages)
         state["context"]["adversarial"] = response.content
         return state
+
+    def _build_rubric_prompt(self, rubric: RubricStandard) -> str:
+        criteria_block = "\n".join(
+            f"- {c.name} (weight: {int(c.weight * 100)}%): {c.description}\n"
+            f"  Anchors: {'; '.join(f'{k}: {v}' for k, v in c.anchors.items())}"
+            for c in rubric.criteria
+        )
+        return f"""RUBRIC EVALUATION
+
+You must evaluate this manuscript using the "{rubric.name}" rubric standard ({rubric.publisher}).
+
+Rate each criterion on a scale of 1-100, then compute the weighted overall score.
+
+Criteria:
+{criteria_block}
+
+OUTPUT FORMAT — You MUST respond with a single JSON code block. No text before or after.
+
+```json
+{{
+  "overall_score": <weighted average 1-100>,
+  "confidence": "<high|medium|low>",
+  "confidence_reason": "<brief explanation of confidence level>",
+  "criteria": [
+    {{"name": "<criterion name>", "score": <1-100>, "justification": "<1-2 sentence justification>"}},
+    ...
+  ],
+  "scoring_notes": "<1-2 sentence summary of the overall assessment>"
+}}
+```
+
+Scoring rules:
+- overall_score MUST be the weighted average: sum(criterion.score * criterion.weight) rounded to nearest integer
+- Each criterion score must be 1-100
+- Use the anchors above as calibration guides
+- confidence: high = full document text available + clear evidence; medium = partial content or ambiguous evidence; low = missing content or insufficient data
+"""
+
+    def _parse_rating_json(self, text: str) -> dict | None:
+        match = re.search(r"```json\s*\n(.*?)\n\s*```", text, re.DOTALL)
+        if not match:
+            match = re.search(r"\{[^{}]*\"overall_score\"[^{}]*\}", text, re.DOTALL)
+        if not match:
+            return None
+        try:
+            raw = match.group(1) if match.lastindex else match.group(0)
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+
+    def _validate_rating(self, rating: dict, rubric: RubricStandard) -> dict:
+        criteria = rating.get("criteria", [])
+        if not criteria or len(criteria) != len(rubric.criteria):
+            return rating
+
+        computed_total = 0.0
+        for rc in rubric.criteria:
+            matched = next((c for c in criteria if c.get("name") == rc.name), None)
+            if matched:
+                score = max(1, min(100, int(matched.get("score", 50))))
+                matched["score"] = score
+                matched["weight"] = rc.weight
+                computed_total += score * rc.weight
+
+        rating["overall_score"] = max(1, min(100, round(computed_total)))
+        return rating
+
+    def _build_rubric_messages(
+        self, rubric: RubricStandard, analyses: str, extra_instructions: str = ""
+    ) -> list:
+        base_prompt = self._build_rubric_prompt(rubric)
+        if extra_instructions:
+            base_prompt += f"\n\n{extra_instructions}"
+        return [
+            SystemMessage(content=self.system_prompt),
+            HumanMessage(content=f"{base_prompt}\n\nUse the following analyses to inform your evaluation:\n\n{analyses}"),
+        ]
+
+    async def _try_structured_output(
+        self, rubric: RubricStandard, analyses: str
+    ) -> dict | None:
+        try:
+            structured_llm = self.llm.with_structured_output(RubricRatingModel)
+            messages = self._build_rubric_messages(rubric, analyses)
+            result = await structured_llm.ainvoke(messages)
+            if isinstance(result, RubricRatingModel):
+                return result.model_dump()
+            return None
+        except Exception as e:
+            logger.debug(f"Structured output not supported or failed: {e}")
+            return None
+
+    async def _try_json_retry(
+        self, rubric: RubricStandard, analyses: str, max_retries: int = 3
+    ) -> dict | None:
+        retry_prompts = [
+            "",
+            "\n\nCRITICAL: Your previous response was NOT valid JSON. "
+            "You MUST respond with ONLY a JSON code block. No markdown, no explanation, no text outside the code block. "
+            "Start your response with ```json and end with ```.",
+            "\n\nSTRICT REQUIREMENT: You MUST output ONLY a JSON object inside a ```json code block. "
+            "Any text outside the JSON block will be rejected. "
+            "Do NOT write 'Here is the JSON' or any preamble. Start directly with ```json.",
+        ]
+        for attempt in range(max_retries):
+            messages = self._build_rubric_messages(rubric, analyses, retry_prompts[attempt])
+            response = await self._invoke_with_usage(None, messages, accumulate=False)
+            content = response.content if isinstance(response.content, str) else str(response.content)
+            rating = self._parse_rating_json(content)
+            if rating:
+                return rating
+            logger.warning(f"Rubric JSON parse failed on attempt {attempt + 1}/{max_retries}")
+        return None
+
+    async def _invoke_rubric_evaluation(
+        self, state: AgentState, rubric: RubricStandard, analyses: str
+    ) -> dict:
+        structured = await self._try_structured_output(rubric, analyses)
+        if structured:
+            logger.info("Rubric evaluation succeeded via structured output")
+            return self._validate_rating(structured, rubric)
+
+        logger.info("Structured output unavailable, falling back to JSON retry")
+        fallback = await self._try_json_retry(rubric, analyses)
+        if fallback:
+            return self._validate_rating(fallback, rubric)
+
+        return {
+            "overall_score": 0,
+            "confidence": "low",
+            "rubric_standard": rubric.name,
+            "criteria": [],
+            "scoring_notes": "Rating extraction failed after all attempts",
+        }
 
     async def _synthesis(self, state: AgentState) -> AgentState:
         intake = state["context"].get("intake", "")
@@ -239,35 +405,73 @@ Methodology: {methodology}"""),
         methodology = state["context"].get("methodology", "")
         adversarial = state["context"].get("adversarial", "")
 
-        synthesis_prompt = f"""SYNTHESIS
+        rubric_id = state["context"].get("rubric_standard", "general")
+        rubric = get_rubric_standard(rubric_id)
 
-Produce a single consolidated review of the paper that synthesizes the prior stages into actionable feedback for the authors.
+        analyses = f"""Intake: {intake}
 
-Inputs:
-- {intake}
-- {structural}
-- {claims}
-- {literature}
-- {methodology}
-- {adversarial}"""
+Structural Analysis: {structural}
+
+Claim Extraction: {claims}
+
+Literature Grounding: {literature}
+
+Methodology Verification: {methodology}
+
+Adversarial Red Team: {adversarial}"""
+
+        review_prompt = f"""SYNTHESIS — REVIEW DOCUMENT
+
+Using the analyses below, produce a single consolidated review in professional academic markdown.
+
+Use the following EXACT sections:
+
+## Executive Summary
+A 2-3 sentence overview of the document and the review verdict.
+
+## Strengths
+Numbered list of the document's key strengths with evidence from the analyses.
+
+## Weaknesses
+Numbered list of the document's key weaknesses with evidence from the analyses.
+
+## Detailed Analysis
+Subsections covering: Technical Soundness, Originality/Innovation, Significance/Impact, Clarity, Literature Grounding, Reproducibility/Feasibility. Each subsection should reference specific findings from the prior stages.
+
+## Recommendations
+Actionable, numbered improvement suggestions.
+
+## Verdict
+One of: Accept, Minor Revision, Major Revision, Reject. Include a 1-2 sentence justification.
+
+Do NOT include any JSON or score tables in this output. Focus on the qualitative review text.
+
+Analyses:
+{analyses}"""
 
         pdf_bytes = state["context"].get("pdf_bytes")
         model_name = self._get_model_name()
         use_pdf = pdf_bytes and model_supports_pdf(model_name)
 
         if use_pdf:
-            messages = [
+            review_messages = [
                 SystemMessage(content=self.system_prompt),
-                create_multimodal_human_message(pdf_bytes, synthesis_prompt),
+                create_multimodal_human_message(pdf_bytes, review_prompt),
             ]
         else:
-            messages = [
+            review_messages = [
                 SystemMessage(content=self.system_prompt),
-                HumanMessage(content=synthesis_prompt),
+                HumanMessage(content=review_prompt),
             ]
 
-        response = await self.llm.ainvoke(messages)
-        state["output"] = response.content
+        review_response = await self._invoke_with_usage(state, review_messages)
+        state["output"] = review_response.content
+
+        rating = await self._invoke_rubric_evaluation(state, rubric, analyses)
+        rating["rubric_standard"] = rubric.name
+        state["context"]["rating"] = rating
+
+        state["metadata"]["usage"] = state["context"].get("_usage", {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0})
         state["metadata"]["stages_completed"] = [
             "intake", "structural", "claims", "literature",
             "methodology", "adversarial", "synthesis",

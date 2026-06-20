@@ -12,6 +12,78 @@ from app.utils.pdf_model_support import extract_text_from_message_content
 logger = logging.getLogger(__name__)
 
 
+async def _expand_queries_with_llm(
+    llm: BaseChatModel,
+    base_queries: list[str],
+    message_content: str,
+    n_queries: int = 4,
+) -> list[str]:
+    """Ask the LLM for n_queries additional search queries (synonyms, related concepts).
+
+    The regex-based _extract_search_queries only sees the paper title + first abstract
+    sentence + keywords line. This step adds semantic breadth: domain synonyms, related
+    methodologies, broader/narrower topic variants — based on the full paper context.
+    Returns [] on any failure so the caller can fall back to the original queries.
+    """
+    if not base_queries or not llm:
+        return []
+
+    queries_block = "\n".join(f"- {q}" for q in base_queries[:6])
+    content_snip = (message_content or "")[:1500]
+
+    prompt = (
+        "You help expand academic search queries to find related work.\n\n"
+        f"Current queries extracted from the paper:\n{queries_block}\n\n"
+        f"Paper content snippet (first 1500 chars):\n{content_snip}\n\n"
+        f"Generate {n_queries} ADDITIONAL search queries that would find papers "
+        "related to this work. Focus on:\n"
+        "- Domain synonyms (e.g., 'machine learning' → 'statistical learning')\n"
+        "- Related concepts, methodologies, and techniques\n"
+        "- Broader/narrower scope variants of the topic\n"
+        "- Specific tools, datasets, or evaluation methods mentioned\n\n"
+        "Output ONLY the queries, one per line. No numbering, no bullets, no commentary. "
+        "Each query should be 3-8 words and search-friendly."
+    )
+
+    try:
+        response = await llm.ainvoke([HumanMessage(content=prompt)])
+        text = response.content if isinstance(response.content, str) else str(response.content)
+        cleaned: list[str] = []
+        for line in text.split("\n"):
+            c = line.strip().lstrip("0123456789.-) ").strip().strip("`\"'")
+            if not c or len(c) < 5 or len(c) > 120:
+                continue
+            if c.startswith(("#", "*", ">", "Here", "Output", "Sure", "Below", "Note")):
+                continue
+            if not (2 <= len(c.split()) <= 10):
+                continue
+            cleaned.append(c)
+        return cleaned[:n_queries]
+    except Exception as e:
+        logger.warning(f"_expand_queries_with_llm failed: {e}")
+        return []
+
+
+async def _resolve_to_recommendations(title: str) -> tuple[str | None, list]:
+    """Resolve a paper title to S2 paperId and fetch recommendations.
+
+    Returns (paperId_or_None, list_of_PaperResult). The paperId is returned
+    so callers can record which seed was used (useful for the synthesis prompt
+    and for debugging).
+    """
+    if not title or not title.strip():
+        return None, []
+    try:
+        pid = await semantic_scholar.resolve_paper_id(title)
+        if not pid:
+            return None, []
+        recs = await semantic_scholar.get_recommendations([pid], limit=20)
+        return pid, recs
+    except Exception as e:
+        logger.warning(f"_resolve_to_recommendations failed: {e}")
+        return None, []
+
+
 def _extract_paper_title(full_text: str) -> str:
     import re
 
@@ -205,29 +277,75 @@ class ScholarAgent(BaseAgent):
             paper_s2_id = state["context"].get("paper_s2_id")
             topic_query = state["context"].get("topic_query")
 
-            if paper_s2_id:
+            title = _extract_paper_title(message_content)
+            base_queries = _extract_search_queries(message_content)
+            tool_names = _extract_tool_names(message_content)
+            for tool_name in tool_names:
+                if tool_name.lower() not in [q.lower() for q in base_queries]:
+                    base_queries.append(tool_name)
+
+            # Run all three search strategies in parallel:
+            # 1. build_related_work (S2 citation graph) — best quality signal
+            # 2. LLM-expanded queries (synonyms/related concepts)
+            # 3. S2 recommendations (title→paperId→similar papers)
+            async def _build_related():
+                if not paper_s2_id:
+                    return []
                 try:
-                    related_results = await semantic_scholar.build_related_work(
+                    return await semantic_scholar.build_related_work(
                         paper_id=paper_s2_id,
                         topic_query=topic_query or _extract_paper_title(message_content),
                         limit=20,
                     )
-                    if related_results:
-                        state["context"]["search_results"] = related_results
-                        state["context"]["search_queries"] = [f"S2 related work for {paper_s2_id}"]
-                        return state
                 except Exception as e:
-                    logger.warning(f"build_related_work failed, falling back to keyword search: {e}")
+                    logger.warning(f"build_related_work failed: {e}")
+                    return []
 
-            queries = _extract_search_queries(message_content)
-            tool_names = _extract_tool_names(message_content)
+            related_results, expanded_queries, (s2_seed_id, recommendations) = await asyncio.gather(
+                _build_related(),
+                _expand_queries_with_llm(self.llm, base_queries, message_content),
+                _resolve_to_recommendations(title),
+            )
 
-            for tool_name in tool_names:
-                if tool_name.lower() not in [q.lower() for q in queries]:
-                    queries.append(tool_name)
+            # Merge expanded queries with base queries (deduped, capped at 12)
+            all_queries = list(base_queries)
+            seen_lower = {q.lower() for q in all_queries}
+            for q in expanded_queries:
+                if q.lower() not in seen_lower:
+                    all_queries.append(q)
+                    seen_lower.add(q.lower())
+            all_queries = all_queries[:12]
 
-            all_results = []
-            seen_titles = set()
+            all_results: list = []
+            seen_keys: set = set()
+
+            def _key(p):
+                if isinstance(p, dict):
+                    doi = p.get("doi")
+                    title_p = p.get("title", "")
+                else:
+                    doi = getattr(p, "doi", None)
+                    title_p = getattr(p, "title", "")
+                if doi:
+                    return ("doi", doi.lower())
+                return ("title", (title_p or "").lower().strip())
+
+            def _add(r):
+                k = _key(r)
+                if k[0] == "title" and len(k[1]) <= 5:
+                    return
+                if k in seen_keys:
+                    return
+                seen_keys.add(k)
+                all_results.append(r)
+
+            # Add build_related_work results first (highest quality — citation graph)
+            for r in related_results:
+                _add(r)
+
+            # Add S2 recommendations (second priority)
+            for r in recommendations or []:
+                _add(r)
 
             async def _search_one_source(q: str, source_name: str):
                 try:
@@ -243,7 +361,8 @@ class ScholarAgent(BaseAgent):
                     pass
                 return []
 
-            for q in queries:
+            # Fan-out: each query across all 4 sources
+            for q in all_queries:
                 results_by_source = await asyncio.gather(
                     _search_one_source(q, "s2"),
                     _search_one_source(q, "arxiv"),
@@ -252,18 +371,27 @@ class ScholarAgent(BaseAgent):
                 )
                 for source_results in results_by_source:
                     for r in source_results:
-                        title_lower = r.title.lower() if hasattr(r, 'title') else r.get('title', '').lower()
-                        if title_lower and title_lower not in seen_titles:
-                            seen_titles.add(title_lower)
-                            all_results.append(r)
+                        _add(r)
 
-            state["context"]["search_results"] = all_results[:20]
-            state["context"]["search_queries"] = queries
+            def _cites(p):
+                if isinstance(p, dict):
+                    return p.get("citation_count") or 0
+                return getattr(p, "citation_count", None) or 0
+
+            all_results.sort(key=_cites, reverse=True)
+            state["context"]["search_results"] = all_results[:30]
+            state["context"]["search_queries"] = all_queries
+            state["context"]["expanded_queries"] = expanded_queries
+            state["context"]["recommendations_seed_id"] = s2_seed_id
+            logger.info(f"search_papers: {len(all_results)} results, {len(all_queries)} queries ({len(expanded_queries)} expanded), seed={s2_seed_id}")
             return state
 
         async def synthesize(state: AgentState) -> AgentState:
             results = state["context"].get("search_results", [])
             queries_used = state["context"].get("search_queries", [])
+            expanded_used = state["context"].get("expanded_queries", [])
+            s2_seed_id = state["context"].get("recommendations_seed_id")
+            logger.info(f"synthesize: {len(results)} results, {len(queries_used)} queries, {len(expanded_used)} expanded, seed={s2_seed_id}")
             if not results:
                 state["output"] = "No papers found for your query."
                 return state
@@ -333,9 +461,17 @@ class ScholarAgent(BaseAgent):
 
             results_text = "\n\n".join(lines)
             queries_text = ", ".join(queries_used)
+            expanded_text = (
+                f"\nLLM-expanded queries (synonyms/related concepts): {', '.join(expanded_used)}"
+                if expanded_used else ""
+            )
+            seed_text = (
+                f"\nS2 recommendations seed paperId: {s2_seed_id}"
+                if s2_seed_id else ""
+            )
 
             synthesis_prompt = (
-                f"Search queries used: {queries_text}\n\n"
+                f"Search queries used: {queries_text}{expanded_text}{seed_text}\n\n"
                 f"Found {len(verified_results)} verified papers (out of {len(results)} total). "
                 f"Papers marked with ✓ have been verified in academic databases. "
                 f"ONLY cite papers marked with ✓ in your review.\n\n"
@@ -348,6 +484,17 @@ class ScholarAgent(BaseAgent):
                 self.system_prompt,
             )
             state["output"] = response.content
+            # Capture token usage from strategy
+            usage = getattr(response, "additional_kwargs", {}).get("usage")
+            if usage:
+                existing = state["context"].get("_usage", {})
+                if existing:
+                    usage = {
+                        "input_tokens": usage.get("input_tokens", 0) + existing.get("input_tokens", 0),
+                        "output_tokens": usage.get("output_tokens", 0) + existing.get("output_tokens", 0),
+                        "total_tokens": usage.get("total_tokens", 0) + existing.get("total_tokens", 0),
+                    }
+                state["context"]["_usage"] = usage
             return state
 
         graph.add_node("search_papers", search_papers)

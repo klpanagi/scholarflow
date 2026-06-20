@@ -5,6 +5,20 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
 
 
+def _extract_usage(response: AIMessage) -> dict[str, int]:
+    """Extract token counts from an AIMessage's usage_metadata."""
+    um = getattr(response, "usage_metadata", None) or {}
+    return {
+        "input_tokens": um.get("input_tokens", 0) or 0,
+        "output_tokens": um.get("output_tokens", 0) or 0,
+        "total_tokens": um.get("total_tokens", 0) or 0,
+    }
+
+
+def _merge_usage(acc: dict[str, int], usage: dict[str, int]) -> dict[str, int]:
+    return {k: acc[k] + usage[k] for k in acc}
+
+
 class AgentStrategy(ABC):
     @abstractmethod
     async def execute(
@@ -28,8 +42,11 @@ class DirectStrategy(AgentStrategy):
         all_messages = [SystemMessage(content=system_prompt)] + messages
         if tools:
             llm_with_tools = llm.bind_tools(tools)
-            return await llm_with_tools.ainvoke(all_messages)
-        return await llm.ainvoke(all_messages)
+            response = await llm_with_tools.ainvoke(all_messages)
+        else:
+            response = await llm.ainvoke(all_messages)
+        response.additional_kwargs["usage"] = _extract_usage(response)
+        return response
 
 
 class CritiqueStrategy(AgentStrategy):
@@ -45,6 +62,7 @@ class CritiqueStrategy(AgentStrategy):
     ) -> AIMessage:
         all_messages = [SystemMessage(content=system_prompt)] + messages
         response = await llm.ainvoke(all_messages)
+        acc = _extract_usage(response)
 
         critique_prompt = (
             "Review the response above. Identify any weaknesses, inaccuracies, "
@@ -57,13 +75,16 @@ class CritiqueStrategy(AgentStrategy):
                 HumanMessage(content=critique_prompt),
             ]
             critique = await llm.ainvoke(critique_messages)
+            acc = _merge_usage(acc, _extract_usage(critique))
 
             improve_messages = all_messages + [
                 response,
                 HumanMessage(content=f"Based on this critique, improve your response:\n\n{critique.content}"),
             ]
             response = await llm.ainvoke(improve_messages)
+            acc = _merge_usage(acc, _extract_usage(response))
 
+        response.additional_kwargs["usage"] = acc
         return response
 
 
@@ -80,6 +101,7 @@ class ReflectionStrategy(AgentStrategy):
     ) -> AIMessage:
         all_messages = [SystemMessage(content=system_prompt)] + messages
         response = await llm.ainvoke(all_messages)
+        acc = _extract_usage(response)
 
         for _ in range(self.max_iterations):
             reflection_prompt = (
@@ -89,7 +111,9 @@ class ReflectionStrategy(AgentStrategy):
             )
             reflection_messages = all_messages + [HumanMessage(content=reflection_prompt)]
             response = await llm.ainvoke(reflection_messages)
+            acc = _merge_usage(acc, _extract_usage(response))
 
+        response.additional_kwargs["usage"] = acc
         return response
 
 
@@ -107,6 +131,7 @@ class EvaluatorOptimizerStrategy(AgentStrategy):
     ) -> AIMessage:
         all_messages = [SystemMessage(content=system_prompt)] + messages
         current_best = await llm.ainvoke(all_messages)
+        acc = _extract_usage(current_best)
 
         for _ in range(self.max_iterations):
             eval_prompt = (
@@ -116,6 +141,7 @@ class EvaluatorOptimizerStrategy(AgentStrategy):
             )
             eval_messages = all_messages + [HumanMessage(content=eval_prompt)]
             eval_response = await llm.ainvoke(eval_messages)
+            acc = _merge_usage(acc, _extract_usage(eval_response))
 
             try:
                 score = float(eval_response.content.strip())
@@ -131,7 +157,9 @@ class EvaluatorOptimizerStrategy(AgentStrategy):
             )
             optimize_messages = all_messages + [HumanMessage(content=optimize_prompt)]
             current_best = await llm.ainvoke(optimize_messages)
+            acc = _merge_usage(acc, _extract_usage(current_best))
 
+        current_best.additional_kwargs["usage"] = acc
         return current_best
 
 
