@@ -292,6 +292,9 @@ class RevisionMessage(Base):
     role = Column(String(50), nullable=False)
     content = Column(Text, nullable=False)
     extra_metadata = Column("metadata", JSON, nullable=True)
+    file_key = Column(String(500), nullable=True)
+    file_name = Column(String(255), nullable=True)
+    parent_message_id = Column(UUID(as_uuid=True), ForeignKey("revision_messages.id", ondelete="SET NULL"), nullable=True)
     timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     session = relationship("RevisionSession", back_populates="messages")

@@ -416,7 +416,15 @@ class RevisionMessageResponse(BaseModel):
     role: str
     content: str
     extra_metadata: Optional[dict] = None
+    file_key: Optional[str] = None
+    file_name: Optional[str] = None
+    parent_message_id: Optional[UUID] = None
     timestamp: datetime
 
     class Config:
         from_attributes = True
+
+
+class RevisionFileUploadResponse(BaseModel):
+    file_key: str
+    file_name: str
