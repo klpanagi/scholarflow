@@ -182,6 +182,39 @@ class SemanticScholarAPI:
                 reverse=True,
             )
 
+    async def resolve_paper_id(
+        self, title: str, user_api_key: str | None = None
+    ) -> Optional[str]:
+        """Resolve a paper title to its Semantic Scholar paperId via /paper/search/match.
+
+        Returns the paperId string, or None if no match is found.
+        This is the bridge that lets us feed free-text titles into the S2
+        Recommendations API (which requires S2 paper IDs).
+        """
+        if not title or not title.strip():
+            return None
+        headers = self._headers(user_api_key)
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    f"{self.BASE_URL}/paper/search/match",
+                    params={"query": title, "fields": "paperId,title"},
+                    headers=headers,
+                    timeout=20.0,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    matches = data.get("data") or []
+                    if matches:
+                        return matches[0].get("paperId")
+                if resp.status_code == 429:
+                    logger.warning("S2 search/match 429; skipping resolve")
+                else:
+                    logger.warning(f"S2 search/match failed {resp.status_code}: {resp.text[:200]}")
+        except Exception as e:
+            logger.warning(f"S2 search/match error: {e}")
+        return None
+
     async def build_related_work(
         self,
         paper_id: str,
