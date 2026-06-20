@@ -397,101 +397,29 @@ async def stream_revision_message(
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
-@router.post("/sessions/{session_id}/messages", response_model=RevisionMessageResponse)
-async def send_revision_message(
+@router.post("/sessions/{session_id}/messages")
+async def send_revision_message_DEPRECATED(
     session_id: uuid.UUID,
     data: RevisionMessageCreate,
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    from app.agents.factory import create_agent
-    from app.models import AgentRole
-    from langchain_core.messages import HumanMessage as LCHumanMessage, AIMessage as LCAIMessage
+    import logging
 
-    result = await db.execute(
-        select(RevisionSession)
-        .where(
-            RevisionSession.id == session_id,
-            RevisionSession.user_id == user_id,
-        )
-        .options(selectinload(RevisionSession.workflow_execution))
-    )
-    session = result.scalar_one_or_none()
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    user_msg = RevisionMessage(
-        id=uuid.uuid4(),
-        revision_session_id=session_id,
-        role="user",
-        content=data.content,
-    )
-    db.add(user_msg)
-    await db.flush()
-
-    workflow_result = await _build_workflow_context(db, session.workflow_execution)
-
-    history_result = await db.execute(
-        select(RevisionMessage)
-        .where(RevisionMessage.revision_session_id == session_id)
-        .order_by(RevisionMessage.timestamp)
-    )
-    history = history_result.scalars().all()
-
-    messages = [LCHumanMessage(content=f"DOCUMENT CONTEXT:\n{workflow_result}\n\n")]
-    for m in history:
-        if m.role == "user":
-            messages.append(LCHumanMessage(content=m.content))
-        elif m.role == "assistant":
-            messages.append(LCAIMessage(content=m.content))
-    messages.append(LCHumanMessage(content=data.content))
-
-    agent_config = None
-    if session.agent_config_id:
-        cfg_result = await db.execute(
-            select(AgentConfig).where(AgentConfig.id == session.agent_config_id)
-        )
-        agent_config = cfg_result.scalar_one_or_none()
-
-    if agent_config:
-        agent = create_agent(
-            agent_type=AgentRole.REVISION.value,
-            model=agent_config.model,
-            provider=agent_config.provider,
-            strategy=agent_config.strategy.value if agent_config.strategy else "direct",
-            system_prompt=agent_config.system_prompt,
-            tools=agent_config.tools or [],
-            temperature=agent_config.temperature,
-            max_tokens=agent_config.max_tokens,
-        )
-    else:
-        agent = create_agent(
-            agent_type=AgentRole.REVISION.value,
-            model="google/gemma-4-31b-it:free",
-            provider="openrouter",
-            strategy="direct",
-        )
-
-    agent_result = await agent.run(
-        messages=messages,
-        context={"workflow_result": workflow_result, "session_id": str(session_id)},
-        thread_id=f"revision-{session_id}",
+    logging.getLogger(__name__).warning(
+        f"Deprecated /messages endpoint called: session={session_id}, user={user_id}"
     )
 
-    assistant_content = agent_result.get("output", "")
-    if not assistant_content:
-        assistant_content = "I apologize, but I was unable to generate a revision. Please try again."
+    from fastapi.responses import JSONResponse
 
-    assistant_msg = RevisionMessage(
-        id=uuid.uuid4(),
-        revision_session_id=session_id,
-        role="assistant",
-        content=assistant_content,
-        extra_metadata={"agent_type": AgentRole.REVISION.value},
+    return JSONResponse(
+        status_code=410,
+        content={
+            "detail": "This endpoint is deprecated. Use POST /stream for SSE streaming responses."
+        },
+        headers={
+            "Deprecation": "true",
+            "Sunset": "2026-09-01",
+            "Link": f'</api/revisions/sessions/{session_id}/stream>; rel="successor-version"',
+        },
     )
-    db.add(assistant_msg)
-    session.updated_at = datetime.now(timezone.utc)
-    await db.commit()
-    await db.refresh(assistant_msg)
-
-    return assistant_msg
