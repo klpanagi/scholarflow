@@ -1,0 +1,117 @@
+{
+  "schema_version": "1.0",
+  "papers": [
+    {
+      "paper_id": "doi:10.1109/CVPR.2016.90",
+      "doi": "10.1109/CVPR.2016.90",
+      "arxiv_id": null,
+      "title": "Deep Residual Learning for Image Recognition",
+      "authors": ["Kaiming He", "Xiangyu Zhang", "Shaoqing Ren", "Jian Sun"],
+      "year": 2016,
+      "venue": "IEEE Conference on Computer Vision and Pattern Recognition",
+      "citation_count": 145000,
+      "abstract": "Deeper neural networks are more difficult to train. We present a residual learning framework to ease the training of substantially deeper networks. Our method won 1st place in the ILSVRC 2015 classification task.",
+      "sources": [
+        {
+          "source": "semantic_scholar",
+          "matched_in": ["title", "abstract"],
+          "fetched_at": "2026-06-21T10:00:00",
+          "raw_id": "doi:10.1109/CVPR.2016.90"
+        }
+      ],
+      "relevance_score": 0.95,
+      "recency_score": 0.30,
+      "final_rank": 0
+    },
+    {
+      "paper_id": "arxiv:1706.03762",
+      "doi": null,
+      "arxiv_id": "1706.03762",
+      "title": "Attention Is All You Need",
+      "authors": ["Ashish Vaswani", "Noam Shazeer", "Niki Parmar", "Jakob Uszkoreit", "Llion Jones", "Aidan N. Gomez", "Lukasz Kaiser", "Illia Polosukhin"],
+      "year": 2017,
+      "venue": null,
+      "citation_count": 0,
+      "abstract": null,
+      "sources": [
+        {
+          "source": "arxiv",
+          "matched_in": ["title"],
+          "fetched_at": "2026-06-21T11:00:00",
+          "raw_id": "1706.03762"
+        }
+      ],
+      "relevance_score": 0.85,
+      "recency_score": 0.35,
+      "final_rank": 1
+    },
+    {
+      "paper_id": "W2745744944",
+      "doi": "10.1038/s41586-020-2649-2",
+      "arxiv_id": "2005.14165",
+      "title": "Language Models are Few-Shot Learners",
+      "authors": ["Tom Brown", "Benjamin Mann", "Nick Ryder", "Melanie Subbiah", "Jared Kaplan", "Prafulla Dhariwal", "Neelakantan et al."],
+      "year": 2020,
+      "venue": "NeurIPS 2020",
+      "citation_count": 35000,
+      "abstract": "We demonstrate that scaling up language models greatly improves task-agnostic few-shot performance, sometimes reaching competitiveness with prior state-of-the-art fine-tuning approaches.",
+      "sources": [
+        {
+          "source": "semantic_scholar",
+          "matched_in": ["title", "abstract"],
+          "fetched_at": "2026-06-21T10:30:00",
+          "raw_id": "doi:10.1038/s41586-020-2649-2"
+        },
+        {
+          "source": "openalex",
+          "matched_in": ["title", "venue"],
+          "fetched_at": "2026-06-21T10:31:00",
+          "raw_id": "W2745744944"
+        }
+      ],
+      "relevance_score": 0.90,
+      "recency_score": 0.45,
+      "final_rank": 2
+    }
+  ],
+  "gaps": [
+    {
+      "concept_a": "efficient attention",
+      "concept_b": "low-resource languages",
+      "gap_score": 0.68,
+      "supporting_papers": ["doi:10.1109/CVPR.2016.90", "arxiv:1706.03762"],
+      "confidence": "medium",
+      "description": "Efficient attention mechanisms have not been systematically evaluated for low-resource language processing tasks."
+    }
+  ],
+  "methodologies": [
+    {
+      "paper_id": "arxiv:1706.03762",
+      "method_name": "Multi-Head Attention",
+      "dataset": "WMT 2014 English-German",
+      "metrics": ["BLEU"],
+      "baseline_methods": ["LSTM", "RNN Encoder-Decoder"],
+      "result": "28.4 BLEU",
+      "confidence": "high"
+    }
+  ],
+  "search_metadata": {
+    "query": "deep learning residual networks",
+    "seed_paper_id": null,
+    "sources_queried": ["semantic_scholar", "arxiv", "openalex", "crossref"],
+    "sources_succeeded": ["semantic_scholar", "arxiv", "openalex"],
+    "sources_failed": [
+      {
+        "source": "crossref",
+        "reason": "HTTP 503 Service Unavailable"
+      }
+    ],
+    "total_papers_found": 15,
+    "papers_after_dedup": 3,
+    "execution_time_ms": 2345,
+    "llm_tokens_used": 890,
+    "estimated_cost_usd": 0.0045
+  },
+  "generated_at": "2026-06-21T12:34:56",
+  "legacy_search_results": null
+}
