@@ -74,6 +74,12 @@ const stageStatusMap: Record<string, StageStatusConfig> = {
     badgeClass: "bg-muted text-muted-foreground border-border",
     label: "Skipped",
   },
+  cancelled: {
+    icon: XCircle,
+    iconClass: "text-gray-400 dark:text-gray-500",
+    badgeClass: "bg-muted text-muted-foreground border-border",
+    label: "Cancelled",
+  },
 };
 
 export function getStatusConfig(status: string): StageStatusConfig {
@@ -83,10 +89,20 @@ export function getStatusConfig(status: string): StageStatusConfig {
 /* ── execution-level status badge ───────────────────── */
 
 export const executionStatusStyles: Record<string, string> = {
+  running:
+    "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400 border-blue-200 dark:border-blue-800",
+  pending:
+    "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400 border-blue-200 dark:border-blue-800",
+  cancelling:
+    "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400 border-amber-200 dark:border-amber-800",
   completed:
     "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800",
   partial:
     "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400 border-amber-200 dark:border-amber-800",
+  cancelled:
+    "bg-gray-100 text-gray-700 dark:bg-gray-900/40 dark:text-gray-400 border-gray-200 dark:border-gray-800",
   failed:
+    "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400 border-red-200 dark:border-red-800",
+  error:
     "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400 border-red-200 dark:border-red-800",
 };

@@ -12,6 +12,8 @@ import {
   ArrowRight,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   FlaskConical,
   LayoutGrid,
@@ -39,6 +41,22 @@ interface Asset {
   abstract?: string;
   authors?: string[];
   year?: number;
+}
+
+const ROLE_COMPATIBILITY: Record<string, string[]> = {
+  reviewer: ["reviewer", "deep_reviewer"],
+  writer: ["writer", "manager"],
+  researcher: ["researcher"],
+  recommender: ["recommender"],
+  debater: ["debater"],
+  manager: ["manager", "writer"],
+  revision: ["revision"],
+  deep_reviewer: ["deep_reviewer", "reviewer"],
+};
+
+function isRoleCompatible(configRole: string, stageRole: string): boolean {
+  const allowed = ROLE_COMPATIBILITY[stageRole] ?? [stageRole];
+  return allowed.includes(configRole);
 }
 
 function AssetSelector({
@@ -207,17 +225,21 @@ function WorkflowDialog({
   userConfigs: AgentConfig[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onExecute: (id: string, customPrompt: string, assetId?: string, assignments?: Record<string, string>) => void;
+  onExecute: (id: string, customPrompt: string, assetId?: string, assignments?: Record<string, string>, includeFullPaper?: boolean, rubricStandard?: string, reviewText?: string) => void;
   isExecuting: boolean;
 }) {
   const [customPrompt, setCustomPrompt] = useState("");
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [assignments, setAssignments] = useState<Record<string, string>>({});
+  const [includeFullPaper, setIncludeFullPaper] = useState(true);
+  const [rubricStandard, setRubricStandard] = useState("general");
+  const [reviewText, setReviewText] = useState("");
 
   useEffect(() => {
     if (open) {
       setCustomPrompt("");
       setSelectedAssetId(null);
+      setReviewText("");
     }
   }, [open, workflow.id]);
 
@@ -226,7 +248,7 @@ function WorkflowDialog({
     let changed = false;
     workflow.stages.forEach((stage) => {
       if (!newAssignments[stage.id]) {
-        const availableConfigs = userConfigs.filter((c) => c.role === stage.role);
+        const availableConfigs = userConfigs.filter((c) => isRoleCompatible(c.role, stage.role));
         if (availableConfigs.length > 0) {
           const nameMatch = availableConfigs.find(
             (c) => c.name.toLowerCase() === stage.agent.toLowerCase()
@@ -261,11 +283,16 @@ function WorkflowDialog({
       return;
     }
 
-    onExecute(workflow.id, customPrompt, selectedAssetId || undefined, assignments);
+    if (workflow.id === "review-debate" && !reviewText.trim()) {
+      return;
+    }
+
+    onExecute(workflow.id, customPrompt, selectedAssetId || undefined, assignments, includeFullPaper, rubricStandard, reviewText);
     onOpenChange(false);
   };
 
   const isMissingAssignments = workflow.stages.some((stage) => !assignments[stage.id]);
+  const isMissingReview = workflow.id === "review-debate" && !reviewText.trim();
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -306,7 +333,7 @@ function WorkflowDialog({
             <p className="text-sm font-medium">Agent Assignments</p>
             <div className="grid gap-3">
               {workflow.stages.map((stage, index) => {
-                const availableConfigs = userConfigs.filter((c) => c.role === stage.role);
+                const availableConfigs = userConfigs.filter((c) => isRoleCompatible(c.role, stage.role));
                 return (
                   <div key={stage.id} className="flex items-center justify-between gap-4">
                     <div className="text-sm font-medium min-w-24 capitalize">Step {index + 1} ({stage.role}):</div>
@@ -345,6 +372,57 @@ function WorkflowDialog({
               onSelect={handleAssetSelect}
             />
 
+            {selectedAssetId && (
+              <div className="flex items-center gap-2 mt-2">
+                <input
+                  type="checkbox"
+                  id="include-full-paper"
+                  checked={includeFullPaper}
+                  onChange={(e) => setIncludeFullPaper(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                <label htmlFor="include-full-paper" className="text-sm text-muted-foreground">
+                  Include full paper text in review (slower, more thorough)
+                </label>
+              </div>
+            )}
+
+            {workflow.id === "paper-review" && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Rating Rubric Standard</label>
+                <select
+                  className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                  value={rubricStandard}
+                  onChange={(e) => setRubricStandard(e.target.value)}
+                >
+                  <option value="general">General (balanced)</option>
+                  <option value="ieee">IEEE (CS/Engineering)</option>
+                  <option value="acm">ACM (Software focus)</option>
+                  <option value="nature">Nature/Science (High-impact)</option>
+                  <option value="medical">Medical (CONSORT)</option>
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  Determines the scoring criteria and weights for the Overall Manuscript Rating.
+                </p>
+              </div>
+            )}
+
+            {workflow.id === "review-debate" && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Review to Debate *</label>
+                <p className="text-xs text-muted-foreground">
+                  Paste the existing review text that should be debated against the paper. The agents will analyze both the paper and this review.
+                </p>
+                <Textarea
+                  placeholder="Paste the review to analyze and debate here..."
+                  value={reviewText}
+                  onChange={(e) => setReviewText(e.target.value)}
+                  rows={6}
+                  className="font-mono text-xs"
+                />
+              </div>
+            )}
+
             <label className="text-sm font-medium">Custom Instructions (optional)</label>
             <p className="text-xs text-muted-foreground -mt-2">
               Add specific instructions for the agents. If an asset is selected, these instructions will be
@@ -359,7 +437,7 @@ function WorkflowDialog({
 
             <Button
               onClick={handleExecute}
-              disabled={isExecuting || isMissingAssignments}
+              disabled={isExecuting || isMissingAssignments || isMissingReview}
               className="w-full"
             >
               {isExecuting ? (
@@ -383,11 +461,14 @@ function WorkflowDialog({
 
 
 
+const ITEMS_PER_PAGE = 5;
+
 export default function WorkflowsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState("execute");
   const [dialogWorkflow, setDialogWorkflow] = useState<Workflow | null>(null);
+  const [page, setPage] = useState(1);
 
   const { data: assetsData } = useQuery({
     queryKey: ["assets"],
@@ -411,6 +492,14 @@ export default function WorkflowsPage() {
     queryFn: async () => {
       const { data } = await api.get("/workflows/results");
       return data || [];
+    },
+    refetchInterval: (query) => {
+      const executions = query.state.data as WorkflowExecution[] | undefined;
+      if (!executions) return false;
+      const hasRunning = executions.some(
+        (e) => e.status === "running" || e.status === "pending" || e.status === "cancelling"
+      );
+      return hasRunning ? 3000 : false;
     },
   });
 
@@ -454,27 +543,37 @@ export default function WorkflowsPage() {
       customPrompt,
       assetId,
       agentAssignments,
+      includeFullPaper,
+      rubricStandard,
+      reviewText,
     }: {
       workflowId: string;
       customPrompt: string;
       assetId?: string;
       agentAssignments?: Record<string, string>;
+      includeFullPaper?: boolean;
+      rubricStandard?: string;
+      reviewText?: string;
     }) => {
       const { data } = await api.post("/workflows/execute", {
         workflow_id: workflowId,
         input: customPrompt || null,
         paper_id: assetId || null,
         agent_assignments: agentAssignments,
+        include_full_paper: includeFullPaper ?? true,
+        rubric_standard: rubricStandard || "general",
+        review_text: reviewText || null,
       });
-      return data as WorkflowExecution;
+      return data;
     },
     onSuccess: () => {
       setActiveTab("results");
-      toast({ title: "Workflow completed", description: "View the results in the Results tab." });
+      queryClient.invalidateQueries({ queryKey: ["workflow-results"] });
+      toast({ title: "Workflow started", description: "Progress is shown in the Results tab." });
     },
     onError: (error: any) => {
       toast({
-        title: "Workflow failed",
+        title: "Workflow failed to start",
         description: error.response?.data?.detail || "Something went wrong",
         variant: "destructive",
       });
@@ -483,6 +582,13 @@ export default function WorkflowsPage() {
 
   const sortedExecutions = [...pastExecutions].sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+
+  const totalPages = Math.max(1, Math.ceil(sortedExecutions.length / ITEMS_PER_PAGE));
+  const safePage = Math.min(page, totalPages);
+  const paginatedExecutions = sortedExecutions.slice(
+    (safePage - 1) * ITEMS_PER_PAGE,
+    safePage * ITEMS_PER_PAGE
   );
 
   return (
@@ -607,7 +713,7 @@ export default function WorkflowsPage() {
                 </Button>
               </div>
               <div className="space-y-3">
-                {sortedExecutions.map((exec) => (
+                {paginatedExecutions.map((exec) => (
                   <ExecutionResultCard
                     key={exec.id}
                     execution={exec}
@@ -615,6 +721,33 @@ export default function WorkflowsPage() {
                   />
                 ))}
               </div>
+              {totalPages > 1 && (
+                <div className="flex items-center justify-center gap-2 pt-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1"
+                    disabled={safePage <= 1}
+                    onClick={() => setPage((p) => p - 1)}
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                    Prev
+                  </Button>
+                  <span className="text-sm text-muted-foreground tabular-nums px-2">
+                    Page {safePage} of {totalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1"
+                    disabled={safePage >= totalPages}
+                    onClick={() => setPage((p) => p + 1)}
+                  >
+                    Next
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </TabsContent>
@@ -628,12 +761,15 @@ export default function WorkflowsPage() {
           userConfigs={userConfigs}
           open={!!dialogWorkflow}
           onOpenChange={(open) => { if (!open) setDialogWorkflow(null); }}
-          onExecute={(id, customPrompt, assetId, assignments) =>
+          onExecute={(id, customPrompt, assetId, assignments, includeFullPaper, rubricStandard, reviewText) =>
             executeMutation.mutate({
               workflowId: id,
               customPrompt,
               assetId,
               agentAssignments: assignments,
+              includeFullPaper,
+              rubricStandard,
+              reviewText,
             })
           }
           isExecuting={

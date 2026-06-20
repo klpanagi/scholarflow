@@ -5,6 +5,7 @@ import {
   FlaskConical,
   Users,
   BookOpen,
+  MessageSquare,
 } from "lucide-react";
 
 export interface WorkflowStage {
@@ -26,12 +27,40 @@ export interface Workflow {
   inputLabel: string;
 }
 
+export interface StageUsage {
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  model: string;
+  cost_usd: number;
+}
+
+export interface RubricCriterion {
+  name: string;
+  weight: number;
+  score: number;
+  justification: string;
+}
+
+export interface ManuscriptRating {
+  overall_score: number;
+  confidence: "high" | "medium" | "low";
+  confidence_reason?: string;
+  rubric_standard: string;
+  criteria: RubricCriterion[];
+  scoring_notes?: string;
+}
+
 export interface WorkflowExecutionStage {
   agent_role?: string;
   agent_name?: string;
   status: string;
   output: string;
-  metadata?: Record<string, any>;
+  rating?: ManuscriptRating;
+  metadata?: Record<string, any> & {
+    usage?: StageUsage;
+    duration_seconds?: number;
+  };
 }
 
 export interface WorkflowExecution {
@@ -52,7 +81,7 @@ export const WORKFLOWS: Workflow[] = [
     id: "paper-review",
     name: "Paper Review Pipeline",
     description:
-      "A rigorous 7-stage review process that evaluates papers for novelty, technical rigor, reproducibility, and presentation quality.",
+      "A rigorous 4-stage review process: literature search, in-depth review, structured debate between paper and review, and final polished peer review document.",
     useCase:
       "Use when you need a comprehensive review of a research paper before submission or to evaluate a paper for a journal/conference.",
     inputPlaceholder: "Paste the paper abstract or provide a brief description...",
@@ -76,11 +105,20 @@ export const WORKFLOWS: Workflow[] = [
         color: "bg-red-500",
       },
       {
+        id: "debate-review",
+        agent: "Debate Agent",
+        role: "debater",
+        description:
+          "Run a structured debate: defend the paper against criticisms, evaluate each defense, and produce a balanced synthesis with final recommendation.",
+        icon: <MessageSquare className="h-5 w-5" />,
+        color: "bg-amber-500",
+      },
+      {
         id: "refine-review",
-        agent: "Academic Writer",
+        agent: "Paper Review Writer",
         role: "writer",
         description:
-          "Refine review into constructive feedback. Generate response-to-authors.md with actionable suggestions.",
+          "Produce the final polished peer review document with reviewer summary, related work analysis, and response to authors with recommendation.",
         icon: <FileText className="h-5 w-5" />,
         color: "bg-green-500",
       },
@@ -108,7 +146,7 @@ export const WORKFLOWS: Workflow[] = [
       {
         id: "design-methodology",
         agent: "Research Methodologist",
-        role: "researcher",
+        role: "manager",
         description:
           "Design experimental methodology, plan data collection, create FAIR data management plan.",
         icon: <FlaskConical className="h-5 w-5" />,
@@ -126,7 +164,7 @@ export const WORKFLOWS: Workflow[] = [
       {
         id: "create-artifacts",
         agent: "Project Manager",
-        role: "researcher",
+        role: "manager",
         description:
           "Create WBS, Gantt charts, risk register. Ensure EU compliance, IP strategy, exploitation plan.",
         icon: <Users className="h-5 w-5" />,
@@ -195,7 +233,7 @@ export const WORKFLOWS: Workflow[] = [
       {
         id: "create-framework",
         agent: "Project Manager",
-        role: "researcher",
+        role: "manager",
         description:
           "Create WBS, Gantt, RACI. Track KPIs, milestones. Coordinate consortium. Handle periodic reporting.",
         icon: <Users className="h-5 w-5" />,
@@ -209,6 +247,45 @@ export const WORKFLOWS: Workflow[] = [
           "Review deliverables for quality. Ensure compliance with EU requirements. Check exploitation plans.",
         icon: <Shield className="h-5 w-5" />,
         color: "bg-red-500",
+      },
+    ],
+  },
+  {
+    id: "review-debate",
+    name: "Review Debate",
+    description:
+      "Debate a paper review: defend the paper against criticisms, evaluate defenses, and synthesize a balanced verdict.",
+    useCase:
+      "Use when you have a paper and a review, and want to systematically debate the review's criticisms before deciding on revisions.",
+    inputPlaceholder: "Paste the paper content or provide a paper ID...",
+    inputLabel: "Paper & Review",
+    stages: [
+      {
+        id: "defend-paper",
+        agent: "Debater",
+        role: "debater",
+        description:
+          "Defend the paper against each criticism with evidence from the paper.",
+        icon: <Shield className="h-5 w-5" />,
+        color: "bg-blue-500",
+      },
+      {
+        id: "defend-review",
+        agent: "Debater",
+        role: "debater",
+        description:
+          "Evaluate whether each defense is substantiated by the paper's evidence.",
+        icon: <MessageSquare className="h-5 w-5" />,
+        color: "bg-amber-500",
+      },
+      {
+        id: "synthesize-debate",
+        agent: "Debater",
+        role: "debater",
+        description:
+          "Neutral synthesis of both positions into a balanced final recommendation.",
+        icon: <FileText className="h-5 w-5" />,
+        color: "bg-green-500",
       },
     ],
   },

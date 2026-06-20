@@ -64,8 +64,12 @@ interface Skill {
 const ROLES = [
   { value: "researcher", label: "Researcher" },
   { value: "writer", label: "Writer" },
-  { value: "reviewer", label: "Reviewer" },
+  { value: "reviewer", label: "Reviewer (Simple)" },
+  { value: "deep_reviewer", label: "Reviewer (Deep — 7-stage)" },
+  { value: "debater", label: "Debater" },
   { value: "recommender", label: "Recommender" },
+  { value: "manager", label: "Manager" },
+  { value: "revision", label: "Revision" },
 ]
 
 const STRATEGIES = [
