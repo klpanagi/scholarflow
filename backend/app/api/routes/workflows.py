@@ -697,6 +697,7 @@ async def _run_stage(
     topic_query: str | None = None,
     paper_content: str | None = None,
     rubric_standard: str = "general",
+    research_dossier=None,
 ) -> dict:
     config = await _get_user_config_by_id(db, user_id, config_id)
     if not config:
@@ -752,6 +753,8 @@ async def _run_stage(
         agent_context["paper_content"] = paper_content
     if rubric_standard:
         agent_context["rubric_standard"] = rubric_standard
+    if research_dossier:
+        agent_context["research_dossier"] = research_dossier
 
     max_retries = 3
     last_error = None
@@ -779,6 +782,7 @@ async def _run_stage(
             metadata["agent_name"] = config.name
 
             rating = result.get("context", {}).get("rating")
+            dossier = result.get("context", {}).get("research_dossier")
 
             if not rating and rubric_standard and rubric_standard != "none":
                 review_text = result.get("output", "")
@@ -807,6 +811,7 @@ async def _run_stage(
                 "output": _sanitize_output(result.get("output", "")),
                 "metadata": metadata,
                 "rating": rating,
+                "research_dossier": dossier,
             }
         except asyncio.TimeoutError:
             logger.warning(f"Stage for role {stage_def['role']} timed out after {STAGE_TIMEOUT_SECONDS}s")
@@ -1033,6 +1038,7 @@ async def _run_workflow_background(
         async with AsyncSessionLocal() as db:
             stage_results = []
             prior_findings = []
+            current_dossier = None
 
             for i, stage_def in enumerate(workflow["stages"]):
                 if _cancel_flags.get(execution_id, False):
@@ -1091,9 +1097,11 @@ async def _run_workflow_background(
                     db, user_id, stage_def, stage_context, UUID(config_id_str),
                     pdf_bytes=pdf_bytes, paper_s2_id=paper_s2_id, topic_query=topic_query,
                     paper_content=paper_content, rubric_standard=rubric_standard,
+                    research_dossier=current_dossier,
                 )
                 stage_results.append(result)
 
+                current_dossier = result.get("research_dossier") or current_dossier
                 prev_output = result.get("output", "")
                 if prev_output:
                     prior_findings.append({
