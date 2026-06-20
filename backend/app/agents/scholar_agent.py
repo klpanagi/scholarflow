@@ -8,8 +8,8 @@ from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from langgraph.graph import StateGraph, END
 
 from app.agents.base import BaseAgent, AgentState
-from app.agents.dedup import deduplicate_papers
-from app.agents.dossier import MethodologyEntry
+from app.agents.dedup import deduplicate_papers, levenshtein
+from app.agents.dossier import MethodologyEntry, ResearchGap
 from app.services.academic_apis import semantic_scholar, arxiv_api, crossref_api, openalex_api
 from app.utils.pdf_model_support import extract_text_from_message_content
 from app.utils.rate_limiters import arxiv_rate_limiter
@@ -689,6 +689,220 @@ class ScholarAgent(BaseAgent):
         )
         return state
 
+    @staticmethod
+    def _extract_concepts(paper: dict) -> list[str]:
+        """Extract concept strings from a paper.
+
+        Preference order: paper-level `fields_of_study` → source-level
+        `fields_of_study` (or `concepts`) → regex noun extraction from
+        title + abstract. Returns a deduplicated, lower-cased list.
+        """
+        fos = paper.get("fields_of_study")
+        if isinstance(fos, list) and fos:
+            return [str(c).strip().lower() for c in fos if c]
+
+        for src in paper.get("sources", []) or []:
+            if not isinstance(src, dict):
+                continue
+            src_fos = src.get("fields_of_study") or src.get("concepts") or src.get("fieldsOfStudy")
+            if isinstance(src_fos, list) and src_fos:
+                return [str(c).strip().lower() for c in src_fos if c]
+
+        text = f"{paper.get('title', '') or ''} {paper.get('abstract', '') or ''}"
+        nouns = re.findall(r"\b[A-Z][a-z]{3,}\b", text)
+        return list({n.lower() for n in nouns})
+
+    @staticmethod
+    def _concepts_similar(a: str, b: str, max_distance: int = 3) -> bool:
+        """Two concepts are similar when one is a substring of the other, or
+        their Levenshtein distance is ≤ max_distance. Identical strings are
+        not considered (same concept, not a gap)."""
+        if a == b:
+            return False
+        if a in b or b in a:
+            return True
+        return levenshtein(a, b) <= max_distance
+
+    @staticmethod
+    def _percentile(values: list[int], p: float) -> float:
+        """Linear-interpolation percentile (p in [0, 100])."""
+        if not values:
+            return 0.0
+        s = sorted(values)
+        n = len(s)
+        if n == 1:
+            return float(s[0])
+        k = (p / 100.0) * (n - 1)
+        f = int(k)
+        c = min(f + 1, n - 1)
+        if f == c:
+            return float(s[f])
+        return float(s[f] + (k - f) * (s[c] - s[f]))
+
+    @staticmethod
+    def _confidence_for_rank(rank: int) -> str:
+        """Assign confidence by rank among the top-5 gap candidates.
+
+        Rank 0 (lowest co-occurrence) → 'high'; ranks 1-2 → 'medium';
+        ranks 3-4 → 'low'.
+        """
+        if rank == 0:
+            return "high"
+        if rank <= 2:
+            return "medium"
+        return "low"
+
+    def _paper_stable_id(self, paper: dict, fallback: str) -> str:
+        """Pick a stable id for a paper for inclusion in `supporting_papers`."""
+        for key in ("paper_id", "doi", "arxiv_id"):
+            val = paper.get(key)
+            if val:
+                return str(val)
+        title = paper.get("title")
+        if title:
+            return f"title:{title}"
+        return fallback
+
+    async def _generate_gap_descriptions(
+        self,
+        candidates: list[tuple[str, str, int]],
+    ) -> dict[str, str]:
+        """Call the LLM once to produce a short description per candidate.
+
+        Returns a dict mapping '1'..'N' → description. On any failure
+        (LLM error, missing LLM, unparseable JSON), returns {} so callers
+        can fall back to a templated description.
+        """
+        if not candidates or not self.llm:
+            return {}
+
+        lines = [
+            f"{i+1}. Concept A: {a} | Concept B: {b} | Co-occurrence weight: {w}"
+            for i, (a, b, w) in enumerate(candidates)
+        ]
+        prompt = (
+            "You are identifying under-explored research intersections in the\n"
+            "academic literature. Each candidate below is a pair of related\n"
+            "concepts with unusually low co-occurrence across the corpus.\n\n"
+            f"Candidates ({len(candidates)}):\n" + "\n".join(lines) + "\n\n"
+            "For each candidate, write a SINGLE concise sentence (≤ 25 words)\n"
+            "describing the potential research gap or under-explored\n"
+            "intersection. Return ONLY a JSON object with string keys '1'..'N'\n"
+            "(where N is the number of candidates) and string values.\n"
+            "No commentary, no markdown fences.\n\n"
+            'Example: {"1": "...", "2": "..."}'
+        )
+        try:
+            response = await self.llm.ainvoke([HumanMessage(content=prompt)])
+            text = response.content if isinstance(response.content, str) else str(response.content)
+        except Exception as e:
+            logger.warning(f"identify_gaps: LLM call failed: {e}")
+            return {}
+
+        parsed = _parse_llm_json(text)
+        if not isinstance(parsed, dict):
+            logger.warning(
+                f"identify_gaps: could not parse descriptions JSON "
+                f"(first 200 chars): {text[:200]!r}"
+            )
+            return {}
+        return {str(k): str(v) for k, v in parsed.items() if v}
+
+    async def identify_gaps(self, state: AgentState) -> AgentState:
+        """Surface concept-level research gaps via co-occurrence analysis.
+
+        Reads context["deduplicated_results"] (set by the `deduplicate`
+        node) and writes context["gaps"] = list[ResearchGap]. Concept
+        extraction prefers `fields_of_study` and falls back to a simple
+        regex on title+abstract. A pair of similar concepts (Levenshtein
+        ≤ 3 or substring) with co-occurrence at or below the 5th
+        percentile of all pair weights is a gap candidate. The top 5
+        candidates (by ascending weight) get a single LLM call for
+        natural-language descriptions and confidence assigned by rank.
+        """
+        ctx = state["context"]
+        papers = ctx.get("deduplicated_results", []) or []
+        if len(papers) < 2:
+            ctx["gaps"] = []
+            return state
+
+        concepts_per_paper: list[set[str]] = []
+        paper_concept_lists: list[list[str]] = []
+        for paper in papers:
+            concepts = self._extract_concepts(paper)
+            if len(concepts) < 2:
+                continue
+            paper_concept_lists.append(concepts)
+            concepts_per_paper.append(set(concepts))
+
+        if not concepts_per_paper:
+            ctx["gaps"] = []
+            return state
+
+        pair_weights: dict[tuple[str, str], int] = {}
+        pair_support: dict[tuple[str, str], list[str]] = {}
+        for paper, concepts in zip(papers, concepts_per_paper):
+            unique = sorted(concepts)
+            paper_id = self._paper_stable_id(paper, fallback=f"paper_{papers.index(paper)}")
+            for i in range(len(unique)):
+                for j in range(i + 1, len(unique)):
+                    pair = (unique[i], unique[j])
+                    pair_weights[pair] = pair_weights.get(pair, 0) + 1
+                    pair_support.setdefault(pair, []).append(paper_id)
+
+        if not pair_weights:
+            ctx["gaps"] = []
+            return state
+
+        weights = sorted(pair_weights.values())
+        threshold = self._percentile(weights, 5)
+        if threshold < 1:
+            threshold = 1.0
+
+        candidates: list[tuple[str, str, int, list[str]]] = []
+        for (a, b), w in pair_weights.items():
+            if w <= threshold and self._concepts_similar(a, b):
+                candidates.append((a, b, w, pair_support[(a, b)]))
+
+        if not candidates:
+            ctx["gaps"] = []
+            return state
+
+        candidates.sort(key=lambda c: (c[2], c[0], c[1]))
+        top5 = candidates[:5]
+
+        llm_input = [(a, b, w) for a, b, w, _ in top5]
+        descriptions = await self._generate_gap_descriptions(llm_input)
+
+        max_weight = max(weights)
+        gaps: list[ResearchGap] = []
+        for rank, (a, b, w, supporting) in enumerate(top5):
+            description = descriptions.get(str(rank + 1))
+            if not description:
+                description = (
+                    f"Low co-occurrence ({w} paper{'s' if w != 1 else ''}) "
+                    f"between '{a}' and '{b}' suggests an under-explored intersection."
+                )
+            gap_score = 1.0 - (w / max_weight) if max_weight > 0 else 0.0
+            gaps.append(
+                ResearchGap(
+                    concept_a=a,
+                    concept_b=b,
+                    gap_score=round(gap_score, 4),
+                    supporting_papers=list(supporting),
+                    confidence=self._confidence_for_rank(rank),  # type: ignore[arg-type]
+                    description=description,
+                )
+            )
+
+        ctx["gaps"] = gaps
+
+        logger.info(
+            f"identify_gaps: {len(papers)} papers → {len(pair_weights)} pair weights, "
+            f"{len(candidates)} similar candidates, returning top {len(gaps)}"
+        )
+        return state
+
     def build_graph(self) -> StateGraph:
         graph = StateGraph(AgentState)
 
@@ -806,12 +1020,15 @@ class ScholarAgent(BaseAgent):
         graph.add_node("search_papers", self.search_papers)
         graph.add_node("deduplicate", self.deduplicate)
         graph.add_node("evaluate_methods", self.evaluate_methods)
+        graph.add_node("identify_gaps", self.identify_gaps)
         graph.add_node("synthesize", synthesize)
 
         graph.set_entry_point("search_papers")
         graph.add_edge("search_papers", "deduplicate")
         graph.add_edge("deduplicate", "evaluate_methods")
+        graph.add_edge("deduplicate", "identify_gaps")
         graph.add_edge("evaluate_methods", "synthesize")
+        graph.add_edge("identify_gaps", "synthesize")
         graph.add_edge("synthesize", END)
 
         return graph
