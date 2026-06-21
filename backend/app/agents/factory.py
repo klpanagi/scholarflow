@@ -9,7 +9,7 @@ from app.agents.recommendation_agent import RecommendationAgent
 from app.agents.review_agent import ReviewAgent
 from app.agents.review_writer_agent import ReviewWriterAgent
 from app.agents.revision_agent import RevisionAgent
-from app.agents.review_pipeline import DeepReviewer
+from app.agents.review_pipeline import DeepReviewAgent
 from app.services.llm_service import llm_service
 
 
@@ -24,7 +24,7 @@ AGENT_REGISTRY: dict[str, type[BaseAgent]] = {
     AgentRole.REVISION.value: RevisionAgent,
     AgentRole.MANAGER.value: WritingAgent,
     AgentRole.DEBATER.value: ReviewAgent,
-    AgentRole.DEEP_REVIEWER.value: DeepReviewer,
+    AgentRole.DEEP_REVIEWER.value: DeepReviewAgent,
 }
 
 

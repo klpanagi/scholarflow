@@ -38,7 +38,7 @@ Produce a single consolidated review that is thorough, evidence-based, and const
 """
 
 
-class DeepReviewer(BaseAgent):
+class DeepReviewAgent(BaseAgent):
     name = "deep-reviewer"
     description = "7-stage deep review pipeline (intake→structural→claims→literature→methodology→adversarial→synthesis). Heavy: 8-10 LLM calls, 130-150K tokens. Config-driven via system_prompt and skills."
     system_prompt = DEEP_REVIEW_SYSTEM_PROMPT
