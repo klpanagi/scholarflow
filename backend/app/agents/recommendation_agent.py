@@ -5,7 +5,7 @@ from langgraph.graph import StateGraph, END
 from app.agents.base import BaseAgent, AgentState
 from app.services.search_service import search_service
 from app.services.academic_apis import semantic_scholar, openalex_api
-from app.agents.scholar_agent import _extract_paper_title
+from app.agents.search_agent import _extract_paper_title
 from app.utils.pdf_model_support import extract_text_from_message_content
 
 

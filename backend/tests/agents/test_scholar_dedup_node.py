@@ -1,8 +1,8 @@
-"""Tests for the ScholarAgent deduplicate node (Task 7)."""
+"""Tests for the SearchAgent deduplicate node (Task 7)."""
 
 import pytest
 
-from app.agents.scholar_agent import ScholarAgent
+from app.agents.search_agent import SearchAgent
 
 
 def _make_state(raw_results: list[dict]) -> dict:
@@ -16,7 +16,7 @@ def _make_state(raw_results: list[dict]) -> dict:
             },
         },
         "output": None,
-        "metadata": {"agent": "scholar"},
+        "metadata": {"agent": "search"},
     }
 
 
@@ -88,7 +88,7 @@ _RAW_RESULTS = [
 @pytest.mark.asyncio
 async def test_dedup_node_reduces_duplicates():
     """5 raw results with 2 sharing the same DOI → 3 unique papers after dedup."""
-    agent = ScholarAgent.__new__(ScholarAgent)
+    agent = SearchAgent.__new__(SearchAgent)
     state = _make_state(_RAW_RESULTS)
 
     result = await agent.deduplicate(state)
@@ -105,7 +105,7 @@ async def test_dedup_node_reduces_duplicates():
 @pytest.mark.asyncio
 async def test_dedup_node_populates_search_metadata():
     """papers_after_dedup in search_metadata must equal len(deduplicated_results)."""
-    agent = ScholarAgent.__new__(ScholarAgent)
+    agent = SearchAgent.__new__(SearchAgent)
     state = _make_state(_RAW_RESULTS)
 
     result = await agent.deduplicate(state)

@@ -1,4 +1,4 @@
-"""Tests for the ScholarAgent.identify_gaps node (Task 8).
+"""Tests for the SearchAgent.identify_gaps node (Task 8).
 
 The gaps node reads context["deduplicated_results"], builds a concept
 co-occurrence matrix, identifies low-co-occurrence similar pairs, and
@@ -22,7 +22,7 @@ import pytest
 from langchain_core.messages import AIMessage
 
 from app.agents.dossier import ResearchGap
-from app.agents.scholar_agent import ScholarAgent
+from app.agents.search_agent import SearchAgent
 
 
 def _make_state(context: dict | None = None) -> dict:
@@ -31,7 +31,7 @@ def _make_state(context: dict | None = None) -> dict:
         "messages": [],
         "context": context or {},
         "output": None,
-        "metadata": {"agent": "scholar"},
+        "metadata": {"agent": "search"},
     }
 
 
@@ -84,7 +84,7 @@ async def test_gaps_node_finds_low_cooccurrence_pairs(mock_llm):
     qualify the weight filter, and only the substring-similar pair passes
     the similarity filter → 1 gap.
     """
-    agent = ScholarAgent(llm=mock_llm)
+    agent = SearchAgent(llm=mock_llm)
     common = ["topic_alpha", "topic_beta"]
     papers = [
         _make_paper(f"p{i}", title=f"Paper {i}", fields_of_study=list(common))
@@ -117,7 +117,7 @@ async def test_gaps_node_handles_papers_without_concepts(mock_llm):
     Model/Models. The regex extracts 9 unique capitalized nouns; three
     pairs differ by one character and pass the similarity filter.
     """
-    agent = ScholarAgent(llm=mock_llm)
+    agent = SearchAgent(llm=mock_llm)
     abstract = (
         "We propose a Method with Methods and apply Layer and Layers "
         "with Model and Models for Neural networks and Deep learning."
@@ -157,7 +157,7 @@ async def test_gaps_node_caps_at_5(mock_llm):
     candidate pairs, all at weight 20, all similar. The 5-pair cap kicks
     in and the LLM is asked for descriptions exactly once.
     """
-    agent = ScholarAgent(llm=mock_llm)
+    agent = SearchAgent(llm=mock_llm)
     similar_concepts = [
         "neural_net", "neural_network",
         "graph_net", "graph_network",
@@ -197,7 +197,7 @@ async def test_gaps_node_assigns_confidence_levels(mock_llm):
     lowest-weight candidate (rank 0) is 'high', ranks 1-2 are 'medium',
     ranks 3-4 are 'low'.
     """
-    agent = ScholarAgent(llm=mock_llm)
+    agent = SearchAgent(llm=mock_llm)
     concepts = [
         "neural_net", "neural_network",
         "graph_net", "graph_network",

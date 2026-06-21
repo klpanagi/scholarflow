@@ -1,6 +1,6 @@
 """Tests for research_dossier propagation across workflow stages (Task 13).
 
-Verifies that when a stage (e.g. ScholarAgent) produces a research_dossier in
+Verifies that when a stage (e.g. SearchAgent) produces a research_dossier in
 its result context, subsequent stages receive it in their agent_context.
 """
 
@@ -249,12 +249,12 @@ class TestEndToEndDossierPropagation:
 
         mock_db = AsyncMock()
 
-        scholar_agent = MagicMock()
-        scholar_agent.run = mock_run_scholar
+        search_agent = MagicMock()
+        search_agent.run = mock_run_scholar
 
         with (
             patch("app.api.routes.workflows._get_user_config_by_id", new_callable=AsyncMock, return_value=scholar_config),
-            patch("app.api.routes.workflows.create_agent", return_value=scholar_agent),
+            patch("app.api.routes.workflows.create_agent", return_value=search_agent),
             patch("app.api.routes.workflows.fetch_model_pricing", new_callable=AsyncMock, return_value={}),
             patch("app.api.routes.workflows.calculate_cost", return_value=0.0),
             patch("app.api.routes.workflows.model_supports_pdf", return_value=False),

@@ -1,6 +1,6 @@
 """Workflow-integrated paper review agent.
 
-Consumes research_dossier from ScholarAgent stage as an evidence corpus.
+Consumes research_dossier from SearchAgent stage as an evidence corpus.
 Config-driven: system_prompt + skills determine review methodology.
 Replaces the lightweight standalone PaperReviewAgent.
 """

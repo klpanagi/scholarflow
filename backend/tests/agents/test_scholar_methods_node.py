@@ -1,4 +1,4 @@
-"""Tests for the ScholarAgent.evaluate_methods node (Task 9).
+"""Tests for the SearchAgent.evaluate_methods node (Task 9).
 
 The methods node reads context["deduplicated_results"], calls the LLM once per
 top-15 paper (by final_rank) to extract a methodology row, and writes
@@ -19,7 +19,7 @@ from langchain_core.messages import AIMessage
 
 from app.agents.base import AgentState
 from app.agents.dossier import MethodologyEntry
-from app.agents.scholar_agent import ScholarAgent
+from app.agents.search_agent import SearchAgent
 
 
 def _make_state(context: dict | None = None) -> AgentState:
@@ -73,7 +73,7 @@ class TestMethodsNodeExtractsFromAbstracts:
     @pytest.mark.asyncio
     async def test_methods_node_extracts_from_abstracts(self, mock_llm):
         """3 papers, LLM returns valid JSON for each → 3 MethodologyEntry rows."""
-        agent = ScholarAgent(llm=mock_llm)
+        agent = SearchAgent(llm=mock_llm)
         papers = [
             _make_paper("p1", title="Transformer", abstract="We propose the Transformer model.", final_rank=0),
             _make_paper("p2", title="BERT", abstract="We introduce BERT for language understanding.", final_rank=1),
@@ -141,7 +141,7 @@ class TestMethodsNodeHandlesInvalidJson:
     @pytest.mark.asyncio
     async def test_methods_node_handles_invalid_json(self, mock_llm):
         """LLM returns malformed output → 1 MethodologyEntry with confidence='low'."""
-        agent = ScholarAgent(llm=mock_llm)
+        agent = SearchAgent(llm=mock_llm)
         papers = [
             _make_paper("p1", title="Bad JSON paper", abstract="Some abstract text here."),
         ]
@@ -166,7 +166,7 @@ class TestMethodsNodeCapsAt15:
     @pytest.mark.asyncio
     async def test_methods_node_caps_at_15(self, mock_llm):
         """20 papers → LLM called exactly 15 times → 15 MethodologyEntry rows."""
-        agent = ScholarAgent(llm=mock_llm)
+        agent = SearchAgent(llm=mock_llm)
         papers = [
             _make_paper(
                 f"p{i}",
@@ -211,7 +211,7 @@ class TestMethodsNodeSkipsPapersWithoutAbstract:
     @pytest.mark.asyncio
     async def test_methods_node_skips_papers_without_abstract(self, mock_llm):
         """5 papers, 2 without abstract → LLM called 3 times → 3 MethodologyEntry rows."""
-        agent = ScholarAgent(llm=mock_llm)
+        agent = SearchAgent(llm=mock_llm)
         papers = [
             _make_paper("p1", title="Paper 1", abstract="Abstract 1.", final_rank=0),
             _make_paper("p2", title="Paper 2", abstract=None, final_rank=1),  # skipped

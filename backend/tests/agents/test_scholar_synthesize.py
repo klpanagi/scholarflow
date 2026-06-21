@@ -1,4 +1,4 @@
-"""Tests for ScholarAgent.synthesize node."""
+"""Tests for SearchAgent.synthesize node."""
 from __future__ import annotations
 
 import math
@@ -12,7 +12,7 @@ from app.agents.dossier import (
     ResearchDossier,
     ResearchGap,
 )
-from app.agents.scholar_agent import ScholarAgent
+from app.agents.search_agent import SearchAgent
 
 
 def _make_state(context: dict | None = None) -> dict:
@@ -20,7 +20,7 @@ def _make_state(context: dict | None = None) -> dict:
         "messages": [],
         "context": context or {},
         "output": None,
-        "metadata": {"agent": "scholar"},
+        "metadata": {"agent": "search"},
     }
 
 
@@ -130,7 +130,7 @@ async def test_synthesize_creates_dossier(mock_llm):
     state = _make_state(context)
     _set_llm_synthesis_response(mock_llm)
 
-    agent = ScholarAgent(llm=mock_llm)
+    agent = SearchAgent(llm=mock_llm)
     state = await agent.synthesize(state)
 
     dossier = state["context"]["research_dossier"]
@@ -159,7 +159,7 @@ async def test_synthesize_preserves_legacy_search_results(mock_llm):
     state = _make_state(context)
     _set_llm_synthesis_response(mock_llm)
 
-    agent = ScholarAgent(llm=mock_llm)
+    agent = SearchAgent(llm=mock_llm)
     state = await agent.synthesize(state)
 
     search_results = state["context"]["search_results"]
@@ -189,7 +189,7 @@ async def test_synthesize_preserves_output_string(mock_llm):
     state = _make_state(context)
     _set_llm_synthesis_response(mock_llm, content="## Synthesis\nHere is the synthesis.")
 
-    agent = ScholarAgent(llm=mock_llm)
+    agent = SearchAgent(llm=mock_llm)
     state = await agent.synthesize(state)
 
     output = state["output"]
@@ -223,7 +223,7 @@ async def test_synthesize_applies_hybrid_ranking(mock_llm):
     state = _make_state(context)
     _set_llm_synthesis_response(mock_llm)
 
-    agent = ScholarAgent(llm=mock_llm)
+    agent = SearchAgent(llm=mock_llm)
     state = await agent.synthesize(state)
 
     dossier = state["context"]["research_dossier"]

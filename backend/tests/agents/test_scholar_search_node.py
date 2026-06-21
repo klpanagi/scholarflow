@@ -1,11 +1,11 @@
-"""Tests for the refactored ScholarAgent.search_papers node (Task 6)."""
+"""Tests for the refactored SearchAgent.search_papers node (Task 6)."""
 import time
 from unittest.mock import AsyncMock
 
 import pytest
 
 from app.agents.base import AgentState
-from app.agents.scholar_agent import ScholarAgent
+from app.agents.search_agent import SearchAgent
 from app.services.academic_apis import (
     PaperResult,
     arxiv_api,
@@ -36,8 +36,8 @@ def _make_state(context: dict | None = None) -> AgentState:
 
 
 @pytest.fixture
-def scholar_agent(mock_llm):
-    return ScholarAgent(llm=mock_llm)
+def search_agent(mock_llm):
+    return SearchAgent(llm=mock_llm)
 
 
 @pytest.fixture
@@ -50,7 +50,7 @@ def fresh_arxiv_rate_limiter(mocker):
 
     fresh = TokenBucketRateLimiter(rate_per_second=1 / 3, burst=1)
     mocker.patch.object(rate_limiters, "arxiv_rate_limiter", fresh)
-    mocker.patch("app.agents.scholar_agent.arxiv_rate_limiter", fresh)
+    mocker.patch("app.agents.search_agent.arxiv_rate_limiter", fresh)
     return fresh
 
 
@@ -75,7 +75,7 @@ def stub_s2_prequery(mocker):
 class TestSearchPassesFiltersToSources:
     @pytest.mark.asyncio
     async def test_search_passes_filters_to_sources(
-        self, mocker, scholar_agent, stub_s2_prequery, fresh_arxiv_rate_limiter
+        self, mocker, search_agent, stub_s2_prequery, fresh_arxiv_rate_limiter
     ):
         s2_mock = mocker.patch.object(
             semantic_scholar, "search", new=AsyncMock(return_value=[])
@@ -95,7 +95,7 @@ class TestSearchPassesFiltersToSources:
             "min_citation_count": 100,
             "venue": "NeurIPS",
         })
-        await scholar_agent.search_papers(state)
+        await search_agent.search_papers(state)
 
         assert s2_mock.call_count > 0, "S2 should have been called"
         for call in s2_mock.call_args_list:
@@ -122,7 +122,7 @@ class TestSearchPassesFiltersToSources:
 class TestSearchHandlesSourceFailure:
     @pytest.mark.asyncio
     async def test_search_handles_source_failure(
-        self, mocker, scholar_agent, stub_s2_prequery, fresh_arxiv_rate_limiter
+        self, mocker, search_agent, stub_s2_prequery, fresh_arxiv_rate_limiter
     ):
         mocker.patch.object(
             semantic_scholar,
@@ -152,7 +152,7 @@ class TestSearchHandlesSourceFailure:
         )
 
         state = _make_state()
-        await scholar_agent.search_papers(state)
+        await search_agent.search_papers(state)
 
         failed = state["context"]["search_metadata"].get("sources_failed", [])
         failed_sources = [f["source"] for f in failed]
@@ -172,7 +172,7 @@ class TestSearchHandlesSourceFailure:
 class TestSearchIncludesMatchedInField:
     @pytest.mark.asyncio
     async def test_search_includes_matched_in_field(
-        self, mocker, scholar_agent, stub_s2_prequery, fresh_arxiv_rate_limiter
+        self, mocker, search_agent, stub_s2_prequery, fresh_arxiv_rate_limiter
     ):
         sample_papers = [
             PaperResult(
@@ -197,7 +197,7 @@ class TestSearchIncludesMatchedInField:
         mocker.patch.object(crossref_api, "search", new=AsyncMock(return_value=[]))
 
         state = _make_state()
-        await scholar_agent.search_papers(state)
+        await search_agent.search_papers(state)
 
         raw = state["context"]["raw_search_results"]
         assert len(raw) > 0, "Expected at least one result from S2"
@@ -215,19 +215,19 @@ class TestSearchIncludesMatchedInField:
 class TestSearchRespectsArxivRateLimit:
     @pytest.mark.asyncio
     async def test_search_respects_arxiv_rate_limit(
-        self, mocker, scholar_agent, stub_s2_prequery
+        self, mocker, search_agent, stub_s2_prequery
     ):
         """When arXiv is called multiple times, ≥3s gap is enforced between calls.
 
         Patches the arxiv_rate_limiter symbol into BOTH namespaces:
         - app.utils.rate_limiters (where arxiv_api.search() reads it)
-        - app.agents.scholar_agent (where the refactored search_papers calls it)
+        - app.agents.search_agent (where the refactored search_papers calls it)
         """
         from app.utils.rate_limiters import TokenBucketRateLimiter
 
         fresh_limiter = TokenBucketRateLimiter(rate_per_second=1 / 3, burst=1)
         mocker.patch.object(rate_limiters, "arxiv_rate_limiter", fresh_limiter)
-        mocker.patch("app.agents.scholar_agent.arxiv_rate_limiter", fresh_limiter)
+        mocker.patch("app.agents.search_agent.arxiv_rate_limiter", fresh_limiter)
 
         call_times: list[float] = []
 
@@ -254,7 +254,7 @@ class TestSearchRespectsArxivRateLimit:
         mocker.patch.object(crossref_api, "search", new=AsyncMock(return_value=[]))
 
         state = _make_state()
-        await scholar_agent.search_papers(state)
+        await search_agent.search_papers(state)
 
         # First call gets the burst token; subsequent calls must wait ≥3s.
         assert len(call_times) >= 2, (

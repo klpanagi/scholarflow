@@ -477,8 +477,8 @@ def _extract_tool_names(full_text: str) -> list[str]:
     return unique
 
 
-class ScholarAgent(BaseAgent):
-    name = "scholar"
+class SearchAgent(BaseAgent):
+    name = "search"
     description = "Search and discover academic papers across multiple sources"
     system_prompt = (
         "You are a scholarly research assistant. Your role is to help users "

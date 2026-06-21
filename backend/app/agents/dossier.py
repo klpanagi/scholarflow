@@ -1,4 +1,4 @@
-"""ResearchDossier v1.0 schema for the ScholarAgent enhancement.
+"""ResearchDossier v1.0 schema for the SearchAgent enhancement.
 
 Defines the structured output of multi-source academic search. The dossier is
 immutable (frozen=True) and is the contract between the search phase and
@@ -6,7 +6,7 @@ downstream synthesis (gaps, methodologies, recommendations, markdown render).
 
 Backward compatibility: `ResearchDossier.from_search_results` accepts the
 legacy `context["search_results"]` list-of-dicts shape produced by the
-pre-Wave 1 ScholarAgent and lifts it into the v1.0 schema.
+pre-Wave 1 SearchAgent and lifts it into the v1.0 schema.
 """
 
 from __future__ import annotations
@@ -218,7 +218,7 @@ class SearchMetadata(BaseModel):
 
 
 class ResearchDossier(BaseModel):
-    """Top-level structured output of the ScholarAgent search phase.
+    """Top-level structured output of the SearchAgent search phase.
 
     The dossier is immutable: assigning to any field raises ValidationError.
     To produce a modified copy, use `model_copy(update=...)`.
