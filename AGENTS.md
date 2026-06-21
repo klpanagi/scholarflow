@@ -54,8 +54,8 @@ Four LangGraph agents, each with a state graph:
 
 | Agent | Role | Sources used |
 |-------|------|--------------|
-| `ScholarAgent` | Search papers across academic databases | Semantic Scholar, arXiv, CrossRef, OpenAlex |
-| `PaperReviewAgent` | 7-stage paper review pipeline | Semantic Scholar (citations, references) |
+| `SearchAgent` | Search papers across academic databases | Semantic Scholar, arXiv, CrossRef, OpenAlex |
+| `ReviewAgent` | 7-stage paper review pipeline | Semantic Scholar (citations, references) |
 | `WritingAgent` | Polish/rewrite academic text | None (LLM-only) |
 | `RecommendationAgent` | Recommend papers based on interests | Semantic Scholar, OpenAlex, vector search |
 

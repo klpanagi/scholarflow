@@ -284,9 +284,9 @@ Same flow used in workflow execution (`workflows.py:_run_stage()`).
 
 ```python
 AGENT_REGISTRY: dict[str, type[BaseAgent]] = {
-    "researcher": ScholarAgent,
+    "researcher": SearchAgent,
     "writer": WritingAgent,
-    "reviewer": PaperReviewAgent,
+    "reviewer": ReviewAgent,
     "recommender": RecommendationAgent,
 }
 ```
@@ -297,12 +297,12 @@ AGENT_REGISTRY: dict[str, type[BaseAgent]] = {
 
 | Role | Class | File | Description |
 |------|-------|------|-------------|
-| `researcher` | `ScholarAgent` | `scholar_agent.py` | Academic search across S2, arXiv, CrossRef, OpenAlex |
+| `researcher` | `SearchAgent` | `search_agent.py` | Academic search across S2, arXiv, CrossRef, OpenAlex |
 | `writer` | `WritingAgent` | `writing_agent.py` | 2-stage pipeline (understand_task → generate_content) |
-| `reviewer` | `PaperReviewAgent` | `review_pipeline.py` | 7-stage LangGraph (intake → structural → claims → literature → methodology → adversarial → synthesis) |
+| `reviewer` | `ReviewAgent` | `review_agent.py` | 7-stage LangGraph (intake → structural → claims → literature → methodology → adversarial → synthesis) |
 | `recommender` | `RecommendationAgent` | `recommendation_agent.py` | Paper/venue recommendations via S2 + OpenAlex + vector search |
 
-**Note**: `ReviewAgent` in `review_agent.py` exists but is **not registered** in the factory. Likely dead code — `PaperReviewAgent` from `review_pipeline.py` is the active reviewer.
+
 
 ### 5.3 BaseAgent (`backend/app/agents/base.py`)
 
@@ -413,12 +413,12 @@ Created by `POST /seeds/niobe`. Uses `opencode` provider, `deepseek-v4-flash` mo
 
 | Config | Role Class | Base Prompt | Knowledge (skills) | Tools | Strategy |
 |--------|-----------|-------------|-------------------|-------|----------|
-| Scholar | `ScholarAgent` | Academic discovery | 4 skills | 4 tools | direct |
+| Scholar | `SearchAgent` | Academic discovery | 4 skills | 4 tools | direct |
 | Academic Writer | `WritingAgent` | Content creation | 3 skills | 4 tools | reflection |
-| Paper Reviewer | `PaperReviewAgent` | Evaluation | 3 skills | 7 tools (max) | critique |
+| Paper Reviewer | `ReviewAgent` | Evaluation | 3 skills | 7 tools (max) | critique |
 | Grant Writer | `WritingAgent` | Proposals & reporting | 4 skills | 3 tools | reflection |
-| Research Methodologist | `ScholarAgent` | Experiment design | 3 skills | 3 tools | direct |
-| Project Manager | `ScholarAgent` | Research leadership | 4 skills | 1 tool | direct |
+| Research Methodologist | `SearchAgent` | Experiment design | 3 skills | 3 tools | direct |
+| Project Manager | `SearchAgent` | Research leadership | 4 skills | 1 tool | direct |
 
 ---
 
@@ -485,15 +485,15 @@ Only exists as `Default Recommender` (gemma, no skills, no tools). There is **no
 
 ### 10.4 Role-to-Agent Mapping Collision
 
-Three seed configs map to `researcher` role → all resolve to `ScholarAgent`:
+Three seed configs map to `researcher` role → all resolve to `SearchAgent`:
 
 | Config | Role | Resolves to |
 |--------|------|-------------|
-| Scholar | `researcher` | `ScholarAgent` |
-| Research Methodologist | `researcher` | `ScholarAgent` |
-| Project Manager | `researcher` | `ScholarAgent` |
+| Scholar | `researcher` | `SearchAgent` |
+| Research Methodologist | `researcher` | `SearchAgent` |
+| Project Manager | `researcher` | `SearchAgent` |
 
-The specialization only affects the **system prompt + skill injection**, not the agent class. These three configs run the same `ScholarAgent` class with different prompts.
+The specialization only affects the **system prompt + skill injection**, not the agent class. These three configs run the same `SearchAgent` class with different prompts.
 
 **Impact**: Methodologist and Project Manager cannot leverage specialized agent behavior — they're just Scholar with different prompts.
 
@@ -509,12 +509,6 @@ The specialization only affects the **system prompt + skill injection**, not the
 Resolved: only `search_web`. No `search_papers` despite having `eu-horizon` skill that lists it.
 
 **Impact**: Project Manager is a prompt-only agent with a single tool. It cannot perform meaningful actions beyond text generation.
-
-### 10.6 ReviewAgent Dead Code
-
-`backend/app/agents/review_agent.py` defines `ReviewAgent`, but the factory maps `reviewer` → `PaperReviewAgent` from `review_pipeline.py`. `ReviewAgent` is **never instantiated**.
-
-**Impact**: ~300 lines of potentially dead code.
 
 ### 10.7 All input_schema / output_schema Are Null
 
