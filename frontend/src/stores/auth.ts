@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { api } from '@/lib/api'
+import { queryClient } from '@/lib/queryClient'
 
 interface User {
   id: string
@@ -28,6 +29,7 @@ export const useAuthStore = create<AuthState>()(
       isAuthenticated: false,
 
       login: async (email, password) => {
+        queryClient.clear()
         const formData = new URLSearchParams()
         formData.append('username', email)
         formData.append('password', password)
@@ -70,6 +72,7 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: () => {
+        queryClient.clear()
         set({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false })
       },
 
