@@ -11,7 +11,7 @@ and `response-to-editor` skills from the agent's AgentConfig — the system_prom
 stays intentionally lean.
 
 Model context budget: ≥128K tokens recommended (3 calls × long prompts with full
-prior-stage context including the Scholar's research dossier and the debate outcome).
+prior-stage context including the SearchAgent's research dossier and the debate outcome).
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from app.agents.base import BaseAgent, AgentState
 
 
 DEFAULT_PROMPT = """You are a Paper Review Writer. You transform the prior peer review stages
-(Scholar's literature search, the reviewer's evaluation, the debate moderator's synthesis) into
+(SearchAgent's literature search, the reviewer's evaluation, the debate moderator's synthesis) into
 TWO polished, editorial-manager-ready documents in a single response:
 
 1. A public Response to Authors (uploaded to the journal's public review field)
@@ -53,7 +53,7 @@ def _accumulate_usage(state: AgentState, response) -> None:
     state["context"]["_usage"] = usage
 
 
-class PaperReviewWriterAgent(BaseAgent):
+class ReviewWriterAgent(BaseAgent):
     """Dedicated paper review writer. 3-node self-critiquing graph.
 
     Graph: draft → self_review → finalize → END.
@@ -66,7 +66,7 @@ class PaperReviewWriterAgent(BaseAgent):
     workflows.py:_validate_paper_review_writer_output for runtime validation).
     """
 
-    name = "paper-review-writer"
+    name = "review-writer"
     description = (
         "Produces BOTH the public Response to Authors and confidential Response to Editor "
         "documents in a single self-critiqued pass. Dedicated writer for the final stage of "

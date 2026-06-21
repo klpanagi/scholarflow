@@ -1,4 +1,4 @@
-"""Unit tests for PaperReviewWriterAgent (Task 10).
+"""Unit tests for ReviewWriterAgent (Task 10).
 
 Verifies the 3-node self-critiquing LangGraph:
     draft → self_review → finalize → END
@@ -19,7 +19,7 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
 from app.agents.base import AgentState
-from app.agents.paper_review_writer_agent import PaperReviewWriterAgent
+from app.agents.review_writer_agent import ReviewWriterAgent
 from app.agents.strategies import DirectStrategy
 
 
@@ -65,7 +65,7 @@ class TestThreeNodeGraphCompiles:
     """The graph must build and compile with exactly 3 user-defined nodes."""
 
     def test_three_node_graph_compiles(self, mock_llm):
-        agent = PaperReviewWriterAgent(llm=mock_llm)
+        agent = ReviewWriterAgent(llm=mock_llm)
 
         # build_graph() returns a StateGraph with exactly 3 nodes
         graph = agent.build_graph()
@@ -96,7 +96,7 @@ class TestDraftNodeProducesInitialDraft:
     @pytest.mark.asyncio
     async def test_draft_node_produces_initial_draft(self, mock_llm):
         _set_three_responses(mock_llm, draft_text="draft text")
-        agent = PaperReviewWriterAgent(llm=mock_llm)
+        agent = ReviewWriterAgent(llm=mock_llm)
         state = _make_state()
 
         compiled = agent.build_graph().compile()
@@ -125,7 +125,7 @@ class TestSelfReviewIncludesDraft:
         _set_three_responses(
             mock_llm, draft_text="UNIQUE_DRAFT_MARKER_12345"
         )
-        agent = PaperReviewWriterAgent(llm=mock_llm)
+        agent = ReviewWriterAgent(llm=mock_llm)
         state = _make_state()
 
         compiled = agent.build_graph().compile()
@@ -161,7 +161,7 @@ class TestFinalizeIncludesDraftAndCritique:
             draft_text="DRAFT_MARKER_AAA",
             critique_text="CRITIQUE_MARKER_BBB",
         )
-        agent = PaperReviewWriterAgent(llm=mock_llm)
+        agent = ReviewWriterAgent(llm=mock_llm)
         state = _make_state()
 
         compiled = agent.build_graph().compile()
@@ -193,7 +193,7 @@ class TestOutputContainsBothSectionHeadings:
     @pytest.mark.asyncio
     async def test_output_contains_both_section_headings(self, mock_llm):
         _set_three_responses(mock_llm)
-        agent = PaperReviewWriterAgent(llm=mock_llm)
+        agent = ReviewWriterAgent(llm=mock_llm)
         state = _make_state()
 
         compiled = agent.build_graph().compile()
@@ -217,7 +217,7 @@ class TestUsesDirectStrategy:
     """The agent must be configured with the DirectStrategy (one LLM call per node)."""
 
     def test_uses_direct_strategy(self, mock_llm):
-        agent = PaperReviewWriterAgent(llm=mock_llm)
+        agent = ReviewWriterAgent(llm=mock_llm)
         assert isinstance(agent.strategy, DirectStrategy), (
             f"Expected DirectStrategy, got {type(agent.strategy).__name__}"
         )
@@ -262,7 +262,7 @@ class TestTokenUsageAccumulatedAcrossNodes:
             ),
         ]
 
-        agent = PaperReviewWriterAgent(llm=mock_llm)
+        agent = ReviewWriterAgent(llm=mock_llm)
         state = _make_state()
 
         compiled = agent.build_graph().compile()
@@ -297,7 +297,7 @@ class TestHandlesMissingSectionsInDraft:
         # Draft intentionally omits the '## Response to Editor' section
         partial_draft = "## Response to Authors\nOnly the public-facing part is present."
         _set_three_responses(mock_llm, draft_text=partial_draft)
-        agent = PaperReviewWriterAgent(llm=mock_llm)
+        agent = ReviewWriterAgent(llm=mock_llm)
         state = _make_state()
 
         compiled = agent.build_graph().compile()
