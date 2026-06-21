@@ -194,7 +194,7 @@ function WorkflowCardCompact({
               variant="outline"
               className="text-[10px] px-2 py-0 h-5 capitalize"
             >
-              {stage.role}
+              {stage.agent}
             </Badge>
           ))}
         </div>
@@ -337,7 +337,7 @@ function WorkflowDialog({
                 const availableConfigs = userConfigs.filter((c) => isRoleCompatible(c.role, stage.role));
                 return (
                   <div key={stage.id} className="flex items-center justify-between gap-4">
-                    <div className="text-sm font-medium min-w-24 capitalize">Step {index + 1} ({stage.role}):</div>
+                    <div className="text-sm font-medium min-w-24 capitalize">Step {index + 1} ({stage.agent}):</div>
                     <div className="flex-1">
                       <select
                         className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
@@ -345,7 +345,7 @@ function WorkflowDialog({
                         onChange={(e) => handleAssignmentChange(stage.id, e.target.value)}
                       >
                         <option value="" disabled>
-                          Select {stage.role} agent for step {index + 1}...
+                          Select {stage.agent} agent for step {index + 1}...
                         </option>
                         {availableConfigs.map((config) => (
                           <option key={config.id} value={config.id}>
