@@ -70,6 +70,7 @@ const ROLES = [
   { value: "recommender", label: "Recommender" },
   { value: "manager", label: "Manager" },
   { value: "revision", label: "Revision" },
+  { value: "review_writer", label: "Review Writer" },
 ]
 
 const STRATEGIES = [
