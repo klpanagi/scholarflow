@@ -69,6 +69,8 @@ export default function SkillsPage() {
       const { data } = await api.get("/skills/")
       return data || []
     },
+    staleTime: 0,
+    refetchOnMount: "always",
   })
 
   const { data: builtinTools = [] } = useQuery<BuiltinTool[]>({
@@ -77,6 +79,8 @@ export default function SkillsPage() {
       const { data } = await api.get("/skills/builtin-tools")
       return data || []
     },
+    staleTime: 0,
+    refetchOnMount: "always",
   })
 
   const createMutation = useMutation({
