@@ -22,6 +22,7 @@ class AgentRole(str, enum.Enum):
     MANAGER = "manager"
     DEBATER = "debater"
     DEEP_REVIEWER = "deep_reviewer"
+    REVIEW_WRITER = "review_writer"
 
 
 class Strategy(str, enum.Enum):

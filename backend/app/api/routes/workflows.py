@@ -16,7 +16,7 @@ import io
 
 from app.core.database import get_db, AsyncSessionLocal
 from app.core.security import get_current_user
-from app.models import AgentConfig, Paper, PaperChunk, AgentRole, WorkflowExecution, RevisionSession, RevisionMessage
+from app.models import AgentConfig, Paper, PaperChunk, AgentRole, WorkflowExecution, RevisionSession, RevisionMessage, agent_skills_table
 from app.agents.factory import create_agent
 from app.utils.context_budget import fit_to_budget, budget_for_stages
 from app.utils.pdf_model_support import model_supports_pdf, create_multimodal_human_message
@@ -147,80 +147,58 @@ WORKFLOW_DEFINITIONS = {
                 ),
             },
             {
-                "id": "refine-review",
-                "role": AgentRole.WRITER.value,
+                "id": "paper-review-writer",
+                "role": AgentRole.REVIEW_WRITER.value,
                 "task_template": (
-                    "You are the Paper Review Writer. Transform the raw review, debate outcome, and Scholar findings below "
-                    "into a polished, editorial-manager-ready peer review that the reviewer will upload verbatim as the "
-                    "Response to Authors document.\n\n"
+                    "You are the Paper Review Writer. Transform the prior peer review stages below "
+                    "into TWO polished, editorial-manager-ready documents in a single response: "
+                    "a public Response to Authors (uploaded to the journal's public review field) "
+                    "and a confidential Response to Editor (uploaded to the journal's confidential "
+                    "comments field). The authors NEVER see the Response to Editor.\n\n"
                     "Inputs to draw on:\n{input}\n\n"
-                    "OUTPUT FORMAT — Produce a single self-contained peer review with these exact sections, in this order, "
-                    "using professional academic markdown. Use `##` for section headings so the PDF export renders them as proper headers.\n\n"
-                    "## Metadata\n"
-                    "A short metadata block at the very top:\n"
+                    "OUTPUT FORMAT — Produce a SINGLE self-contained markdown response with BOTH "
+                    "documents, in this order, with `## ` (H2) headings so they can be split or rendered:\n\n"
+                    "## Response to Authors\n"
+                    "The public peer review with these exact sub-sections:\n"
+                    "### Metadata\n"
                     "- **Manuscript Title**: <exact title from the paper>\n"
-                    "- **Decision**: Accept / Minor Revision / Major Revision / Reject (pick one, exact wording)\n\n"
-                    "## 1. Summary\n"
-                    "2-3 paragraphs that (a) describe what the manuscript is about in one sentence, (b) highlight the most "
-                    "important contributions and engineering effort, and (c) state the overall recommendation and the most "
-                    "critical concerns that drove it. Be specific. Use the paper's own terminology (e.g. cascade-risk pathways, "
-                    "PEG grammar, CEB). Bold the key findings.\n\n"
-                    "## 2. Major Comments\n"
-                    "A numbered list of major issues, each prefixed with a bracket identifier `[C1]`, `[C2]`, ... in the "
-                    "order they should be addressed. For each comment: state the problem, provide the evidence (cite a "
-                    "section, figure, table, claim, or omission), and suggest a concrete fix or follow-up. Reference specific "
-                    "papers from the Scholar's search results when the issue is about literature coverage. Aim for 3-5 comments.\n"
+                    "- **Decision**: Accept / Minor Revision / Major Revision / Reject (pick one)\n\n"
+                    "### 1. Summary\n"
+                    "2-3 paragraphs: what the paper is about, key contributions, overall recommendation "
+                    "and critical concerns. Be specific. Use the paper's own terminology. Bold the key findings.\n\n"
+                    "### 2. Major Comments\n"
+                    "Numbered list with bracket identifiers `[C1]`, `[C2]`, ... in priority order. For each: "
+                    "state the problem, provide evidence (section/figure/table/claim/omission), suggest a fix. "
+                    "Reference specific papers from the Scholar's search results when relevant. Aim for 3-5 comments.\n"
                     "Format: **[C1] <Short title>** — <1-2 sentences of context>. <Evidence + suggested fix.>\n\n"
-                    "## 3. Minor Comments\n"
-                    "A numbered list of minor (polish-level) issues, each prefixed with `[C1]`, `[C2]`, ... (numbering restarts). "
-                    "Typos, figure legibility, terminology, missing references, missing clarifications. One or two sentences each. "
-                    "Aim for 3-6 comments. Format: **[C1] <Short title>** — <one or two sentences>.\n\n"
-                    "## 4. Recommendation\n"
-                    "A short closing block:\n"
-                    "- **Decision**: <Accept / Minor Revision / Major Revision / Reject> (repeat the metadata value for clarity)\n"
-                    "- **Justification**: 2-3 sentences explaining WHY this is the right decision. Reference the most important "
-                    "major comments and balance the manuscript's contributions against the gaps. Do not introduce new evidence here.\n\n"
-                    "DO NOT add a Related Work Analysis table, a rubric score breakdown, or conversational filler at the end. "
-                    "Those belong in the Response to Editor document (produced by the next workflow stage). "
-                    "Do NOT fabricate citations. Maintain a professional, respectful, constructive tone throughout."
-                ),
-            },
-            {
-                "id": "response-to-editor",
-                "role": AgentRole.WRITER.value,
-                "task_template": (
-                    "You are the Paper Review Editor Response Writer. Transform the full peer review below into a short, "
-                    "AE-facing Response to Editor document that the reviewer will upload to the editorial manager alongside "
-                    "the Response to Authors. This document is read by the Action Editor, NOT the manuscript authors.\n\n"
-                    "Review to summarize:\n{input}\n\n"
-                    "OUTPUT FORMAT — Produce a single self-contained document with these exact sections, in this order, "
-                    "using professional academic markdown. Use `##` for section headings.\n\n"
-                    "## Metadata\n"
-                    "A short metadata block at the very top:\n"
+                    "### 3. Minor Comments\n"
+                    "Numbered list with bracket identifiers `[C1]`, `[C2]`, ... (numbering restarts). Typos, "
+                    "figure legibility, terminology, missing references, missing clarifications. One or two "
+                    "sentences each. Aim for 3-6 comments.\n\n"
+                    "### 4. Recommendation\n"
+                    "- **Decision**: <Accept / Minor Revision / Major Revision / Reject> (repeat metadata value)\n"
+                    "- **Justification**: 2-3 sentences explaining WHY this decision. Reference major comments.\n\n"
+                    "## Response to Editor\n"
+                    "The AE-facing confidential note with these exact sub-sections:\n"
+                    "### Metadata\n"
                     "- **Manuscript Title**: <exact title from the paper>\n"
-                    "- **Recommendation**: Accept / Minor Revision / Major Revision / Reject (one word only, exact match)\n\n"
-                    "## 1. Summary of Contribution\n"
-                    "1-2 paragraphs that (a) describe what the paper is about in one sentence, (b) state its main technical "
-                    "contributions, and (c) explain why those contributions are relevant to the venue. Reference the paper's "
-                    "own terminology. Do not include any criticisms here — only the contribution framing.\n\n"
-                    "## 2. Key Strengths\n"
-                    "A bulleted list of 2-4 strengths that the reviewer's recommendation rests on. Be specific (cite a section, "
-                    "figure, table, or concrete feature such as a dataset size, test count, or architecture choice). "
-                    "Each strength is one sentence.\n\n"
-                    "## 3. Key Concerns\n"
-                    "A bulleted list of 2-4 concerns, each prefixed with a bracket identifier `[C1]`, `[C2]`, ... in priority "
-                    "order. For each concern: state the issue in one sentence and indicate whether it is a blocking concern "
-                    "or a non-blocking one. Do not elaborate on the fix here — that is in the Response to Authors. "
+                    "- **Recommendation**: Accept / Minor Revision / Major Revision / Reject (one word only)\n\n"
+                    "### 1. Summary of Contribution\n"
+                    "1-2 paragraphs: what the paper is about, main technical contributions, why they matter for the venue. "
+                    "Do not include criticisms.\n\n"
+                    "### 2. Key Strengths\n"
+                    "Bulleted list of 2-4 strengths, each one sentence. Be specific (cite section/figure/table/concrete feature).\n\n"
+                    "### 3. Key Concerns\n"
+                    "Bulleted list of 2-4 concerns, each with bracket identifier `[C1]`, `[C2]`, ... in priority order. "
+                    "For each: state the issue in one sentence, indicate whether blocking or non-blocking.\n"
                     "Format: **[C1] <Short title>** — <one sentence>. (blocking / non-blocking)\n\n"
-                    "## 4. Recommendation and Justification\n"
-                    "A short closing block:\n"
-                    "- **Recommendation**: <Accept / Minor Revision / Major Revision / Reject> (repeat the metadata value)\n"
-                    "- **Justification**: 2-3 sentences explaining WHY this is the right recommendation for this venue. "
-                    "Weigh the strengths against the concerns. Note whether the manuscript could become acceptable after "
-                    "revisions or whether the issues are fundamental.\n\n"
-                    "DO NOT add a Detailed Assessment, Major/Minor Issues list, or any content that belongs in the Response to "
-                    "Authors. The Response to Editor is intentionally shorter and higher-level than the Response to Authors. "
-                    "Tone: professional, direct, suitable for an editor's eyes only."
+                    "### 4. Recommendation and Justification\n"
+                    "- **Recommendation**: <Accept / Minor Revision / Major Revision / Reject> (repeat metadata value)\n"
+                    "- **Justification**: 2-3 sentences explaining WHY this recommendation. Weigh strengths vs. concerns. "
+                    "Note whether the manuscript could become acceptable after revisions.\n\n"
+                    "DO NOT fabricate citations. DO NOT add sections beyond those listed above. "
+                    "Tone: Response to Authors is professional, respectful, constructive. "
+                    "Response to Editor is direct, candid, suitable for an editor's eyes only."
                 ),
             },
         ],
@@ -686,6 +664,18 @@ def _sanitize_output(text: str) -> str:
     return text.strip()
 
 
+def _validate_paper_review_writer_output(output: str) -> tuple[bool, list[str]]:
+    """Check that a paper-review-writer output contains both required sections.
+
+    Returns (is_valid, missing_sections) where missing_sections lists the
+    section headings not found (case-insensitive substring match).
+    """
+    required_sections = ["## Response to Authors", "## Response to Editor"]
+    lower_output = output.lower()
+    missing = [s for s in required_sections if s.lower() not in lower_output]
+    return len(missing) == 0, missing
+
+
 async def _run_stage(
     db: AsyncSession,
     user_id: str,
@@ -780,6 +770,35 @@ async def _run_stage(
             }
             metadata["agent_role"] = stage_def["role"]
             metadata["agent_name"] = config.name
+
+            # --- Section-delimiter validation for paper-review-writer ---
+            if stage_def.get("id") == "paper-review-writer":
+                output_text = result.get("output", "") or ""
+                is_valid, missing = _validate_paper_review_writer_output(output_text)
+                if not is_valid:
+                    # Retry once with a reminder
+                    reminder = (
+                        "Your previous response was missing the following required section(s): "
+                        f"{', '.join(missing)}. Please produce BOTH sections "
+                        "(`## Response to Authors` and `## Response to Editor`) in your next response."
+                    )
+                    try:
+                        retry_result = await asyncio.wait_for(
+                            agent.run([HumanMessage(content=reminder)], context=agent_context),
+                            timeout=STAGE_TIMEOUT_SECONDS,
+                        )
+                        retry_output = retry_result.get("output", "") or ""
+                        result = retry_result  # use retry result going forward
+                        is_valid2, missing2 = _validate_paper_review_writer_output(retry_output)
+                        if not is_valid2:
+                            metadata["validation_warning"] = (
+                                f"missing section(s) after retry: {', '.join(missing2)}"
+                            )
+                    except Exception as retry_err:
+                        logger.warning(f"Validation retry failed: {retry_err}")
+                        metadata["validation_warning"] = (
+                            f"missing section(s) and retry failed: {', '.join(missing)}"
+                        )
 
             rating = result.get("context", {}).get("rating")
             dossier = result.get("context", {}).get("research_dossier")
@@ -913,6 +932,80 @@ def _build_stage_context(original_input: str, prior_findings: list[dict]) -> str
     return "\n".join(parts)
 
 
+async def _ensure_review_writer_config(db: AsyncSession, user_id: str) -> None:
+    """Ensure a Review Writer AgentConfig exists for this user.
+
+    Existing users created before the Review Writer seed was added may be
+    missing this config. Creates it on-demand without requiring re-login.
+    """
+    from uuid import UUID
+    from sqlalchemy import select
+    from app.models import AgentConfig, AgentRole, Skill
+    from app.seeds.scholarflow_skills import _AGENT_SEEDS
+
+    # 1. Convert user_id to UUID if needed
+    user_id_uuid = UUID(user_id) if isinstance(user_id, str) else user_id
+
+    # 2. Check if config already exists — short-circuit
+    result = await db.execute(
+        select(AgentConfig).where(
+            AgentConfig.user_id == user_id_uuid,
+            AgentConfig.role == AgentRole.REVIEW_WRITER,
+        )
+    )
+    if result.scalar_one_or_none():
+        return
+
+    # 3. Find the Review Writer seed entry
+    seed = None
+    for s in _AGENT_SEEDS:
+        if s["name"] == "Review Writer":
+            seed = s
+            break
+    if not seed:
+        return  # safety: seed not found, nothing to create
+
+    # 4. Look up the required skills for this user
+    result = await db.execute(
+        select(Skill).where(
+            Skill.user_id == user_id_uuid,
+            Skill.name.in_(seed["skill_names"]),
+        )
+    )
+    skills = {s.name: s for s in result.scalars().all()}
+    if any(n not in skills for n in seed["skill_names"]):
+        return  # safety: skills missing, user must re-login to trigger seed
+
+    # 5. Create the AgentConfig
+    config = AgentConfig(
+        user_id=user_id_uuid,
+        name=seed["name"],
+        role=seed["role"],
+        provider=seed["provider"],
+        model=seed["model"],
+        strategy=seed["strategy"],
+        system_prompt=seed["system_prompt"],
+        temperature=0.7,
+        max_tokens=4096,
+        tools=[],
+        is_default=False,
+    )
+    db.add(config)
+    await db.flush()  # get config.id
+
+    # 6. Associate skills via the M2M table
+    for skill_name in seed["skill_names"]:
+        skill = skills[skill_name]
+        await db.execute(
+            agent_skills_table.insert().values(
+                agent_config_id=config.id,
+                skill_id=skill.id,
+            )
+        )
+
+    await db.commit()
+
+
 @router.post("/execute")
 async def execute_workflow(
     req: WorkflowExecuteRequest,
@@ -927,6 +1020,9 @@ async def execute_workflow(
         )
 
     workflow = WORKFLOW_DEFINITIONS[req.workflow_id]
+
+    # Ensure Review Writer agent config exists for this user
+    await _ensure_review_writer_config(db, user_id)
 
     if not req.paper_id and not req.input:
         raise HTTPException(

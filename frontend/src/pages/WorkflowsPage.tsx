@@ -48,6 +48,7 @@ const ROLE_COMPATIBILITY: Record<string, string[]> = {
   writer: ["writer", "manager"],
   researcher: ["researcher"],
   recommender: ["recommender"],
+  review_writer: ["review_writer"],
   debater: ["debater"],
   manager: ["manager", "writer"],
   revision: ["revision"],

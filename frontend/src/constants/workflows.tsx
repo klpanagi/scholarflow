@@ -6,7 +6,7 @@ import {
   Users,
   BookOpen,
   MessageSquare,
-  FileCheck,
+  PenLine,
 } from "lucide-react";
 
 export interface WorkflowStage {
@@ -82,7 +82,7 @@ export const WORKFLOWS: Workflow[] = [
     id: "paper-review",
     name: "Paper Review Pipeline",
     description:
-      "A rigorous 5-stage review process: literature search, in-depth review, structured debate, polished Response to Authors, and a separate Response to Editor document.",
+      "A rigorous 4-stage review process: literature search, in-depth review, structured debate, and a single self-critiqued pass that produces BOTH the Response to Authors and Response to Editor documents.",
     useCase:
       "Use when you need a comprehensive review of a research paper before submission or to evaluate a paper for a journal/conference.",
     inputPlaceholder: "Paste the paper abstract or provide a brief description...",
@@ -115,22 +115,12 @@ export const WORKFLOWS: Workflow[] = [
         color: "bg-amber-500",
       },
       {
-        id: "refine-review",
-        agent: "Paper Review Writer",
-        role: "writer",
-        description:
-          "Produce the editorial-manager-format peer review: Metadata, Summary, Major Comments ([C1]...prefixed), Minor Comments, and Recommendation.",
-        icon: <FileText className="h-5 w-5" />,
-        color: "bg-green-500",
-      },
-      {
-        id: "response-to-editor",
-        agent: "Editor Response Writer",
-        role: "writer",
-        description:
-          "Produce a short Response to Editor document for the Action Editor. Summarizes the contribution, key strengths, key concerns, and justification for the recommendation.",
-        icon: <FileCheck className="h-5 w-5" />,
-        color: "bg-indigo-500",
+        id: "paper-review-writer",
+        agent: "Review Writer",
+        role: "review_writer",
+        description: "Produce BOTH the Response to Authors (public peer review) and Response to Editor (confidential AE note) in a single self-critiqued pass with built-in quality review.",
+        icon: <PenLine className="h-5 w-5" />,
+        color: "bg-emerald-500",
       },
     ],
   },
