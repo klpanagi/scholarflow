@@ -2,7 +2,7 @@
 
 Consumes research_dossier from SearchAgent stage as an evidence corpus.
 Config-driven: system_prompt + skills determine review methodology.
-Replaces the lightweight standalone PaperReviewAgent.
+Replaces the lightweight standalone variant.
 """
 
 from __future__ import annotations
@@ -64,13 +64,13 @@ def _format_dossier_context(dossier: ResearchDossier) -> str:
     else:
         sections.append("| No methodology entries found. |")
 
-    return "## Available Evidence Corpus (from Scholar Agent)\n\n" + "\n".join(sections)
+    return "## Available Evidence Corpus (from Search Agent)\n\n" + "\n".join(sections)
 
 
-class PaperReviewAgent(BaseAgent):
+class ReviewAgent(BaseAgent):
     """Workflow-integrated paper review agent.
 
-    Consumes Scholar Agent's research_dossier as evidence corpus when available.
+    Consumes Search Agent's research_dossier as evidence corpus when available.
     The system_prompt (from AgentConfig) drives the review focus and methodology.
     The skills (from AgentConfig) provide domain-specific knowledge.
 
@@ -78,8 +78,8 @@ class PaperReviewAgent(BaseAgent):
     Strategy-aware: uses critique/reflection/direct strategies as configured.
     """
 
-    name = "paper-review"
-    description = "Workflow-integrated paper review. Consumes Scholar Agent's research_dossier as evidence corpus."
+    name = "review"
+    description = "Workflow-integrated paper review. Consumes Search Agent's research_dossier as evidence corpus."
     system_prompt = DEFAULT_REVIEW_PROMPT
 
     def build_graph(self) -> StateGraph:

@@ -1,25 +1,25 @@
-"""Regression tests for PaperReviewAgent factory registration.
+"""Regression tests for ReviewAgent factory registration.
 
-Verifies that PaperReviewAgent is properly registered in the AGENT_REGISTRY
+Verifies that ReviewAgent is properly registered in the AGENT_REGISTRY
 and can be created via the factory function. See Task 12 of scholar-agent-improvement plan.
 """
 
 from unittest.mock import patch
 
 from app.agents.factory import AGENT_REGISTRY, create_agent
-from app.agents.paper_review_agent import PaperReviewAgent
+from app.agents.review_agent import ReviewAgent
 
 
 class TestPaperReviewFactoryRegistration:
-    """Verify PaperReviewAgent is registered in the factory."""
+    """Verify ReviewAgent is registered in the factory."""
 
     def test_reviewer_in_registry(self):
-        """AGENT_REGISTRY["reviewer"] must be the PaperReviewAgent class."""
+        """AGENT_REGISTRY["reviewer"] must be the ReviewAgent class."""
         assert "reviewer" in AGENT_REGISTRY
-        assert AGENT_REGISTRY["reviewer"] is PaperReviewAgent
+        assert AGENT_REGISTRY["reviewer"] is ReviewAgent
 
     def test_create_agent_reviewer(self, mock_llm):
-        """create_agent("reviewer") must return a PaperReviewAgent instance."""
+        """create_agent("reviewer") must return a ReviewAgent instance."""
         with patch("app.agents.factory.llm_service.get_llm", return_value=mock_llm):
             agent = create_agent(agent_type="reviewer")
-        assert isinstance(agent, PaperReviewAgent)
+        assert isinstance(agent, ReviewAgent)
