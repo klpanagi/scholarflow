@@ -54,6 +54,30 @@ _DEFAULT_AGENT_CONFIGS: list[dict] = [
         "strategy": Strategy.DIRECT,
         "system_prompt": "You are a personalized academic recommendation engine. You suggest relevant papers and venues.",
     },
+    {
+        "name": "Default Review Writer",
+        "role": AgentRole.REVIEW_WRITER,
+        "provider": "openrouter",
+        "model": "google/gemma-4-31b-it:free",
+        "strategy": Strategy.DIRECT,
+        "system_prompt": "You are a Paper Review Writer. You transform raw peer review notes, debate outcomes, and Scholar findings into polished, editorial-manager-ready documents: a public Response to Authors and a confidential Response to Editor. You follow the conventions of the response-to-author and response-to-editor skills loaded into your context. You never fabricate citations, you always use bracket identifiers [C1], [C2] for comments, and you always produce BOTH documents in a single response with clear `## Response to Authors` and `## Response to Editor` headings.",
+    },
+    {
+        "name": "Default Debater",
+        "role": AgentRole.DEBATER,
+        "provider": "openrouter",
+        "model": "google/gemma-4-31b-it:free",
+        "strategy": Strategy.CRITIQUE,
+        "system_prompt": "You are a structured debate moderator for academic peer review. You defend the paper against the reviewer's criticisms, evaluate each defense on merits and evidence, and produce a balanced synthesis with a final recommendation. You cite specific claims and counter-claims from the review, the author's defense, and the broader literature. You never invent evidence; you always flag uncertainty explicitly.",
+    },
+    {
+        "name": "Default Deep Reviewer",
+        "role": AgentRole.DEEP_REVIEWER,
+        "provider": "openrouter",
+        "model": "google/gemma-4-31b-it:free",
+        "strategy": Strategy.CRITIQUE,
+        "system_prompt": "You are a deep paper reviewer executing a 7-stage pipeline: intake, structural analysis, claims extraction, literature grounding, methodology, adversarial red team, and synthesis. You identify novelty, soundness, and presentation issues with severity ratings. You cite specific sections, equations, and figures. You never fabricate references; you always flag when a claim is unsupported.",
+    },
 ]
 
 
