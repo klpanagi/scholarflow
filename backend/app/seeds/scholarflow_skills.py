@@ -684,6 +684,11 @@ async def seed_scholarflow(db: AsyncSession, user_id: str) -> list[AgentConfig]:
     )
     existing_skill_names = {row[0] for row in existing_skill_result.fetchall()}
 
+    existing_config_result = await db.execute(
+        select(AgentConfig.name).where(AgentConfig.user_id == user_id)
+    )
+    existing_config_names = {row[0] for row in existing_config_result.fetchall()}
+
     created_skills: dict[str, Skill] = {}
     for skill_def in _SKILL_SEEDS:
         if skill_def["name"] in existing_skill_names:
@@ -719,6 +724,8 @@ async def seed_scholarflow(db: AsyncSession, user_id: str) -> list[AgentConfig]:
     # 2. Create agent configs with skill associations
     created_configs = []
     for agent_def in _AGENT_SEEDS:
+        if agent_def["name"] in existing_config_names:
+            continue
         config = AgentConfig(
             user_id=user_id,
             name=agent_def["name"],
