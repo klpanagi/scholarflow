@@ -480,13 +480,23 @@ export default function WorkflowsPage() {
   });
   const assets = assetsData || [];
 
-  const { data: userConfigs = [] } = useQuery<AgentConfig[]>({
+  const { data: userConfigs = [], error: configsError, isLoading: configsLoading } = useQuery<AgentConfig[]>({
     queryKey: ["agent-configs"],
     queryFn: async () => {
       const { data } = await api.get("/agents/configs");
       return data || [];
     },
   });
+
+  useEffect(() => {
+    if (configsError) {
+      toast({
+        title: "Failed to load agents",
+        description: (configsError as any)?.message || "Could not load agent configurations",
+        variant: "destructive",
+      });
+    }
+  }, [configsError, toast]);
 
   const { data: pastExecutions = [] } = useQuery<WorkflowExecution[]>({
     queryKey: ["workflow-results"],
