@@ -6,7 +6,7 @@ import re
 from datetime import datetime
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage
 from langgraph.graph import StateGraph, END
 
 from app.agents.base import BaseAgent, AgentState
@@ -21,7 +21,12 @@ from app.agents.dossier import (
     _coerce_source_name,
     _resolve_paper_id,
 )
-from app.services.academic_apis import semantic_scholar, arxiv_api, crossref_api, openalex_api
+from app.services.academic_apis import (
+    semantic_scholar,
+    arxiv_api,
+    crossref_api,
+    openalex_api,
+)
 from app.utils.pdf_model_support import extract_text_from_message_content
 from app.utils.rate_limiters import arxiv_rate_limiter
 
@@ -46,7 +51,9 @@ def _parse_llm_json(text: str) -> dict | None:
 
     candidates = [text]
 
-    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL | re.IGNORECASE)
+    fenced = re.search(
+        r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL | re.IGNORECASE
+    )
     if fenced:
         candidates.append(fenced.group(1))
 
@@ -116,22 +123,26 @@ async def _extract_methodology_for_paper(
         "with exactly these keys (no commentary, no markdown):\n"
         "1. method_name: name of the proposed/analysed method as written in the paper\n"
         "2. dataset: dataset or benchmark on which the result was measured "
-        "(string; use \"unknown\" if not stated)\n"
+        '(string; use "unknown" if not stated)\n'
         "3. metrics: list of metric names reported "
-        "(e.g. [\"BLEU\", \"ROUGE-L\"]; use [] if none stated)\n"
+        '(e.g. ["BLEU", "ROUGE-L"]; use [] if none stated)\n'
         "4. baseline_methods: list of baseline method names the proposed method is "
         "compared against (use [] if none stated)\n"
         "5. result: reported main result string "
-        "(e.g. \"28.4 BLEU\", \"91.2% accuracy\"; use \"unknown\" if not stated)\n"
-        "6. confidence: your confidence in this extraction — \"high\", \"medium\", or \"low\"\n\n"
+        '(e.g. "28.4 BLEU", "91.2% accuracy"; use "unknown" if not stated)\n'
+        '6. confidence: your confidence in this extraction — "high", "medium", or "low"\n\n'
         "Example output:\n"
-        "{\"method_name\": \"...\", \"dataset\": \"...\", \"metrics\": [\"...\"], "
-        "\"baseline_methods\": [\"...\"], \"result\": \"...\", \"confidence\": \"high\"}"
+        '{"method_name": "...", "dataset": "...", "metrics": ["..."], '
+        '"baseline_methods": ["..."], "result": "...", "confidence": "high"}'
     )
 
     try:
         response = await llm.ainvoke([HumanMessage(content=prompt)])
-        text = response.content if isinstance(response.content, str) else str(response.content)
+        text = (
+            response.content
+            if isinstance(response.content, str)
+            else str(response.content)
+        )
     except Exception as e:
         logger.warning(f"evaluate_methods: LLM call failed for paper {paper_id!r}: {e}")
         return MethodologyEntry(
@@ -210,7 +221,11 @@ async def _expand_queries_with_llm(
 
     try:
         response = await llm.ainvoke([HumanMessage(content=prompt)])
-        text = response.content if isinstance(response.content, str) else str(response.content)
+        text = (
+            response.content
+            if isinstance(response.content, str)
+            else str(response.content)
+        )
         cleaned: list[str] = []
         for line in text.split("\n"):
             c = line.strip().lstrip("0123456789.-) ").strip().strip("`\"'")
@@ -253,7 +268,9 @@ def _extract_paper_title(full_text: str) -> str:
     text = full_text.strip()
 
     # Strip "PAPER / INPUT:" prefix injected by _build_stage_context
-    paper_block = re.search(r"PAPER\s*/\s*INPUT:\s*\n(.+)", text, re.IGNORECASE | re.DOTALL)
+    paper_block = re.search(
+        r"PAPER\s*/\s*INPUT:\s*\n(.+)", text, re.IGNORECASE | re.DOTALL
+    )
     if paper_block:
         text = paper_block.group(1).strip()
 
@@ -262,10 +279,14 @@ def _extract_paper_title(full_text: str) -> str:
         return title_match.group(1).strip()
 
     # Handle task_template format: "Paper:\n{content}\n\nOutput:"
-    paper_match = re.search(r"Paper:\s*\n(.+?)(?:\n\n|\nOutput:)", text, re.IGNORECASE | re.DOTALL)
+    paper_match = re.search(
+        r"Paper:\s*\n(.+?)(?:\n\n|\nOutput:)", text, re.IGNORECASE | re.DOTALL
+    )
     if paper_match:
         inner = paper_match.group(1).strip()
-        inner_title = re.search(r"^Title[:\s]+([^\n]+)", inner, re.IGNORECASE | re.MULTILINE)
+        inner_title = re.search(
+            r"^Title[:\s]+([^\n]+)", inner, re.IGNORECASE | re.MULTILINE
+        )
         if inner_title:
             return inner_title.group(1).strip()
         first_line = inner.split("\n")[0].strip()
@@ -277,7 +298,9 @@ def _extract_paper_title(full_text: str) -> str:
         line = line.strip()
         if (
             len(line) > 10
-            and not line.lower().startswith(("you are", "search for", "find ", "output:", "paper:", "instruction"))
+            and not line.lower().startswith(
+                ("you are", "search for", "find ", "output:", "paper:", "instruction")
+            )
             and not line.startswith(("- ", "* ", "1.", "2.", "3."))
         ):
             return line[:120]
@@ -286,36 +309,58 @@ def _extract_paper_title(full_text: str) -> str:
 
 
 async def verify_paper_exists(title: str, doi: str | None = None) -> dict:
-    import re
-    
+
     if doi:
         try:
             result = await semantic_scholar.search(doi, limit=1)
             if result:
-                return {"verified": True, "source": "semantic_scholar", "url": f"https://doi.org/{doi}", "title": result[0].title}
+                return {
+                    "verified": True,
+                    "source": "semantic_scholar",
+                    "url": f"https://doi.org/{doi}",
+                    "title": result[0].title,
+                }
         except Exception:
             pass
-    
+
     try:
         results = await semantic_scholar.search(title, limit=3)
         for r in results:
             title_lower = r.title.lower().strip()
             search_title_lower = title.lower().strip()
-            if title_lower == search_title_lower or search_title_lower in title_lower or title_lower in search_title_lower:
-                return {"verified": True, "source": "semantic_scholar", "url": getattr(r, "url", None), "title": r.title}
+            if (
+                title_lower == search_title_lower
+                or search_title_lower in title_lower
+                or title_lower in search_title_lower
+            ):
+                return {
+                    "verified": True,
+                    "source": "semantic_scholar",
+                    "url": getattr(r, "url", None),
+                    "title": r.title,
+                }
     except Exception:
         pass
-    
+
     try:
         results = await openalex_api.search(title, limit=3)
         for r in results:
             title_lower = r.title.lower().strip()
             search_title_lower = title.lower().strip()
-            if title_lower == search_title_lower or search_title_lower in title_lower or title_lower in search_title_lower:
-                return {"verified": True, "source": "openalex", "url": getattr(r, "url", None), "title": r.title}
+            if (
+                title_lower == search_title_lower
+                or search_title_lower in title_lower
+                or title_lower in search_title_lower
+            ):
+                return {
+                    "verified": True,
+                    "source": "openalex",
+                    "url": getattr(r, "url", None),
+                    "title": r.title,
+                }
     except Exception:
         pass
-    
+
     return {"verified": False, "source": None, "url": None, "title": title}
 
 
@@ -326,23 +371,35 @@ def _extract_search_queries(full_text: str, max_queries: int = 8) -> list[str]:
     queries = [primary]
 
     text = full_text.strip()
-    paper_block = re.search(r"PAPER\s*/\s*INPUT:\s*\n(.+)", text, re.IGNORECASE | re.DOTALL)
+    paper_block = re.search(
+        r"PAPER\s*/\s*INPUT:\s*\n(.+)", text, re.IGNORECASE | re.DOTALL
+    )
     if paper_block:
         text = paper_block.group(1).strip()
 
-    paper_match = re.search(r"Paper\s+to\s+review:\s*\n(.+?)(?:\n\n|\nCRITICAL|\nOutput:)", text, re.IGNORECASE | re.DOTALL)
+    paper_match = re.search(
+        r"Paper\s+to\s+review:\s*\n(.+?)(?:\n\n|\nCRITICAL|\nOutput:)",
+        text,
+        re.IGNORECASE | re.DOTALL,
+    )
     if paper_match:
         text = paper_match.group(1).strip()
 
     abstract = ""
-    abstract_match = re.search(r"Abstract[:\s]+(.+?)(?:\n\n|\nFull Text:|\nKeywords:|\nScientific)", text, re.IGNORECASE | re.DOTALL)
+    abstract_match = re.search(
+        r"Abstract[:\s]+(.+?)(?:\n\n|\nFull Text:|\nKeywords:|\nScientific)",
+        text,
+        re.IGNORECASE | re.DOTALL,
+    )
     if abstract_match:
         abstract = abstract_match.group(1).strip()[:500]
         sentences = re.split(r"[.!]", abstract)
         if sentences and len(sentences[0].split()) >= 3:
             queries.append(sentences[0].strip()[:120])
 
-    kw_match = re.search(r"(?:keywords?|key terms?|Auto Tags)[:\s]+(.+?)(?:\n|$)", text, re.IGNORECASE)
+    kw_match = re.search(
+        r"(?:keywords?|key terms?|Auto Tags)[:\s]+(.+?)(?:\n|$)", text, re.IGNORECASE
+    )
     if kw_match:
         queries.append(kw_match.group(1).strip()[:120])
 
@@ -431,14 +488,55 @@ def _extract_tool_names(full_text: str) -> list[str]:
     import re
 
     NON_TOOLS = {
-        'The', 'This', 'That', 'What', 'When', 'Where', 'How', 'Why',
-        'You', 'Your', 'Output', 'Input', 'Paper', 'Title', 'Authors',
-        'Abstract', 'Keywords', 'Search', 'Find', 'List', 'For',
-        'CRITICAL', 'INSTRUCTIONS', 'STEP', 'NOTE', 'IMPORTANT',
-        'DSL', 'STPA', 'DOI', 'URL', 'PDF', 'XML', 'JSON',
-        'EACH', 'DSLs', 'BROADER', 'COMPETING', 'TOOLS', 'APPROACHES',
-        'DOMAIN', 'CONCEPTS', 'RELATED', 'WORK', 'SPECIFICALLY',
-        'USED', 'FOUND', 'ASSESSMENT', 'GAPS', 'OUTPUT',
+        "The",
+        "This",
+        "That",
+        "What",
+        "When",
+        "Where",
+        "How",
+        "Why",
+        "You",
+        "Your",
+        "Output",
+        "Input",
+        "Paper",
+        "Title",
+        "Authors",
+        "Abstract",
+        "Keywords",
+        "Search",
+        "Find",
+        "List",
+        "For",
+        "CRITICAL",
+        "INSTRUCTIONS",
+        "STEP",
+        "NOTE",
+        "IMPORTANT",
+        "DSL",
+        "STPA",
+        "DOI",
+        "URL",
+        "PDF",
+        "XML",
+        "JSON",
+        "EACH",
+        "DSLs",
+        "BROADER",
+        "COMPETING",
+        "TOOLS",
+        "APPROACHES",
+        "DOMAIN",
+        "CONCEPTS",
+        "RELATED",
+        "WORK",
+        "SPECIFICALLY",
+        "USED",
+        "FOUND",
+        "ASSESSMENT",
+        "GAPS",
+        "OUTPUT",
     }
 
     tool_names = []
@@ -462,7 +560,7 @@ def _extract_tool_names(full_text: str) -> list[str]:
 
     tool_context = re.findall(
         r"(?:tool|framework|system|platform|language|DSL|library|package|approach|method|model|notation)[s]?\s+(?:called|named|is|like|such as|including|e\.g\.)\s+([A-Z][A-Za-z0-9]+)",
-        full_text
+        full_text,
     )
     tool_names.extend([t for t in tool_context if t not in NON_TOOLS and len(t) > 2])
 
@@ -510,14 +608,17 @@ class SearchAgent(BaseAgent):
         `context["search_metadata"]["sources_failed"]` without killing the whole node.
         Manual dedup is REMOVED — Task 7's `deduplicate` node (using `app.agents.dedup`) handles it.
         """
-        message_content = extract_text_from_message_content(state["messages"][-1].content)
+        message_content = extract_text_from_message_content(
+            state["messages"][-1].content
+        )
         paper_s2_id = state["context"].get("paper_s2_id")
         topic_query = state["context"].get("topic_query")
 
         ctx = state["context"]
         year = year if year is not None else ctx.get("year")
         min_citation_count = (
-            min_citation_count if min_citation_count is not None
+            min_citation_count
+            if min_citation_count is not None
             else ctx.get("min_citation_count")
         )
         venue = venue if venue is not None else ctx.get("venue")
@@ -548,7 +649,11 @@ class SearchAgent(BaseAgent):
                 logger.warning(f"build_related_work failed: {e}")
                 return []
 
-        related_results, expanded_queries, (s2_seed_id, recommendations) = await asyncio.gather(
+        (
+            related_results,
+            expanded_queries,
+            (s2_seed_id, recommendations),
+        ) = await asyncio.gather(
             _build_related(),
             _expand_queries_with_llm(self.llm, base_queries, message_content),
             _resolve_to_recommendations(title),
@@ -571,18 +676,24 @@ class SearchAgent(BaseAgent):
             raw_results.append(_paper_to_dict(r, matched_in=["s2_recommendation"]))
 
         def _record_failure(source: str, query: str, exc: Exception) -> None:
-            ctx["search_metadata"]["sources_failed"].append({
-                "source": source,
-                "query": query,
-                "reason": str(exc),
-            })
+            ctx["search_metadata"]["sources_failed"].append(
+                {
+                    "source": source,
+                    "query": query,
+                    "reason": str(exc),
+                }
+            )
             logger.warning(f"{source} search failed for {query!r}: {exc}")
 
         async def _search_one_source(q: str, source_name: str):
             if source_name == "s2":
                 try:
                     return await semantic_scholar.search(
-                        q, limit=5, year=year, min_citations=min_citations, venue=venue,
+                        q,
+                        limit=5,
+                        year=year,
+                        min_citations=min_citations,
+                        venue=venue,
                     )
                 except Exception as e:
                     _record_failure("semantic_scholar", q, e)
@@ -603,8 +714,11 @@ class SearchAgent(BaseAgent):
             if source_name == "openalex":
                 try:
                     return await openalex_api.search(
-                        q, limit=5,
-                        year=year, min_citation_count=min_citation_count, venue=venue,
+                        q,
+                        limit=5,
+                        year=year,
+                        min_citation_count=min_citation_count,
+                        venue=venue,
                     )
                 except Exception as e:
                     _record_failure("openalex", q, e)
@@ -652,9 +766,7 @@ class SearchAgent(BaseAgent):
         ctx["deduplicated_results"] = deduplicated
         ctx["search_metadata"]["papers_after_dedup"] = len(deduplicated)
 
-        logger.info(
-            f"deduplicate: {len(raw)} raw → {len(deduplicated)} unique"
-        )
+        logger.info(f"deduplicate: {len(raw)} raw → {len(deduplicated)} unique")
         return state
 
     async def evaluate_methods(self, state: AgentState) -> AgentState:
@@ -715,7 +827,11 @@ class SearchAgent(BaseAgent):
         for src in paper.get("sources", []) or []:
             if not isinstance(src, dict):
                 continue
-            src_fos = src.get("fields_of_study") or src.get("concepts") or src.get("fieldsOfStudy")
+            src_fos = (
+                src.get("fields_of_study")
+                or src.get("concepts")
+                or src.get("fieldsOfStudy")
+            )
             if isinstance(src_fos, list) and src_fos:
                 return [str(c).strip().lower() for c in src_fos if c]
 
@@ -788,7 +904,7 @@ class SearchAgent(BaseAgent):
             return {}
 
         lines = [
-            f"{i+1}. Concept A: {a} | Concept B: {b} | Co-occurrence weight: {w}"
+            f"{i + 1}. Concept A: {a} | Concept B: {b} | Co-occurrence weight: {w}"
             for i, (a, b, w) in enumerate(candidates)
         ]
         prompt = (
@@ -805,7 +921,11 @@ class SearchAgent(BaseAgent):
         )
         try:
             response = await self.llm.ainvoke([HumanMessage(content=prompt)])
-            text = response.content if isinstance(response.content, str) else str(response.content)
+            text = (
+                response.content
+                if isinstance(response.content, str)
+                else str(response.content)
+            )
         except Exception as e:
             logger.warning(f"identify_gaps: LLM call failed: {e}")
             return {}
@@ -854,7 +974,9 @@ class SearchAgent(BaseAgent):
         pair_support: dict[tuple[str, str], list[str]] = {}
         for paper, concepts in zip(papers, concepts_per_paper):
             unique = sorted(concepts)
-            paper_id = self._paper_stable_id(paper, fallback=f"paper_{papers.index(paper)}")
+            paper_id = self._paper_stable_id(
+                paper, fallback=f"paper_{papers.index(paper)}"
+            )
             for i in range(len(unique)):
                 for j in range(i + 1, len(unique)):
                     pair = (unique[i], unique[j])
@@ -919,7 +1041,9 @@ class SearchAgent(BaseAgent):
         ctx = state["context"]
         deduped: list[dict] = ctx.get("deduplicated_results", []) or []
         gaps: list[ResearchGap] = ctx.get("gaps", []) or []
-        methodology_table: list[MethodologyEntry] = ctx.get("methodology_table", []) or []
+        methodology_table: list[MethodologyEntry] = (
+            ctx.get("methodology_table", []) or []
+        )
         search_metadata_raw: dict = ctx.get("search_metadata", {}) or {}
         queries_used: list[str] = ctx.get("search_queries", [])
         expanded_used: list[str] = ctx.get("expanded_queries", [])
@@ -963,7 +1087,11 @@ class SearchAgent(BaseAgent):
                 else 0.0
             )
 
-            composite = 0.50 * relevance_score + 0.30 * citation_normalized + 0.20 * recency_score
+            composite = (
+                0.50 * relevance_score
+                + 0.30 * citation_normalized
+                + 0.20 * recency_score
+            )
 
             merged_sources: list[str] = raw.get("merged_sources", []) or []
             source_list: list[PaperSource] = []
@@ -1004,7 +1132,9 @@ class SearchAgent(BaseAgent):
                 year=year_int,
                 venue=raw.get("venue") if isinstance(raw.get("venue"), str) else None,
                 citation_count=citation_count,
-                abstract=raw.get("abstract") if isinstance(raw.get("abstract"), str) else None,
+                abstract=raw.get("abstract")
+                if isinstance(raw.get("abstract"), str)
+                else None,
                 sources=source_list,
                 relevance_score=round(relevance_score, 4),
                 recency_score=round(recency_score, 4),
@@ -1022,7 +1152,9 @@ class SearchAgent(BaseAgent):
             try:
                 search_metadata = SearchMetadata(**search_metadata_raw)
             except Exception:
-                logger.warning("synthesize: failed to build SearchMetadata from raw dict")
+                logger.warning(
+                    "synthesize: failed to build SearchMetadata from raw dict"
+                )
 
         dossier = ResearchDossier(
             papers=papers,
@@ -1093,25 +1225,36 @@ class SearchAgent(BaseAgent):
         queries_text = ", ".join(queries_used)
         expanded_text = (
             f"\nLLM-expanded queries (synonyms/related concepts): {', '.join(expanded_used)}"
-            if expanded_used else ""
+            if expanded_used
+            else ""
         )
         seed_text = (
-            f"\nS2 recommendations seed paperId: {s2_seed_id}"
-            if s2_seed_id else ""
+            f"\nS2 recommendations seed paperId: {s2_seed_id}" if s2_seed_id else ""
         )
 
         top5 = papers[:5]
-        top5_text = "\n".join(
-            f"  - {p.title} ({p.year or 'N/A'}) [{p.citation_count} cites]" for p in top5
-        ) or "  (none)"
+        top5_text = (
+            "\n".join(
+                f"  - {p.title} ({p.year or 'N/A'}) [{p.citation_count} cites]"
+                for p in top5
+            )
+            or "  (none)"
+        )
 
-        gaps_text = "\n".join(
-            f"  - {g.concept_a} ↔ {g.concept_b}: {g.description}" for g in gaps[:3]
-        ) or "  (none)"
+        gaps_text = (
+            "\n".join(
+                f"  - {g.concept_a} ↔ {g.concept_b}: {g.description}" for g in gaps[:3]
+            )
+            or "  (none)"
+        )
 
-        methods_text = "\n".join(
-            f"  - {m.method_name} on {m.dataset}: {m.result}" for m in methodology_table[:5]
-        ) or "  (none)"
+        methods_text = (
+            "\n".join(
+                f"  - {m.method_name} on {m.dataset}: {m.result}"
+                for m in methodology_table[:5]
+            )
+            or "  (none)"
+        )
 
         synthesis_prompt = (
             f"Search queries used: {queries_text}{expanded_text}{seed_text}\n\n"
@@ -1136,9 +1279,12 @@ class SearchAgent(BaseAgent):
             existing = state["context"].get("_usage", {})
             if existing:
                 usage = {
-                    "input_tokens": usage.get("input_tokens", 0) + existing.get("input_tokens", 0),
-                    "output_tokens": usage.get("output_tokens", 0) + existing.get("output_tokens", 0),
-                    "total_tokens": usage.get("total_tokens", 0) + existing.get("total_tokens", 0),
+                    "input_tokens": usage.get("input_tokens", 0)
+                    + existing.get("input_tokens", 0),
+                    "output_tokens": usage.get("output_tokens", 0)
+                    + existing.get("output_tokens", 0),
+                    "total_tokens": usage.get("total_tokens", 0)
+                    + existing.get("total_tokens", 0),
                 }
             state["context"]["_usage"] = usage
         return state
@@ -1155,8 +1301,7 @@ class SearchAgent(BaseAgent):
         graph.set_entry_point("search_papers")
         graph.add_edge("search_papers", "deduplicate")
         graph.add_edge("deduplicate", "evaluate_methods")
-        graph.add_edge("deduplicate", "identify_gaps")
-        graph.add_edge("evaluate_methods", "synthesize")
+        graph.add_edge("evaluate_methods", "identify_gaps")
         graph.add_edge("identify_gaps", "synthesize")
         graph.add_edge("synthesize", END)
 
