@@ -216,6 +216,8 @@ function WorkflowDialog({
   workflow,
   assets,
   userConfigs,
+  configsError,
+  configsLoading,
   open,
   onOpenChange,
   onExecute,
@@ -224,6 +226,8 @@ function WorkflowDialog({
   workflow: Workflow;
   assets: Asset[];
   userConfigs: AgentConfig[];
+  configsError: unknown | null;
+  configsLoading: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onExecute: (id: string, customPrompt: string, assetId?: string, assignments?: Record<string, string>, includeFullPaper?: boolean, rubricStandard?: string, reviewText?: string) => void;
@@ -357,7 +361,9 @@ function WorkflowDialog({
                         <p className="text-xs text-destructive mt-1">
                           {configsError
                             ? `Cannot load agents: ${(configsError as any)?.message || 'backend unavailable'}`
-                            : `No ${stage.agent} agents configured. Create one in Agents settings.`}
+                            : configsLoading
+                              ? "Loading agents..."
+                              : `No ${stage.agent} agents configured. Create one in Agents settings.`}
                         </p>
                       )}
                     </div>
@@ -777,6 +783,8 @@ export default function WorkflowsPage() {
           workflow={dialogWorkflow}
           assets={assets}
           userConfigs={userConfigs}
+          configsError={configsError}
+          configsLoading={configsLoading}
           open={!!dialogWorkflow}
           onOpenChange={(open) => { if (!open) setDialogWorkflow(null); }}
           onExecute={(id, customPrompt, assetId, assignments, includeFullPaper, rubricStandard, reviewText) =>
