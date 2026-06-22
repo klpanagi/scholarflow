@@ -2,6 +2,8 @@
 
 import pytest
 
+pytestmark = pytest.mark.unit_db
+
 from app.agents.search_agent import SearchAgent
 
 

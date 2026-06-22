@@ -4,6 +4,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+pytestmark = pytest.mark.unit_db
+
 from app.agents.base import AgentState
 from app.agents.search_agent import SearchAgent
 from app.services.academic_apis import (

@@ -15,6 +15,9 @@ from __future__ import annotations
 import json
 
 import pytest
+
+pytestmark = pytest.mark.unit_db
+
 from langchain_core.messages import AIMessage
 
 from app.agents.base import AgentState

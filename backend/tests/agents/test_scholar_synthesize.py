@@ -4,6 +4,9 @@ from __future__ import annotations
 import math
 
 import pytest
+
+pytestmark = pytest.mark.unit_db
+
 from langchain_core.messages import AIMessage
 
 from app.agents.dossier import (
