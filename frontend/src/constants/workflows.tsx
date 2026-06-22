@@ -250,45 +250,7 @@ export const WORKFLOWS: Workflow[] = [
       },
     ],
   },
-  {
-    id: "review-debate",
-    name: "Review Debate",
-    description:
-      "Debate a paper review: defend the paper against criticisms, evaluate defenses, and synthesize a balanced verdict.",
-    useCase:
-      "Use when you have a paper and a review, and want to systematically debate the review's criticisms before deciding on revisions.",
-    inputPlaceholder: "Paste the paper content or provide a paper ID...",
-    inputLabel: "Paper & Review",
-    stages: [
-      {
-        id: "defend-paper",
-        agent: "Debater",
-        role: "debater",
-        description:
-          "Defend the paper against each criticism with evidence from the paper.",
-        icon: <Shield className="h-5 w-5" />,
-        color: "bg-blue-500",
-      },
-      {
-        id: "defend-review",
-        agent: "Debater",
-        role: "debater",
-        description:
-          "Evaluate whether each defense is substantiated by the paper's evidence.",
-        icon: <MessageSquare className="h-5 w-5" />,
-        color: "bg-amber-500",
-      },
-      {
-        id: "synthesize-debate",
-        agent: "Debater",
-        role: "debater",
-        description:
-          "Neutral synthesis of both positions into a balanced final recommendation.",
-        icon: <FileText className="h-5 w-5" />,
-        color: "bg-green-500",
-      },
-    ],
-  },
+
 ];
 
 export interface StageMeta {

@@ -230,7 +230,7 @@ function WorkflowDialog({
   configsLoading: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onExecute: (id: string, customPrompt: string, assetId?: string, assignments?: Record<string, string>, includeFullPaper?: boolean, rubricStandard?: string, reviewText?: string) => void;
+  onExecute: (id: string, customPrompt: string, assetId?: string, assignments?: Record<string, string>, includeFullPaper?: boolean, rubricStandard?: string) => void;
   isExecuting: boolean;
 }) {
   const [customPrompt, setCustomPrompt] = useState("");
@@ -238,13 +238,10 @@ function WorkflowDialog({
   const [assignments, setAssignments] = useState<Record<string, string>>({});
   const [includeFullPaper, setIncludeFullPaper] = useState(true);
   const [rubricStandard, setRubricStandard] = useState("general");
-  const [reviewText, setReviewText] = useState("");
-
   useEffect(() => {
     if (open) {
       setCustomPrompt("");
       setSelectedAssetId(null);
-      setReviewText("");
     }
   }, [open, workflow.id]);
 
@@ -288,16 +285,11 @@ function WorkflowDialog({
       return;
     }
 
-    if (workflow.id === "review-debate" && !reviewText.trim()) {
-      return;
-    }
-
-    onExecute(workflow.id, customPrompt, selectedAssetId || undefined, assignments, includeFullPaper, rubricStandard, reviewText);
+    onExecute(workflow.id, customPrompt, selectedAssetId || undefined, assignments, includeFullPaper, rubricStandard);
     onOpenChange(false);
   };
 
   const isMissingAssignments = workflow.stages.some((stage) => !assignments[stage.id]);
-  const isMissingReview = workflow.id === "review-debate" && !reviewText.trim();
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -421,22 +413,6 @@ function WorkflowDialog({
               </div>
             )}
 
-            {workflow.id === "review-debate" && (
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Review to Debate *</label>
-                <p className="text-xs text-muted-foreground">
-                  Paste the existing review text that should be debated against the paper. The agents will analyze both the paper and this review.
-                </p>
-                <Textarea
-                  placeholder="Paste the review to analyze and debate here..."
-                  value={reviewText}
-                  onChange={(e) => setReviewText(e.target.value)}
-                  rows={6}
-                  className="font-mono text-xs"
-                />
-              </div>
-            )}
-
             <label className="text-sm font-medium">Custom Instructions (optional)</label>
             <p className="text-xs text-muted-foreground -mt-2">
               Add specific instructions for the agents. If an asset is selected, these instructions will be
@@ -451,7 +427,7 @@ function WorkflowDialog({
 
             <Button
               onClick={handleExecute}
-              disabled={isExecuting || isMissingAssignments || isMissingReview}
+              disabled={isExecuting || isMissingAssignments}
               className="w-full"
             >
               {isExecuting ? (
@@ -787,7 +763,7 @@ export default function WorkflowsPage() {
           configsLoading={configsLoading}
           open={!!dialogWorkflow}
           onOpenChange={(open) => { if (!open) setDialogWorkflow(null); }}
-          onExecute={(id, customPrompt, assetId, assignments, includeFullPaper, rubricStandard, reviewText) =>
+           onExecute={(id, customPrompt, assetId, assignments, includeFullPaper, rubricStandard) =>
             executeMutation.mutate({
               workflowId: id,
               customPrompt,
@@ -795,7 +771,6 @@ export default function WorkflowsPage() {
               agentAssignments: assignments,
               includeFullPaper,
               rubricStandard,
-              reviewText,
             })
           }
           isExecuting={

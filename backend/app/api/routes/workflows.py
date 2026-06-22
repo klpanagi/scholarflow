@@ -551,68 +551,7 @@ WORKFLOW_DEFINITIONS = {
             },
         ],
     },
-    "review-debate": {
-        "name": "Review Debate",
-        "stages": [
-            {
-                "id": "defend-paper",
-                "role": AgentRole.DEBATER.value,
-                "task_template": (
-                    "You are a Paper Advocate. Your job is to DEFEND the paper against the criticisms in the review.\n\n"
-                    "PAPER:\n{input}\n\n"
-                    "For each criticism in the review, provide:\n"
-                    "1. The specific criticism being addressed\n"
-                    "2. Evidence from the paper that counters or mitigates the criticism\n"
-                    "3. Additional context the reviewer may have missed\n\n"
-                    "Be specific and evidence-based. Reference exact sections, figures, or results from the paper.\n"
-                    "If a criticism is valid, acknowledge it and explain how the paper could be improved.\n\n"
-                    "OUTPUT FORMAT:\n"
-                    "## Defense Summary\n[Brief overview of defense strategy]\n\n"
-                    "## Point-by-Point Defense\n[For each major criticism: criticism → defense → evidence]\n\n"
-                    "## Concessions\n[Any valid criticisms acknowledged]\n\n"
-                    "## Suggested Improvements\n[Concrete changes the authors should make]"
-                ),
-            },
-            {
-                "id": "defend-review",
-                "role": AgentRole.DEBATER.value,
-                "task_template": (
-                    "You are a Review Advocate. Your job is to EVALUATE whether the paper's defense is substantiated.\n\n"
-                    "ORIGINAL REVIEW:\n{input}\n\n"
-                    "For each defense point, assess:\n"
-                    "1. Does the defense actually address the criticism?\n"
-                    "2. Is the evidence cited relevant and sufficient?\n"
-                    "3. Are there gaps in the defense?\n\n"
-                    "Be fair but rigorous. A good defense should cite specific evidence, not general claims.\n\n"
-                    "OUTPUT FORMAT:\n"
-                    "## Assessment Summary\n[Overall quality of the defense]\n\n"
-                    "## Point-by-Point Assessment\n[For each defense: supported/partially supported/not supported → justification]\n\n"
-                    "## Unaddressed Criticisms\n[Criticisms from the original review that the defense did not address]\n\n"
-                    "## Updated Verdict\n[Based on both the review and defense: Accept / Minor Revision / Major Revision / Reject]"
-                ),
-            },
-            {
-                "id": "synthesize-debate",
-                "role": AgentRole.DEBATER.value,
-                "task_template": (
-                    "You are a Neutral Moderator. Synthesize the debate between the paper advocate and review advocate into a balanced final assessment.\n\n"
-                    "DEBATE:\n{input}\n\n"
-                    "Produce a balanced, evidence-based synthesis that:\n"
-                    "1. Identifies points of agreement between both sides\n"
-                    "2. Resolves remaining disagreements with your own assessment\n"
-                    "3. Provides a final recommendation with clear justification\n\n"
-                    "OUTPUT FORMAT:\n"
-                    "## Debate Summary\n[Key points of contention and resolution]\n\n"
-                    "## Points of Agreement\n[Where both sides agree]\n\n"
-                    "## Resolved Disagreements\n[Your assessment of disputed points]\n\n"
-                    "## Final Recommendation\n[Accept / Minor Revision / Major Revision / Reject]\n"
-                    "### Justification\n[Detailed reasoning]\n\n"
-                    "## Required Revisions\n[Specific, actionable list of changes needed before acceptance]\n\n"
-                    "## Optional Improvements\n[Suggestions that would strengthen the paper but are not required]"
-                ),
-            },
-        ],
-    },
+
 }
 
 
