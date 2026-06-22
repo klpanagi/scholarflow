@@ -32,6 +32,12 @@ class Strategy(str, enum.Enum):
     EVALUATOR_OPTIMIZER = "evaluator_optimizer"
 
 
+class AgentVariant(str, enum.Enum):
+    SIMPLE = "simple"
+    STANDARD = "standard"
+    DEEP = "deep"
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -123,6 +129,7 @@ class AgentConfig(Base):
     temperature = Column(Float, default=0.7)
     max_tokens = Column(Integer, default=4096)
     strategy = Column(SQLEnum(Strategy), default=Strategy.DIRECT)
+    variant = Column(SQLEnum(AgentVariant), nullable=True, default=None)
     tools = Column(ARRAY(String), default=list)
     system_prompt = Column(Text, nullable=True)
     is_default = Column(Boolean, default=False)
