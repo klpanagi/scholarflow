@@ -275,12 +275,18 @@ async def db_session(db_engine):
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def clean_db(db_engine):
+async def clean_db(request):
     """Truncate every data table before each test for isolation.
 
     Runs before the test body. ``TRUNCATE ... RESTART IDENTITY CASCADE``
     handles FK ordering automatically and resets any serial sequences.
+
+    Tests marked with ``@pytest.mark.unit_db`` skip DB setup entirely.
     """
+    if request.node.get_closest_marker("unit_db"):
+        yield
+        return
+    db_engine = request.getfixturevalue("db_engine")
     # Order: TRUNCATE … CASCADE respects FKs, so we list all tables flat.
     table_names = ", ".join(
         f'"{t.name}"' for t in reversed(Base.metadata.sorted_tables)
