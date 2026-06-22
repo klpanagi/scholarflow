@@ -1,8 +1,7 @@
-import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import AgentConfig, Skill, AgentRole, Strategy, agent_skills_table
+from app.models import AgentConfig, Skill, AgentRole, Strategy, AgentVariant, agent_skills_table
 
 
 _SKILL_SEEDS = [
@@ -669,6 +668,36 @@ _AGENT_SEEDS = [
         "system_prompt": "You are a Paper Review Writer. You transform raw peer review notes, debate outcomes, and Scholar findings into polished, editorial-manager-ready documents: a public Response to Authors and a confidential Response to Editor. You follow the conventions of the response-to-author and response-to-editor skills loaded into your context. You never fabricate citations, you always use bracket identifiers [C1], [C2] for comments, and you always produce BOTH documents in a single response with clear `## Response to Authors` and `## Response to Editor` headings.",
         "skill_names": ["response-to-author", "response-to-editor"],
     },
+    {
+        "name": "Simple Debater",
+        "role": AgentRole.DEBATER,
+        "provider": "openrouter",
+        "model": "deepseek/deepseek-chat-v3-0324:free",
+        "strategy": Strategy.CRITIQUE,
+        "system_prompt": "You are an expert academic debate moderator. You produce a structured debate analysis stress-testing review criticisms against paper evidence.",
+        "skill_names": [],
+        "variant": AgentVariant.SIMPLE,
+    },
+    {
+        "name": "Standard Debater",
+        "role": AgentRole.DEBATER,
+        "provider": "openrouter",
+        "model": "deepseek/deepseek-chat-v3-0324:free",
+        "strategy": Strategy.CRITIQUE,
+        "system_prompt": "You are an expert academic debate moderator. You run adversarial debates with pro/con positions and synthesize a balanced assessment.",
+        "skill_names": [],
+        "variant": AgentVariant.STANDARD,
+    },
+    {
+        "name": "Deep Debater",
+        "role": AgentRole.DEBATER,
+        "provider": "openrouter",
+        "model": "deepseek/deepseek-chat-v3-0324:free",
+        "strategy": Strategy.CRITIQUE,
+        "system_prompt": "You are an expert academic debate moderator. You run a thorough 4-stage adversarial debate: paper defense, defense evaluation, and balanced synthesis.",
+        "skill_names": [],
+        "variant": AgentVariant.DEEP,
+    },
 ]
 
 
@@ -733,6 +762,7 @@ async def seed_scholarflow(db: AsyncSession, user_id: str) -> list[AgentConfig]:
             provider=agent_def["provider"],
             model=agent_def["model"],
             strategy=agent_def["strategy"],
+            variant=agent_def.get("variant"),
             system_prompt=agent_def["system_prompt"],
             temperature=0.7,
             max_tokens=4096,

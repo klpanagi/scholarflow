@@ -6,19 +6,23 @@ the existing skill dedup pattern (query existing names for the user, skip
 in the loop) for the four seed agent configs.
 """
 
+import pytest
 from sqlalchemy import func, select
 
-from app.models import AgentConfig, AgentRole, Skill, Strategy
-from app.seeds.scholarflow_skills import seed_scholarflow
+from app.models import AgentConfig, AgentRole, AgentVariant, Skill, Strategy
+from app.seeds.scholarflow_skills import _AGENT_SEEDS, seed_scholarflow
 
 
-SEEDED_CONFIG_COUNT = 4
+SEEDED_CONFIG_COUNT = 7
 SEEDED_CONFIG_NAMES = frozenset(
     {
         "Proposal Writer",
         "Proposal Reviewer",
         "Project Manager",
         "Review Writer",
+        "Simple Debater",
+        "Standard Debater",
+        "Deep Debater",
     }
 )
 
@@ -149,3 +153,19 @@ async def test_seed_with_existing_user_creates_only_missing_skills_and_configs(
     assert await _count_configs_for_user(db_session, test_user.id) == SEEDED_CONFIG_COUNT
 
     assert await _count_configs_with_name(db_session, test_user.id, "Review Writer") == 1
+
+
+@pytest.mark.unit_db
+def test_agent_seeds_contains_three_debater_variants():
+    """_AGENT_SEEDS must include 3 debater entries with distinct variants."""
+    debater_names = {"Simple Debater", "Standard Debater", "Deep Debater"}
+    found = {s["name"] for s in _AGENT_SEEDS if s["role"] == AgentRole.DEBATER}
+    assert found == debater_names, (
+        f"Expected debater seeds {debater_names}, got {found}"
+    )
+    variant_map = {s["name"]: s.get("variant") for s in _AGENT_SEEDS if s["role"] == AgentRole.DEBATER}
+    assert variant_map == {
+        "Simple Debater": AgentVariant.SIMPLE,
+        "Standard Debater": AgentVariant.STANDARD,
+        "Deep Debater": AgentVariant.DEEP,
+    }, f"Variant mismatch: {variant_map}"
