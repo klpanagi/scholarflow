@@ -85,6 +85,7 @@ def _make_config(role: AgentRole | None = None) -> MagicMock:
     config.system_prompt = "Test system prompt"
     config.temperature = 0.7
     config.max_tokens = 4096
+    config.variant = None
     return config
 
 

@@ -653,6 +653,9 @@ async def _run_stage(
 
     agent_type = config.role.value if hasattr(config.role, "value") else config.role
 
+    variant_raw = getattr(config, "variant", None)
+    variant_value = variant_raw.value if hasattr(variant_raw, "value") else variant_raw
+
     agent = create_agent(
         agent_type=agent_type,
         model=config.model,
@@ -662,6 +665,7 @@ async def _run_stage(
         tools=resolved_tools,
         temperature=config.temperature,
         max_tokens=config.max_tokens,
+        variant=variant_value,
     )
 
     task = stage_def["task_template"].format(input=context)
