@@ -353,6 +353,13 @@ function WorkflowDialog({
                           </option>
                         ))}
                       </select>
+                      {availableConfigs.length === 0 && (
+                        <p className="text-xs text-destructive mt-1">
+                          {configsError
+                            ? `Cannot load agents: ${(configsError as any)?.message || 'backend unavailable'}`
+                            : `No ${stage.agent} agents configured. Create one in Agents settings.`}
+                        </p>
+                      )}
                     </div>
                   </div>
                 );
