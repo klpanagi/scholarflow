@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 from uuid import UUID
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class UserBase(BaseModel):
@@ -119,6 +119,14 @@ class AgentConfigBase(BaseModel):
     tools: list[str] = []
     system_prompt: Optional[str] = None
     is_default: bool = False
+    variant: Optional[str] = None
+
+    @field_validator("variant")
+    @classmethod
+    def validate_variant(cls, v):
+        if v is not None and v not in {"simple", "standard", "deep"}:
+            raise ValueError("variant must be one of: 'simple', 'standard', 'deep'")
+        return v
 
 
 class AgentConfigCreate(AgentConfigBase):
@@ -136,6 +144,7 @@ class AgentConfigUpdate(BaseModel):
     tools: Optional[list[str]] = None
     system_prompt: Optional[str] = None
     is_default: Optional[bool] = None
+    variant: Optional[str] = None
 
 
 class AgentConfigResponse(AgentConfigBase):
