@@ -255,10 +255,3 @@ export function HealthIndicator({ variant, className }: HealthIndicatorProps) {
     </Card>
   )
 }
-
-// ----- Legacy export for backward compatibility -----
-
-/** @deprecated Use `HealthIndicator` with `variant="detailed"` instead */
-export function HealthStatus(props: Omit<HealthIndicatorProps, "variant">) {
-  return <HealthIndicator variant="detailed" {...props} />
-}
