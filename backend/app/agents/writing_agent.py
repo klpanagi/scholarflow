@@ -36,10 +36,8 @@ class WritingAgent(BaseAgent):
                 f"Request: {user_msg}"
             )
 
-            response = await self.strategy.execute(
-                self.llm,
+            response = await self._run_strategy(
                 messages[:-1] + [HumanMessage(content=task_prompt)],
-                self.system_prompt,
             )
             state["context"]["task_analysis"] = response.content
             # Capture token usage from strategy
@@ -58,10 +56,8 @@ class WritingAgent(BaseAgent):
                 f"Use proper academic style, clear structure, and precise language."
             )
 
-            response = await self.strategy.execute(
-                self.llm,
+            response = await self._run_strategy(
                 original_messages + [HumanMessage(content=writing_prompt)],
-                self.system_prompt,
             )
             state["output"] = response.content
             # Capture token usage from strategy (accumulate with prior calls)

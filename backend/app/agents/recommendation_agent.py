@@ -44,10 +44,8 @@ class RecommendationAgent(BaseAgent):
                 f"recent interests, and what they're looking for."
             )
 
-            response = await self.strategy.execute(
-                self.llm,
+            response = await self._run_strategy(
                 messages[:-1] + [HumanMessage(content=pref_prompt)],
-                self.system_prompt,
             )
             state["context"]["preferences"] = response.content
             # Capture token usage from strategy
@@ -107,10 +105,8 @@ class RecommendationAgent(BaseAgent):
                 f"why each is recommended."
             )
 
-            response = await self.strategy.execute(
-                self.llm,
+            response = await self._run_strategy(
                 state["messages"] + [HumanMessage(content=rank_prompt)],
-                self.system_prompt,
             )
             state["output"] = response.content
             # Capture token usage from strategy (accumulate with prior calls)

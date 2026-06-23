@@ -107,10 +107,8 @@ class ReviewAgent(BaseAgent):
                 f"Document content:\n{content_preview}"
             )
 
-            response = await self.strategy.execute(
-                self.llm,
+            response = await self._run_strategy(
                 messages[:-1] + [HumanMessage(content=analysis_prompt)],
-                self.system_prompt,
             )
             state["context"]["analysis"] = response.content
             usage = getattr(response, "additional_kwargs", {}).get("usage")
@@ -135,10 +133,8 @@ class ReviewAgent(BaseAgent):
                 "## Decision\n[Accept / Minor Revision / Major Revision / Reject with justification]"
             )
 
-            response = await self.strategy.execute(
-                self.llm,
+            response = await self._run_strategy(
                 original_messages + [HumanMessage(content=review_prompt)],
-                self.system_prompt,
             )
             state["output"] = response.content
 

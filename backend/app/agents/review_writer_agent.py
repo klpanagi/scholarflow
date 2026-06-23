@@ -95,10 +95,8 @@ class ReviewWriterAgent(BaseAgent):
                 f"Inputs:\n{user_msg}"
             )
 
-            response = await self.strategy.execute(
-                self.llm,
+            response = await self._run_strategy(
                 [HumanMessage(content=draft_prompt)],
-                self.system_prompt,
             )
             state["context"]["draft"] = response.content
             _accumulate_usage(state, response)
@@ -129,10 +127,8 @@ class ReviewWriterAgent(BaseAgent):
                 f"Draft to review:\n{draft_text}"
             )
 
-            response = await self.strategy.execute(
-                self.llm,
+            response = await self._run_strategy(
                 [HumanMessage(content=review_prompt)],
-                self.system_prompt,
             )
             state["context"]["critique"] = response.content
             _accumulate_usage(state, response)
@@ -156,10 +152,8 @@ class ReviewWriterAgent(BaseAgent):
                 "response ready to be uploaded to the journal's editorial manager."
             )
 
-            response = await self.strategy.execute(
-                self.llm,
+            response = await self._run_strategy(
                 [HumanMessage(content=finalize_prompt)],
-                self.system_prompt,
             )
             state["output"] = response.content
             _accumulate_usage(state, response)

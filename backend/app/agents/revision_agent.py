@@ -73,10 +73,8 @@ class RevisionAgent(BaseAgent):
                 f"4. Whether fact-checking is needed (are there claims to verify?)\n"
             )
 
-            response = await self.strategy.execute(
-                self.llm,
+            response = await self._run_strategy(
                 [HumanMessage(content=analysis_prompt)],
-                self.system_prompt,
             )
             state["context"]["revision_analysis"] = response.content
             usage = getattr(response, "additional_kwargs", {}).get("usage")
@@ -111,10 +109,8 @@ class RevisionAgent(BaseAgent):
                 f"{attached_files_block}"
             )
 
-            response = await self.strategy.execute(
-                self.llm,
+            response = await self._run_strategy(
                 state["messages"] + [HumanMessage(content=revision_prompt)],
-                self.system_prompt,
             )
             state["output"] = response.content
             state["context"]["revised_document"] = response.content
