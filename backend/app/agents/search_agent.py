@@ -1269,6 +1269,7 @@ class SearchAgent(BaseAgent):
 
         response = await self._run_strategy(
             state["messages"] + [HumanMessage(content=synthesis_prompt)],
+            tools=[],
         )
         state["output"] = response.content
 
