@@ -1253,9 +1253,13 @@ async def _run_workflow_background(
                         },
                     ),
                 )
-                stage_results.append(result)
-
+                # Extract dossier for next stage before converting to JSON-safe
                 current_dossier = result.get("research_dossier") or current_dossier
+                # Convert result to JSON-safe for DB storage (ResearchDossier is not serializable)
+                result_for_stages = result.copy()
+                if hasattr(result_for_stages.get("research_dossier"), "model_dump"):
+                    result_for_stages["research_dossier"] = result_for_stages["research_dossier"].model_dump(mode="json")
+                stage_results.append(result_for_stages)
                 prev_output = result.get("output", "")
                 if prev_output:
                     prior_findings.append({
@@ -1272,8 +1276,8 @@ async def _run_workflow_background(
                 if exec_to_update:
                     stages_copy = list(exec_to_update.stages) if exec_to_update.stages else []
                     while len(stages_copy) <= i:
-                        stages_copy.append(result)
-                    stages_copy[i] = result
+                        stages_copy.append(result_for_stages)
+                    stages_copy[i] = result_for_stages
                     exec_to_update.stages = stages_copy
                     await db.commit()
 
