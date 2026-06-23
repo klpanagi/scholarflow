@@ -17,6 +17,7 @@ from app.agents.dossier import (
     ResearchGap,
 )
 from app.agents.review_agent import ReviewAgent
+from app.agents.strategies import EventType, StrategyEvent
 
 
 def _make_dossier(
@@ -95,7 +96,13 @@ class TestReviewerUsesDossierWhenPresent:
 
         async def capturing_execute(llm, messages, system_prompt, tools=None):
             captured_content.extend([m.content for m in messages])
-            return AIMessage(content="Analyzed")
+            yield StrategyEvent(
+                type=EventType.STRATEGY_COMPLETE,
+                phase="complete",
+                iteration=1,
+                max_iterations=1,
+                result=AIMessage(content="Analyzed"),
+            )
 
         agent.strategy.execute = capturing_execute
 
@@ -124,7 +131,13 @@ class TestReviewerUnchangedWithoutDossier:
 
         async def capturing_execute(llm, messages, system_prompt, tools=None):
             captured_content.extend([m.content for m in messages])
-            return AIMessage(content="Analyzed")
+            yield StrategyEvent(
+                type=EventType.STRATEGY_COMPLETE,
+                phase="complete",
+                iteration=1,
+                max_iterations=1,
+                result=AIMessage(content="Analyzed"),
+            )
 
         agent.strategy.execute = capturing_execute
 
@@ -152,7 +165,13 @@ class TestReviewerHandlesEmptyDossier:
 
         async def capturing_execute(llm, messages, system_prompt, tools=None):
             captured_content.extend([m.content for m in messages])
-            return AIMessage(content="Analyzed")
+            yield StrategyEvent(
+                type=EventType.STRATEGY_COMPLETE,
+                phase="complete",
+                iteration=1,
+                max_iterations=1,
+                result=AIMessage(content="Analyzed"),
+            )
 
         agent.strategy.execute = capturing_execute
 
