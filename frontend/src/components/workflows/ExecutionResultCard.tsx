@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ChevronDown,
@@ -20,6 +20,9 @@ import {
   type WorkflowExecutionStage,
   type StageMeta,
   type ManuscriptRating,
+  type ExecutionEvent,
+  type TimelineStage,
+  buildTimelineView,
   getStageMetaByIndex,
 } from "@/constants/workflows";
 import { PipelineBanner, type StageBlockData } from "./PipelineBanner";
@@ -29,6 +32,7 @@ import {
   getStatusConfig,
   executionStatusStyles,
 } from "./workflow-helpers";
+import StageTimeline from "./StageTimeline";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -279,11 +283,13 @@ function ManuscriptRatingCard({ rating }: { rating: ManuscriptRating }) {
 interface ExecutionResultCardProps {
   execution: WorkflowExecution;
   onDelete?: (id: string) => void;
+  events?: ExecutionEvent[];
 }
 
 export function ExecutionResultCard({
   execution,
   onDelete,
+  events,
 }: ExecutionResultCardProps) {
   const isRunning = execution.status === "running" || execution.status === "pending" || execution.status === "cancelling";
   const [collapsed, setCollapsed] = useState(!isRunning);
@@ -381,6 +387,12 @@ export function ExecutionResultCard({
     duration: stage.metadata?.duration_seconds,
   }));
 
+  const timelineStages: TimelineStage[] = useMemo(
+    () => buildTimelineView(execution.stages, events),
+    [execution.stages, events],
+  );
+  const hasLiveTimeline = events !== undefined && events.length > 0;
+
   const totals = computeTotals(execution.stages);
 
   const statusStyle =
@@ -463,11 +475,18 @@ export function ExecutionResultCard({
 
             {/* ── Stage Detail Panel ── */}
             {selectedStage !== null && execution.stages[selectedStage] && (
-              <StageDetail
-                stage={execution.stages[selectedStage]}
-                meta={getStageMetaByIndex(execution.workflow_id, selectedStage)}
-                index={selectedStage}
-              />
+              hasLiveTimeline && timelineStages[selectedStage] ? (
+                <StageTimeline
+                  stage={timelineStages[selectedStage]}
+                  sourceStage={execution.stages[selectedStage]}
+                />
+              ) : (
+                <StageDetail
+                  stage={execution.stages[selectedStage]}
+                  meta={getStageMetaByIndex(execution.workflow_id, selectedStage)}
+                  index={selectedStage}
+                />
+              )
             )}
 
             {/* ── Action Bar ── */}

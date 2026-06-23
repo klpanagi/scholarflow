@@ -272,3 +272,275 @@ export function getStageMetaByIndex(workflowId: string, index: number): StageMet
   if (!stage) return defaultMeta;
   return { icon: stage.icon, color: stage.color, description: stage.description };
 }
+
+/* ── Timeline view (live SSE + historical) ─────────────── */
+
+import type { ExecutionEvent } from "@/hooks/useWorkflowStream";
+export type { ExecutionEvent } from "@/hooks/useWorkflowStream";
+
+export interface TimelineNode {
+  id: string;
+  name: string;
+  type: "node" | "tool_call" | "strategy_iteration";
+  status: string;
+  startedAt?: string;
+  completedAt?: string;
+  durationMs?: number;
+}
+
+export interface TimelineStage {
+  stageIndex: number;
+  stageId: string;
+  agentName: string;
+  agentRole: string;
+  status: string;
+  durationMs?: number;
+  nodes: TimelineNode[];
+  strategyIterations: number;
+  error?: string;
+}
+
+function safeStr(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function safeNum(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function eventStageIndex(data: Record<string, unknown>): number | undefined {
+  const idx = safeNum(data.stage_index);
+  if (idx !== undefined) return idx;
+  const id = safeStr(data.stage_id);
+  if (!id) return undefined;
+  return undefined;
+}
+
+function eventStageId(data: Record<string, unknown>, fallback: string): string {
+  return safeStr(data.stage_id) ?? fallback;
+}
+
+function eventStageStatus(data: Record<string, unknown>, fallback: string): string {
+  return safeStr(data.status) ?? fallback;
+}
+
+function eventError(data: Record<string, unknown>): string | undefined {
+  const err = safeStr(data.error);
+  if (err) return err;
+  return undefined;
+}
+
+/**
+ * Build a per-stage timeline view.
+ *
+ * - When `events` is provided, the timeline is augmented with the
+ *   live `node.started`/`node.completed`, `tool.call`/`tool.complete`,
+ *   and `strategy.iteration` events. Tool call/complete pairs are
+ *   reconciled via a pending map; orphans flush at stage end.
+ * - When `events` is absent, each stage yields a single timeline
+ *   entry derived from the static stage metadata (backward compat).
+ */
+export function buildTimelineView(
+  executionStages: WorkflowExecutionStage[],
+  events?: ExecutionEvent[],
+): TimelineStage[] {
+  const eventsByStage = new Map<number, ExecutionEvent[]>();
+  const stageInfoFromEvents = new Map<
+    number,
+    { stageId: string; agentName: string; agentRole: string; status: string; durationMs?: number; error?: string }
+  >();
+
+  if (events && events.length > 0) {
+    for (const ev of events) {
+      const idx = eventStageIndex(ev.data);
+      if (idx === undefined) continue;
+      if (!eventsByStage.has(idx)) eventsByStage.set(idx, []);
+      eventsByStage.get(idx)!.push(ev);
+
+      const data = ev.data;
+      if (ev.event_type === "stage.started" || ev.event_type === "stage.completed") {
+        const existing = stageInfoFromEvents.get(idx) ?? {
+          stageId: eventStageId(data, `stage-${idx}`),
+          agentName: safeStr(data.agent_name) ?? "",
+          agentRole: safeStr(data.agent_role) ?? "",
+          status: eventStageStatus(data, "pending"),
+        };
+        const stageId = safeStr(data.stage_id);
+        const agentName = safeStr(data.agent_name);
+        const agentRole = safeStr(data.agent_role);
+        if (stageId) existing.stageId = stageId;
+        if (agentName) existing.agentName = agentName;
+        if (agentRole) existing.agentRole = agentRole;
+        const status = safeStr(data.status);
+        if (status) existing.status = status;
+        const dur = safeNum(data.duration_ms);
+        if (dur !== undefined) existing.durationMs = dur;
+        const err = eventError(data);
+        if (err) existing.error = err;
+        stageInfoFromEvents.set(idx, existing);
+      }
+    }
+  }
+
+  return executionStages.map((s, i) => {
+    const meta = s.metadata as Record<string, unknown> | undefined;
+    const stageId = `stage-${i}`;
+    const agentName = s.agent_name ?? "";
+    const agentRole = s.agent_role ?? "";
+    const status = s.status;
+    const durationSeconds = meta && typeof meta.duration_seconds === "number"
+      ? (meta.duration_seconds as number)
+      : undefined;
+    const durationMs = durationSeconds !== undefined
+      ? Math.round(durationSeconds * 1000)
+      : undefined;
+
+    const baseStage: TimelineStage = {
+      stageIndex: i,
+      stageId,
+      agentName,
+      agentRole,
+      status,
+      durationMs,
+      nodes: [],
+      strategyIterations: 0,
+    };
+
+    if (!events || events.length === 0) {
+      baseStage.nodes.push({
+        id: `stage-${i}-root`,
+        name: agentName || agentRole || `Step ${i + 1}`,
+        type: "node",
+        status,
+        durationMs,
+      });
+      return baseStage;
+    }
+
+    const fromEvents = stageInfoFromEvents.get(i);
+    if (fromEvents) {
+      baseStage.stageId = fromEvents.stageId;
+      if (fromEvents.agentName) baseStage.agentName = fromEvents.agentName;
+      if (fromEvents.agentRole) baseStage.agentRole = fromEvents.agentRole;
+      baseStage.status = fromEvents.status || baseStage.status;
+      if (fromEvents.durationMs !== undefined) baseStage.durationMs = fromEvents.durationMs;
+      if (fromEvents.error) baseStage.error = fromEvents.error;
+    }
+
+    const stageEvents = eventsByStage.get(i) ?? [];
+    const nodeEntries = new Map<string, TimelineNode>();
+    const toolEntries = new Map<string, TimelineNode>();
+    let strategyIterations = 0;
+
+    for (const ev of stageEvents) {
+      const data = ev.data;
+      switch (ev.event_type) {
+        case "node.started": {
+          const name = safeStr(data.node_name) ?? "<unknown>";
+          const id = `node:${name}`;
+          const existing = nodeEntries.get(id);
+          if (existing) {
+            existing.startedAt = ev.timestamp;
+            if (existing.status === "completed") break;
+            existing.status = "running";
+          } else {
+            nodeEntries.set(id, {
+              id,
+              name,
+              type: "node",
+              status: "running",
+              startedAt: ev.timestamp,
+            });
+          }
+          break;
+        }
+        case "node.completed": {
+          const name = safeStr(data.node_name) ?? "<unknown>";
+          const id = `node:${name}`;
+          const dur = safeNum(data.duration_ms);
+          const status = safeStr(data.status) ?? "completed";
+          const existing = nodeEntries.get(id);
+          if (existing) {
+            existing.completedAt = ev.timestamp;
+            existing.status = status;
+            if (dur !== undefined) existing.durationMs = dur;
+          } else {
+            nodeEntries.set(id, {
+              id,
+              name,
+              type: "node",
+              status,
+              startedAt: ev.timestamp,
+              completedAt: ev.timestamp,
+              durationMs: dur,
+            });
+          }
+          break;
+        }
+        case "tool.call": {
+          const name = safeStr(data.tool_name) ?? "<unknown>";
+          const id = `tool:${name}:${ev.event_id}`;
+          const node: TimelineNode = {
+            id,
+            name,
+            type: "tool_call",
+            status: "running",
+            startedAt: ev.timestamp,
+          };
+          toolEntries.set(name, node);
+          break;
+        }
+        case "tool.complete": {
+          const name = safeStr(data.tool_name) ?? "<unknown>";
+          const dur = safeNum(data.duration_ms);
+          const status = safeStr(data.status) ?? "completed";
+          const pending = toolEntries.get(name);
+          if (pending) {
+            pending.completedAt = ev.timestamp;
+            pending.status = status;
+            if (dur !== undefined) pending.durationMs = dur;
+          } else {
+            toolEntries.set(name, {
+              id: `tool:${name}:${ev.event_id}`,
+              name,
+              type: "tool_call",
+              status,
+              startedAt: ev.timestamp,
+              completedAt: ev.timestamp,
+              durationMs: dur,
+            });
+          }
+          break;
+        }
+        case "strategy.iteration": {
+          strategyIterations += 1;
+          const phase = safeStr(data.phase);
+          const iteration = safeNum(data.iteration);
+          const label = phase
+            ? `Strategy: ${phase}${iteration !== undefined ? ` #${iteration}` : ""}`
+            : "Strategy iteration";
+          nodeEntries.set(`strategy:${ev.event_id}`, {
+            id: `strategy:${ev.event_id}`,
+            name: label,
+            type: "strategy_iteration",
+            status: "completed",
+            startedAt: ev.timestamp,
+            completedAt: ev.timestamp,
+          });
+          break;
+        }
+        default:
+          break;
+      }
+    }
+
+    const nodes: TimelineNode[] = [
+      ...Array.from(nodeEntries.values()),
+      ...Array.from(toolEntries.values()),
+    ];
+
+    baseStage.nodes = nodes;
+    baseStage.strategyIterations = strategyIterations;
+    return baseStage;
+  });
+}

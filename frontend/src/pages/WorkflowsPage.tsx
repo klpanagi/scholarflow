@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { WORKFLOWS, type Workflow, type WorkflowStage, type WorkflowExecution } from "@/constants/workflows";
 import { ExecutionResultCard } from "@/components/workflows/ExecutionResultCard";
+import { useWorkflowStream } from "@/hooks/useWorkflowStream";
 
 interface AgentConfig {
   id: string;
@@ -453,6 +454,27 @@ function WorkflowDialog({
 
 const ITEMS_PER_PAGE = 5;
 
+function LiveExecutionCard({
+  execution,
+  onDelete,
+}: {
+  execution: WorkflowExecution;
+  onDelete?: (id: string) => void;
+}) {
+  const isRunning =
+    execution.status === "running" ||
+    execution.status === "pending" ||
+    execution.status === "cancelling";
+  const { events } = useWorkflowStream(execution.id, { enabled: isRunning });
+  return (
+    <ExecutionResultCard
+      execution={execution}
+      events={events}
+      onDelete={onDelete}
+    />
+  );
+}
+
 export default function WorkflowsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -714,7 +736,7 @@ export default function WorkflowsPage() {
               </div>
               <div className="space-y-3">
                 {paginatedExecutions.map((exec) => (
-                  <ExecutionResultCard
+                  <LiveExecutionCard
                     key={exec.id}
                     execution={exec}
                     onDelete={(id) => deleteMutation.mutate(id)}
