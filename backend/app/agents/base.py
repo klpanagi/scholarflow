@@ -26,6 +26,7 @@ captured so far.
 """
 from __future__ import annotations
 
+import copy
 import logging
 import time
 from abc import ABC, abstractmethod
@@ -261,7 +262,7 @@ class BaseAgent(ABC):
                 data = ev.get("data") or {}
                 output = data.get("output")
                 if isinstance(output, dict):
-                    final_state = output
+                    final_state = copy.deepcopy(output)
 
         # ------------------------------------------------------------------
         # Phase 2: Strategy wrapping
