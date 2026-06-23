@@ -1,11 +1,13 @@
 import asyncio
 import logging
+import re
 import time
 from dataclasses import dataclass
-from typing import Optional
+from datetime import datetime, timezone
+from typing import Any, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,15 +18,32 @@ import io
 
 from app.core.database import get_db, AsyncSessionLocal
 from app.core.security import get_current_user
+from app.api.deps import get_current_user_from_query
 from app.models import AgentConfig, Paper, PaperChunk, AgentRole, WorkflowExecution, RevisionSession, RevisionMessage, agent_skills_table
 from app.agents.factory import create_agent
 from app.utils.context_budget import fit_to_budget, budget_for_stages
 from app.utils.pdf_model_support import model_supports_pdf, create_multimodal_human_message
 from app.services.llm_service import fetch_model_pricing, calculate_cost, llm_service
+from app.services.progress import (
+    EventType,
+    ExecutionEvent,
+    ProgressManager,
+    get_progress_manager,
+)
 from app.services.rubric_evaluation import evaluate_rubric
+from app.schemas import (
+    ExecutionEvent as ExecutionEventSchema,
+    WorkflowExecutionResponse,
+    WorkflowExecutionSnapshotResponse,
+)
 
 STAGE_TIMEOUT_SECONDS = 1800.0  # 30 minutes per stage
 STAGE_DELAY_SECONDS = 15
+HEARTBEAT_INTERVAL_SECONDS = 15.0  # SSE keep-alive cadence
+
+TERMINAL_EXECUTION_STATUSES = frozenset(
+    {"completed", "failed", "cancelled", "error", "partial", "cancelling"}
+)
 
 # In-memory cancel flags — key = str(execution_id), value = True if cancelled
 _cancel_flags: dict[str, bool] = {}
@@ -590,9 +609,6 @@ async def _get_user_config_by_id(db: AsyncSession, user_id: str, config_id: UUID
     return result.scalar_one_or_none()
 
 
-import re
-
-
 def _sanitize_output(text: str) -> str:
     if not text:
         return text
@@ -615,6 +631,15 @@ def _validate_paper_review_writer_output(output: str) -> tuple[bool, list[str]]:
     return len(missing) == 0, missing
 
 
+async def _next_progress_event_id(
+    pm: ProgressManager, execution_id: UUID | str
+) -> int:
+    key = str(execution_id)
+    lock = await pm._lock_for(key)
+    async with lock:
+        return pm._next_id(key)
+
+
 async def _run_stage(
     db: AsyncSession,
     user_id: str,
@@ -627,6 +652,8 @@ async def _run_stage(
     paper_content: str | None = None,
     rubric_standard: str = "general",
     research_dossier=None,
+    progress_manager: Optional[ProgressManager] = None,
+    execution_id: Optional[UUID] = None,
 ) -> dict:
     config = await _get_user_config_by_id(db, user_id, config_id)
     if not config:
@@ -693,7 +720,15 @@ async def _run_stage(
     last_error = None
     for attempt in range(max_retries):
         try:
-            result = await asyncio.wait_for(agent.run(messages, context=agent_context), timeout=STAGE_TIMEOUT_SECONDS)
+            run_kwargs: dict[str, Any] = {"context": agent_context}
+            if progress_manager is not None:
+                run_kwargs["progress_manager"] = progress_manager
+            if execution_id is not None:
+                run_kwargs["execution_id"] = execution_id
+            result = await asyncio.wait_for(
+                agent.run(messages, **run_kwargs),
+                timeout=STAGE_TIMEOUT_SECONDS,
+            )
             usage = result.get("metadata", {}).get("usage", {})
             input_tokens = usage.get("input_tokens", 0) or 0
             output_tokens = usage.get("output_tokens", 0) or 0
@@ -726,8 +761,13 @@ async def _run_stage(
                         "(`## Response to Authors` and `## Response to Editor`) in your next response."
                     )
                     try:
+                        retry_kwargs: dict[str, Any] = {"context": agent_context}
+                        if progress_manager is not None:
+                            retry_kwargs["progress_manager"] = progress_manager
+                        if execution_id is not None:
+                            retry_kwargs["execution_id"] = execution_id
                         retry_result = await asyncio.wait_for(
-                            agent.run([HumanMessage(content=reminder)], context=agent_context),
+                            agent.run([HumanMessage(content=reminder)], **retry_kwargs),
                             timeout=STAGE_TIMEOUT_SECONDS,
                         )
                         retry_output = retry_result.get("output", "") or ""
@@ -1073,6 +1113,10 @@ async def _run_workflow_background(
     workflow = WORKFLOW_DEFINITIONS[workflow_id]
     start_time = time.time()
 
+    progress_manager = get_progress_manager()
+    exec_uuid = UUID(execution_id) if not isinstance(execution_id, UUID) else execution_id
+    await progress_manager.create_execution(exec_uuid)
+
     try:
         async with AsyncSessionLocal() as db:
             stage_results = []
@@ -1092,6 +1136,9 @@ async def _run_workflow_background(
                         "output": "Workflow cancelled by user.",
                         "metadata": {},
                     })
+                    # Publish terminal event for cancellation. Breaks the
+                    # loop, so no further stage events are emitted.
+                    await progress_manager.complete_execution(exec_uuid, "cancelled")
                     break
 
                 stage_id = stage_def.get("id")
@@ -1105,6 +1152,22 @@ async def _run_workflow_background(
                         "metadata": {},
                     })
                     continue
+
+                await progress_manager.publish(
+                    exec_uuid,
+                    ExecutionEvent(
+                        event_id=await _next_progress_event_id(progress_manager, exec_uuid),
+                        execution_id=exec_uuid,
+                        event_type=EventType.STAGE_STARTED,
+                        timestamp=datetime.now(timezone.utc),
+                        data={
+                            "stage_id": stage_id or f"stage-{i}",
+                            "stage_index": i,
+                            "agent_role": stage_def.get("role", ""),
+                            "agent_name": stage_def.get("agent", ""),
+                        },
+                    ),
+                )
 
                 result = await db.execute(
                     select(WorkflowExecution).where(WorkflowExecution.id == execution_id)
@@ -1132,11 +1195,63 @@ async def _run_workflow_background(
 
                 stage_context = _build_stage_context(original_context, prior_findings)
 
-                result = await _run_stage(
-                    db, user_id, stage_def, stage_context, UUID(config_id_str),
-                    pdf_bytes=pdf_bytes, paper_s2_id=paper_s2_id, topic_query=topic_query,
-                    paper_content=paper_content, rubric_standard=rubric_standard,
-                    research_dossier=current_dossier,
+                stage_start = time.monotonic()
+                try:
+                    result = await _run_stage(
+                        db, user_id, stage_def, stage_context, UUID(config_id_str),
+                        pdf_bytes=pdf_bytes, paper_s2_id=paper_s2_id, topic_query=topic_query,
+                        paper_content=paper_content, rubric_standard=rubric_standard,
+                        research_dossier=current_dossier,
+                        progress_manager=progress_manager,
+                        execution_id=exec_uuid,
+                    )
+                except Exception as stage_exc:
+                    # Publish STAGE_COMPLETED with status="failed" so
+                    # the SSE stream sees a clean terminal for this
+                    # stage, then re-raise so the outer handler records
+                    # EXECUTION_FAILED for the workflow.
+                    duration_ms = int((time.monotonic() - stage_start) * 1000)
+                    await progress_manager.publish(
+                        exec_uuid,
+                        ExecutionEvent(
+                            event_id=await _next_progress_event_id(progress_manager, exec_uuid),
+                            execution_id=exec_uuid,
+                            event_type=EventType.STAGE_COMPLETED,
+                            timestamp=datetime.now(timezone.utc),
+                            data={
+                                "stage_id": stage_id or f"stage-{i}",
+                                "stage_index": i,
+                                "status": "failed",
+                                "duration_ms": duration_ms,
+                                "error": f"{type(stage_exc).__name__}: {str(stage_exc)[:200]}",
+                            },
+                        ),
+                    )
+                    raise
+
+                stage_duration_ms = int((time.monotonic() - stage_start) * 1000)
+                stage_status = result.get("status", "completed")
+                stage_usage = result.get("metadata", {}).get("usage", {})
+                # Publish STAGE_COMPLETED with the result status, the
+                # wall-clock duration, and the token usage payload
+                # (never the output content — see Task 2 design notes).
+                await progress_manager.publish(
+                    exec_uuid,
+                    ExecutionEvent(
+                        event_id=await _next_progress_event_id(progress_manager, exec_uuid),
+                        execution_id=exec_uuid,
+                        event_type=EventType.STAGE_COMPLETED,
+                        timestamp=datetime.now(timezone.utc),
+                        data={
+                            "stage_id": stage_id or f"stage-{i}",
+                            "stage_index": i,
+                            "status": stage_status,
+                            "duration_ms": stage_duration_ms,
+                            "usage": stage_usage,
+                            "agent_role": result.get("agent_role", stage_def.get("role", "")),
+                            "agent_name": result.get("agent_name", ""),
+                        },
+                    ),
                 )
                 stage_results.append(result)
 
@@ -1192,8 +1307,16 @@ async def _run_workflow_background(
 
             logger.info(f"Workflow {workflow_id} [{execution_id}] finished: {overall_status} ({duration:.1f}s) | tokens: {total_input}+{total_output}={total_tokens} | cost: ${total_cost:.6f}")
 
+            # Cancellation already published its terminal event at the break site.
+            if overall_status != "cancelled":
+                await progress_manager.complete_execution(exec_uuid, "completed")
+
     except Exception as e:
         logger.error(f"Background workflow {execution_id} failed: {e}")
+        try:
+            await progress_manager.complete_execution(exec_uuid, "failed")
+        except Exception:
+            logger.error(f"Failed to publish EXECUTION_FAILED for {execution_id}")
         try:
             async with AsyncSessionLocal() as db:
                 result = await db.execute(
@@ -1344,6 +1467,136 @@ async def get_workflow_result(
         "duration_seconds": execution.duration_seconds,
         "created_at": execution.created_at.isoformat() if execution.created_at else None,
     }
+
+
+@router.get("/results/{execution_id}/stream")
+async def stream_workflow_progress(
+    execution_id: UUID,
+    request: Request,
+    user_id: str = Depends(get_current_user_from_query),
+    db: AsyncSession = Depends(get_db),
+):
+    """SSE stream of execution events (replay from ``Last-Event-ID`` then live)."""
+    result = await db.execute(
+        select(WorkflowExecution).where(
+            WorkflowExecution.id == execution_id,
+            WorkflowExecution.user_id == user_id,
+        )
+    )
+    execution = result.scalar_one_or_none()
+    if execution is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Execution not found")
+
+    if execution.status in TERMINAL_EXECUTION_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=f"Execution already {execution.status}. Use /snapshot endpoint for history.",
+        )
+
+    last_event_id_header = request.headers.get("Last-Event-ID", "0")
+    try:
+        last_event_id = int(last_event_id_header)
+    except (TypeError, ValueError):
+        last_event_id = 0
+
+    progress_manager = get_progress_manager()
+
+    terminal_types = (EventType.EXECUTION_COMPLETED, EventType.EXECUTION_FAILED)
+
+    async def event_stream():
+        yield ": connected\n\n"
+        replayed = await progress_manager.get_events(execution_id, after_event_id=last_event_id)
+        for ev in replayed:
+            yield f"id: {ev.event_id}\ndata: {ev.to_json()}\n\n"
+
+        local_queue: asyncio.Queue = asyncio.Queue()
+        relay_done = asyncio.Event()
+
+        async def relay_events() -> None:
+            try:
+                async for ev in progress_manager.subscribe(execution_id):
+                    await local_queue.put(ev)
+                    if ev.event_type in terminal_types:
+                        return
+            finally:
+                relay_done.set()
+
+        relay_task = asyncio.create_task(relay_events())
+        try:
+            while True:
+                try:
+                    ev = await asyncio.wait_for(
+                        local_queue.get(),
+                        timeout=HEARTBEAT_INTERVAL_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    yield ": heartbeat\n\n"
+                    continue
+                yield f"id: {ev.event_id}\ndata: {ev.to_json()}\n\n"
+                if ev.event_type in terminal_types:
+                    break
+        finally:
+            relay_task.cancel()
+            try:
+                await relay_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "X-Accel-Buffering": "no",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+@router.get(
+    "/results/{execution_id}/snapshot",
+    response_model=WorkflowExecutionSnapshotResponse,
+)
+async def get_workflow_snapshot(
+    execution_id: UUID,
+    user_id: str = Depends(get_current_user_from_query),
+    db: AsyncSession = Depends(get_db),
+):
+    """Historical replay of all persisted events for a completed execution."""
+    from app.models.workflow_event import WorkflowEvent
+
+    result = await db.execute(
+        select(WorkflowExecution).where(
+            WorkflowExecution.id == execution_id,
+            WorkflowExecution.user_id == user_id,
+        )
+    )
+    execution = result.scalar_one_or_none()
+    if execution is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Execution not found")
+
+    events_result = await db.execute(
+        select(WorkflowEvent)
+        .where(WorkflowEvent.execution_id == execution_id)
+        .order_by(WorkflowEvent.event_id.asc())
+    )
+    rows = events_result.scalars().all()
+
+    events = [
+        ExecutionEventSchema(
+            event_id=row.event_id,
+            execution_id=row.execution_id,
+            event_type=row.event_type,
+            timestamp=row.timestamp,
+            data=row.data or {},
+        )
+        for row in rows
+    ]
+
+    return WorkflowExecutionSnapshotResponse(
+        events=events,
+        execution=WorkflowExecutionResponse.model_validate(execution),
+    )
 
 
 @router.delete("/results")
