@@ -34,7 +34,7 @@ from typing import Any
 from uuid import UUID
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
@@ -122,6 +122,31 @@ class BaseAgent(ABC):
             data=data,
         )
         await progress_manager.publish(execution_id, event)
+
+    async def _run_strategy(
+        self,
+        messages: list[BaseMessage],
+        tools: list[Any] | None = None,
+    ) -> AIMessage:
+        """Execute the agent's strategy and return the final response.
+
+        Properly iterates the async generator to collect the result.
+        The strategy is responsible for attaching usage metadata to
+        response.additional_kwargs["usage"].
+        """
+        async for event in self.strategy.execute(
+            self.llm,
+            messages,
+            self.system_prompt,
+            tools or self.tools,
+        ):
+            if event.type is StrategyEventType.STRATEGY_COMPLETE:
+                if event.result is not None:
+                    return event.result
+        raise RuntimeError(
+            f"Strategy '{self.strategy.__class__.__name__}' completed "
+            "without producing a result"
+        )
 
     async def run(
         self,
