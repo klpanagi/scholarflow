@@ -6,6 +6,7 @@ from sqlalchemy.orm import relationship
 import enum
 
 from ..core.database import Base
+from .workflow_event import WorkflowEvent
 
 
 class UserRole(str, enum.Enum):

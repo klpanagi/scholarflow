@@ -437,3 +437,11 @@ class RevisionMessageResponse(BaseModel):
 class RevisionFileUploadResponse(BaseModel):
     file_key: str
     file_name: str
+
+
+from .workflow_event import ExecutionEvent, WorkflowEventResponse, WorkflowSnapshotResponse  # noqa: E402,F401
+
+
+class WorkflowExecutionSnapshotResponse(BaseModel):
+    events: list[ExecutionEvent]
+    execution: WorkflowExecutionResponse
