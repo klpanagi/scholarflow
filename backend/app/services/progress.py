@@ -325,12 +325,14 @@ class ProgressManager:
         """
         key = self._key(execution_id)
         events: dict[int, ExecutionEvent] = {}
+        lock = await self._lock_for(key)
 
-        buffer = self._buffers.get(key)
-        if buffer:
-            for event in buffer:
-                if event.event_id > after_event_id:
-                    events[event.event_id] = event
+        async with lock:
+            buffer = self._buffers.get(key)
+            if buffer:
+                for event in buffer:
+                    if event.event_id > after_event_id:
+                        events[event.event_id] = event
 
         try:
             from app.core.database import AsyncSessionLocal
