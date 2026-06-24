@@ -1,2 +1,6 @@
 allowBuilds:
   esbuild: true
+minimumReleaseAgeExclude:
+  - framer-motion@12.41.0
+  - motion-dom@12.41.0
+  - recharts@3.9.0
