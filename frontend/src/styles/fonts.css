@@ -1,0 +1,9 @@
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/playfair-display";
+
+@layer base {
+  :root {
+    --font-display: "Playfair Display Variable", "Playfair Display", Georgia, serif;
+    --font-sans: "Inter Variable", "Inter", system-ui, sans-serif;
+  }
+}

@@ -1,0 +1,58 @@
+/* ==========================================================================
+   Design Tokens — Academic Pal
+   Gold (primary brand), Navy (backgrounds), Amber (warnings)
+   Auto-available as Tailwind v4 utilities: bg-gold-500, text-navy-200, etc.
+   ========================================================================== */
+
+@layer base {
+  /* ------------------------------------------------------------------ */
+  /*  Gold — Primary brand                                               */
+  /* ------------------------------------------------------------------ */
+  :root {
+    --color-gold-50: #fdf8e7;
+    --color-gold-100: #faeec3;
+    --color-gold-200: #f5dc8c;
+    --color-gold-300: #eec85e;
+    --color-gold-400: #e6b341;
+    --color-gold-500: #d4a574;
+    --color-gold-600: #b8864a;
+    --color-gold-700: #9a6a3b;
+    --color-gold-800: #7c5431;
+    --color-gold-900: #5f3f24;
+    --color-gold-950: #382111;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Navy — Backgrounds / neutral UI                                    */
+  /* ------------------------------------------------------------------ */
+  :root {
+    --color-navy-50: #f1f5f9;
+    --color-navy-100: #e2e8f0;
+    --color-navy-200: #cbd5e1;
+    --color-navy-300: #94a3b8;
+    --color-navy-400: #64748b;
+    --color-navy-500: #475569;
+    --color-navy-600: #334155;
+    --color-navy-700: #1e293b;
+    --color-navy-800: #0f172a;
+    --color-navy-900: #0a0f1a;
+    --color-navy-950: #050810;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Amber — Warnings / alerts (clearly separate from gold)             */
+  /* ------------------------------------------------------------------ */
+  :root {
+    --color-amber-50: #fffbeb;
+    --color-amber-100: #fef3c7;
+    --color-amber-200: #fde68a;
+    --color-amber-300: #fcd34d;
+    --color-amber-400: #fbbf24;
+    --color-amber-500: #f59e0b;
+    --color-amber-600: #d97706;
+    --color-amber-700: #b45309;
+    --color-amber-800: #92400e;
+    --color-amber-900: #78350f;
+    --color-amber-950: #451a03;
+  }
+}
