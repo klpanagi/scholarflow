@@ -45,11 +45,12 @@ class SimpleDebateAgent(BaseAgent):
                 "output_tokens": um.get("output_tokens", 0) or 0,
                 "total_tokens": um.get("total_tokens", 0) or 0,
             }
-            acc = state["context"].get(
-                "_usage",
-                {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
-            )
-            state["context"]["_usage"] = {k: acc[k] + usage[k] for k in acc}
+            existing = state["context"].get("_usage", {})
+            state["context"]["_usage"] = {
+                "input_tokens": existing.get("input_tokens", 0) + usage["input_tokens"],
+                "output_tokens": existing.get("output_tokens", 0) + usage["output_tokens"],
+                "total_tokens": existing.get("total_tokens", 0) + usage["total_tokens"],
+            }
         return response
 
     def build_graph(self) -> StateGraph:
