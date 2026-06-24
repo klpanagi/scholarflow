@@ -121,7 +121,6 @@ test.describe("Skills seeding flow", () => {
     await goToSkills(page)
 
     // Verify the user currently has 0 skills (empty state)
-    const emptyState = page.getByText("No skills yet. Create one to get started.")
     // If the user already has skills (e.g. from a previous run), skip or verify count
     const skillCards = page.locator("div.w-80 >> div.cursor-pointer")
     const beforeCount = await skillCards.count()
