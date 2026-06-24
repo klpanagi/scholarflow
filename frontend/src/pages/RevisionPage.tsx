@@ -1,486 +1,535 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { useNavigate, useParams } from "react-router-dom"
-import { useQuery } from "@tanstack/react-query"
-import {
-  Group,
-  Panel,
-  Separator,
-  useDefaultLayout,
-} from "react-resizable-panels"
-import { useStickToBottom } from "use-stick-to-bottom"
-import {
-  ArrowLeft,
-  Bot,
-  Loader2,
-  Paperclip,
-  Send,
-  Square,
-} from "lucide-react"
+import { useState, useCallback, useMemo, useEffect } from 'react'
+import { useParams } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import { CheckCircle2, Loader2, MessageSquare } from 'lucide-react'
 
-import { api } from "@/lib/api"
-import { cn } from "@/lib/utils"
-import { useToast } from "@/hooks/use-toast"
-import { useRevisionSession } from "@/hooks/useRevisionSession"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { MarkdownRenderer } from "@/components/MarkdownRenderer"
-import { EmptyState } from "@/components/revisions/EmptyState"
-import { FilePreviewChip } from "@/components/revisions/FilePreviewChip"
-import { WorkflowContextPanel } from "@/components/revisions/WorkflowContextPanel"
-import type { WorkflowExecution } from "@/constants/workflows"
+import { api } from '@/lib/api'
+import { cn } from '@/lib/utils'
+import { useRevisionSession } from '@/hooks/useRevisionSession'
+import type {
+  WorkflowExecution,
+  WorkflowExecutionStage,
+  ManuscriptRating,
+  StageUsage,
+} from '@/constants/workflows'
+import { getStageMetaByIndex } from '@/constants/workflows'
 
-const PANEL_IDS = ["chat", "context"] as const
-const PANEL_STORAGE_KEY = "revision-page-panels"
+import { PageHeader } from '@/components/shared/PageHeader'
+import { ScoreDisplay, type Scores } from '@/components/shared/ScoreDisplay'
+import { WorkflowStageStatus, type WorkflowStatus } from '@/components/shared/WorkflowStageStatus'
+import { MessageList, type ChatListMessage } from '@/components/chat/MessageList'
+import { ChatInput } from '@/components/chat/ChatInput'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 
-const PAPERCLIP_ACCEPT =
-  ".pdf,.md,.txt,.docx,.png,.jpg,.jpeg,.gif,.webp"
+/* ────────────────────────────────────────────── */
+/*  Helpers                                        */
+/* ────────────────────────────────────────────── */
 
-function formatTokens(count: number): string {
-  if (!Number.isFinite(count) || count <= 0) return "0"
-  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`
-  if (count >= 1000) return `${(count / 1000).toFixed(1)}K`
-  return String(count)
+function formatTokens(n: number): string {
+  return n.toLocaleString('en-US')
 }
 
-function formatCost(usd: number): string {
-  if (!Number.isFinite(usd) || usd <= 0) return "$0.0000"
-  if (usd < 0.0001) return "<$0.0001"
-  return `$${usd.toFixed(4)}`
+function formatCost(cost: number): string {
+  return `$${cost.toFixed(4)}`
 }
 
-interface AgentConfigResponse {
-  id: string
-  name?: string
-  model: string
-  provider: string
+function formatDuration(seconds?: number): string {
+  if (seconds == null) return '—'
+  if (seconds < 60) return `${Math.round(seconds)}s`
+  const m = Math.floor(seconds / 60)
+  const s = Math.round(seconds % 60)
+  return `${m}m ${s}s`
 }
 
-interface PaperSummary {
-  id: string
-  title?: string
+function extractScores(rating?: ManuscriptRating | null): Scores | null {
+  if (!rating?.criteria?.length) return null
+  const find = (name: string) => {
+    const match = rating.criteria.find((c) =>
+      c.name.toLowerCase().includes(name),
+    )
+    return match ? match.score : 0
+  }
+  return {
+    quality: find('quality'),
+    novelty: find('novelty'),
+    rigor: find('rigor'),
+    clarity: find('clarity'),
+  }
 }
+
+function extractUsage(meta?: Record<string, unknown>): StageUsage | null {
+  return (meta?.usage as StageUsage | undefined) ?? null
+}
+
+function toWorkflowStatus(status: string): WorkflowStatus {
+  const s = status.toLowerCase().replace(/_/g, '-')
+  const statusMap: Record<string, WorkflowStatus> = {
+    pending: 'pending',
+    running: 'running',
+    'in-progress': 'running',
+    completed: 'completed',
+    complete: 'completed',
+    failed: 'failed',
+    cancelled: 'cancelled',
+    queued: 'queued',
+    paused: 'paused',
+  }
+  return statusMap[s] ?? 'pending'
+}
+
+/* ────────────────────────────────────────────── */
+/*  Stage Output Panel (right column)              */
+/* ────────────────────────────────────────────── */
+
+interface StageOutputPanelProps {
+  stages: WorkflowExecutionStage[]
+  activeIndex: number
+  onStageChange: (index: number) => void
+}
+
+function StageOutputPanel({ stages, activeIndex, onStageChange }: StageOutputPanelProps) {
+  const stage = stages[activeIndex]
+  const scores = useMemo(() => extractScores(stage?.rating), [stage?.rating])
+  const usage = useMemo(() => extractUsage(stage?.metadata), [stage?.metadata])
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Stage selector tabs */}
+      <div className="flex items-center gap-1 overflow-x-auto border-b border-border/50 px-3 py-2 shrink-0">
+        {stages.map((s, idx) => (
+          <button
+            key={idx}
+            onClick={() => onStageChange(idx)}
+            className={cn(
+              'flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap',
+              idx === activeIndex
+                ? 'bg-gold-500/10 text-gold-500'
+                : 'text-muted-foreground hover:text-foreground hover:bg-accent/50',
+            )}
+          >
+            <span
+              className={cn(
+                'h-1.5 w-1.5 rounded-full shrink-0',
+                s.status === 'completed' && 'bg-emerald-500',
+                s.status === 'running' && 'bg-gold-500 animate-pulse',
+                s.status === 'failed' && 'bg-red-500',
+                s.status === 'pending' && 'bg-muted-foreground/30',
+              )}
+            />
+            {s.agent_name ?? s.agent_role ?? `Stage ${idx + 1}`}
+          </button>
+        ))}
+      </div>
+
+      {/* Stage content */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {scores && (
+          <div className="bg-card/40 rounded-lg p-3">
+            <p className="text-xs font-medium text-muted-foreground mb-2">Ratings</p>
+            <ScoreDisplay scores={scores} size="sm" layout="grid" />
+          </div>
+        )}
+
+        {stage?.output ? (
+          <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/80 font-mono">
+            {stage.output}
+          </div>
+        ) : (
+          <div className="flex items-center justify-center py-12 text-muted-foreground">
+            {stage?.status === 'running' || stage?.status === 'in_progress' || stage?.status === 'in-progress' ? (
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="text-sm">Stage in progress...</span>
+              </div>
+            ) : (
+              <span className="text-sm">No output yet</span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Metadata footer */}
+      {(usage || stage?.metadata?.duration_seconds != null) && (
+        <div className="border-t border-border/50 px-4 py-2 flex items-center gap-4 text-xs text-muted-foreground shrink-0 flex-wrap">
+          {usage && (
+            <>
+              <span title="Total tokens">
+                Tokens: {formatTokens(usage.total_tokens ?? 0)}
+              </span>
+              <span title="Estimated cost">
+                Cost: {formatCost(usage.cost_usd ?? 0)}
+              </span>
+              {usage.model && (
+                <span title="Model">Model: {usage.model}</span>
+              )}
+            </>
+          )}
+          {stage?.metadata?.duration_seconds != null && (
+            <span title="Duration">
+              Duration: {formatDuration(Number(stage.metadata.duration_seconds))}
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ────────────────────────────────────────────── */
+/*  Chat panel shared between desktop & mobile     */
+/* ────────────────────────────────────────────── */
+
+interface ChatPanelProps {
+  messages: ChatListMessage[]
+  isLoading: boolean
+  isStreaming: boolean
+  onSend: (content: string, files?: File[]) => void
+}
+
+function ChatPanel({ messages, isLoading, isStreaming, onSend }: ChatPanelProps) {
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="flex-1 overflow-hidden">
+        <MessageList
+          messages={messages}
+          isLoading={isLoading && messages.length === 0}
+          isStreaming={isStreaming}
+          className="h-full"
+          emptyState={
+            <div className="flex flex-col items-center gap-3 py-16">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gold-500/10">
+                <MessageSquare className="h-6 w-6 text-gold-500" />
+              </div>
+              <p className="text-sm font-medium text-muted-foreground">
+                Start a conversation about this review
+              </p>
+              <p className="text-xs text-muted-foreground/60">
+                Ask questions, request clarifications, or discuss findings
+              </p>
+            </div>
+          }
+        />
+      </div>
+      <div className="border-t border-border/50 p-3 shrink-0">
+        <ChatInput
+          onSend={onSend}
+          disabled={isStreaming}
+          isStreaming={isStreaming}
+          placeholder="Ask about this review..."
+        />
+      </div>
+    </div>
+  )
+}
+
+/* ────────────────────────────────────────────── */
+/*  Main Page Component                            */
+/* ────────────────────────────────────────────── */
 
 export default function RevisionPage() {
-  const { id } = useParams<{ id: string }>()
-  const navigate = useNavigate()
-  const { toast } = useToast()
-
+  const { sessionId } = useParams<{ sessionId: string }>()
   const {
     session,
     messages,
     isLoading,
     isStreaming,
     streamingContent,
+    selectedStageIds,
     loadSession,
     sendMessage,
-    stopStreaming,
-    attachedFiles,
+    toggleStage,
+    setAvailableStageIds,
     uploadFile,
     attachFile,
-    removeAttachedFile,
-    setAvailableStageIds,
-    selectedStageIds,
-    toggleStage,
   } = useRevisionSession()
 
-  const [input, setInput] = useState("")
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const { scrollRef, contentRef } = useStickToBottom({ initial: "smooth" })
+  // Load session on mount
+  useEffect(() => {
+    if (sessionId) {
+      loadSession(sessionId)
+    }
+  }, [sessionId, loadSession])
 
-  // Persist panel sizes to localStorage via react-resizable-panels v4's hook
-  // (v4 dropped the old autoSaveId prop in favor of useDefaultLayout).
-  const { defaultLayout, onLayoutChanged } = useDefaultLayout({
-    id: PANEL_STORAGE_KEY,
-    panelIds: [...PANEL_IDS],
-    storage: typeof window !== "undefined" ? window.localStorage : undefined,
-  })
-
-  const { data: execution, isLoading: executionLoading } = useQuery<WorkflowExecution | null>({
-    queryKey: ["workflow-execution", session?.workflow_execution_id],
+  // Fetch workflow execution
+  const { data: execution } = useQuery<WorkflowExecution | null>({
+    queryKey: ['revision-execution', session?.workflow_execution_id],
     queryFn: async () => {
       if (!session?.workflow_execution_id) return null
       const { data } = await api.get<WorkflowExecution>(
-        `/workflows/results/${session.workflow_execution_id}`,
+        `/workflows/executions/${session.workflow_execution_id}`,
       )
       return data
     },
     enabled: !!session?.workflow_execution_id,
   })
 
-  const { data: agentConfig } = useQuery<AgentConfigResponse | null>({
-    queryKey: ["agent-config", session?.agent_config_id],
-    queryFn: async () => {
-      if (!session?.agent_config_id) return null
-      const { data } = await api.get<AgentConfigResponse>(
-        `/agents/configs/${session.agent_config_id}`,
-      )
-      return data
-    },
-    enabled: !!session?.agent_config_id,
-  })
-
-  const { data: paper } = useQuery<PaperSummary | null>({
-    queryKey: ["paper-summary", execution?.paper_id],
-    queryFn: async () => {
-      if (!execution?.paper_id) return null
-      const { data } = await api.get<PaperSummary>(`/papers/${execution.paper_id}`)
-      return data
-    },
-    enabled: !!execution?.paper_id,
-  })
-
+  // Propagate stage IDs when execution loads
   useEffect(() => {
-    if (id) {
-      void loadSession(id)
+    if (execution?.stages && execution.stages.length > 0) {
+      setAvailableStageIds(execution.stages.map((_, i) => String(i)))
     }
-  }, [id, loadSession])
-
-  useEffect(() => {
-    if (!execution) return
-    const stageIds = execution.stages.map((_, i) => `stage-${i}`)
-    setAvailableStageIds(stageIds)
   }, [execution, setAvailableStageIds])
 
-  useEffect(() => {
-    const el = textareaRef.current
-    if (!el) return
-    el.style.height = "auto"
-    el.style.height = `${Math.min(el.scrollHeight, 200)}px`
-  }, [input])
+  // Active stage for the output panel
+  const [activeStageIndex, setActiveStageIndex] = useState(0)
 
-  const { totalTokens, totalCostUsd } = useMemo(() => {
+  // Convert messages → ChatListMessage format (for MessageList)
+  const chatListMessages: ChatListMessage[] = useMemo(() => {
+    const all: ChatListMessage[] = messages.map((m) => ({
+      id: m.id,
+      role: m.role,
+      content: m.content,
+      timestamp: m.timestamp,
+    }))
+    if (isStreaming && streamingContent) {
+      all.push({
+        id: 'streaming',
+        role: 'assistant',
+        content: streamingContent,
+        timestamp: new Date().toISOString(),
+      })
+    }
+    return all
+  }, [messages, isStreaming, streamingContent])
+
+  // Handle message send
+  const handleSend = useCallback(
+    async (content: string, files?: File[]) => {
+      let fileRefs: string[] | undefined
+      if (files && files.length > 0) {
+        fileRefs = []
+        for (const file of files) {
+          const uploaded = await uploadFile(file)
+          attachFile(uploaded)
+          fileRefs.push(uploaded.file_key)
+        }
+      }
+      sendMessage(content, fileRefs)
+    },
+    [uploadFile, attachFile, sendMessage],
+  )
+
+  // Aggregate usage across all stages
+  const totalUsage = useMemo(() => {
+    if (!execution?.stages) return null
     let tokens = 0
     let cost = 0
-    for (const msg of messages) {
-      const usage = msg.extra_metadata?.usage as
-        | { total_tokens?: number; cost_usd?: number }
-        | undefined
-      if (usage) {
-        if (typeof usage.total_tokens === "number") tokens += usage.total_tokens
-        if (typeof usage.cost_usd === "number") cost += usage.cost_usd
+    let duration = 0
+    for (const s of execution.stages) {
+      const u = extractUsage(s.metadata)
+      if (u) {
+        tokens += u.total_tokens ?? 0
+        cost += u.cost_usd ?? 0
+      }
+      if (s.metadata?.duration_seconds != null) {
+        duration += Number(s.metadata.duration_seconds)
       }
     }
-    return { totalTokens: tokens, totalCostUsd: cost }
-  }, [messages])
+    return { tokens, cost, duration }
+  }, [execution])
 
-  const hasTokenOrCostData = totalTokens > 0 || totalCostUsd > 0
+  // Overall scores — use the last stage that has a rating
+  const overallScores: Scores | null = useMemo(() => {
+    if (!execution?.stages) return null
+    const rated = execution.stages.filter((s) => s.rating)
+    if (rated.length === 0) return null
+    return extractScores(rated[rated.length - 1].rating)
+  }, [execution])
 
-  const handlePaperclipClick = useCallback(() => {
-    fileInputRef.current?.click()
-  }, [])
+  // ── Loading / empty states ──
 
-  const handleFileChange = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0]
-      if (!file) return
-      try {
-        const result = await uploadFile(file)
-        attachFile(result)
-        toast({
-          title: "File attached",
-          description: result.file_name,
-        })
-      } catch (err) {
-        console.error("File upload failed:", err)
-        toast({
-          title: "Upload failed",
-          description: err instanceof Error ? err.message : "Could not upload file",
-          variant: "destructive",
-        })
-      } finally {
-        if (fileInputRef.current) fileInputRef.current.value = ""
-      }
-    },
-    [uploadFile, attachFile, toast],
-  )
-
-  const handleSend = useCallback(async () => {
-    const content = input.trim()
-    if (!content || isStreaming) return
-    setInput("")
-    if (textareaRef.current) textareaRef.current.style.height = "auto"
-    const fileRefs = attachedFiles.map((f) => f.file_key)
-    await sendMessage(content, fileRefs.length > 0 ? fileRefs : undefined)
-  }, [input, isStreaming, sendMessage, attachedFiles])
-
-  const handleSendPrompt = useCallback(
-    (text: string) => {
-      if (isStreaming) return
-      const fileRefs = attachedFiles.map((f) => f.file_key)
-      void sendMessage(text, fileRefs.length > 0 ? fileRefs : undefined)
-    },
-    [isStreaming, sendMessage, attachedFiles],
-  )
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault()
-        void handleSend()
-      }
-    },
-    [handleSend],
-  )
-
-  if (isLoading || !session) {
+  if (isLoading && !session) {
     return (
-      <div className="flex items-center justify-center h-[calc(100vh-4rem)]">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div className="flex h-[60vh] items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-gold-500" />
+          <p className="text-sm text-muted-foreground">Loading revision session...</p>
+        </div>
       </div>
     )
   }
 
-  const showEmptyState = messages.length === 0 && !isStreaming
-  const lastIndex = messages.length - 1
-  const hasStreamingDraft = isStreaming
-  const canSend = !!input.trim() && !isStreaming
+  if (!session) {
+    return (
+      <div className="flex h-[60vh] items-center justify-center">
+        <p className="text-muted-foreground">Revision session not found</p>
+      </div>
+    )
+  }
 
   return (
-    <div className="h-[calc(100vh-4rem)] flex flex-col bg-background">
-      <Group
-        orientation="horizontal"
-        id={PANEL_STORAGE_KEY}
-        defaultLayout={defaultLayout}
-        onLayoutChanged={onLayoutChanged}
-        className="flex-1 overflow-hidden"
-      >
-        <Panel
-          id={PANEL_IDS[0]}
-          defaultSize={70}
-          minSize={30}
-          className="flex flex-col h-full overflow-hidden"
-        >
-          <div className="border-b border-border/60 px-4 py-3 shrink-0">
-            <div className="flex items-center gap-3 min-w-0">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => navigate("/workflows")}
-                aria-label="Back to workflows"
-                className="shrink-0"
-              >
-                <ArrowLeft className="h-4 w-4" />
-              </Button>
-              <div className="flex-1 min-w-0">
-                <h1 className="text-sm font-semibold truncate">
-                  {execution?.workflow_name ?? "Revision Session"}
-                </h1>
-                {paper?.title && (
-                  <p
-                    className="text-xs text-muted-foreground truncate"
-                    title={paper.title}
-                  >
-                    {paper.title}
-                  </p>
-                )}
-              </div>
-              {agentConfig && (
-                <Badge variant="secondary" className="text-[10px] shrink-0">
-                  {agentConfig.model}
-                </Badge>
-              )}
-              {hasTokenOrCostData && (
-                <span className="text-[11px] text-muted-foreground shrink-0 tabular-nums">
-                  {formatTokens(totalTokens)} tokens · {formatCost(totalCostUsd)}
+    <div className="flex flex-col gap-6 h-full min-h-0">
+      {/* ── Hero ── */}
+      <PageHeader
+        title={session.title}
+        description={
+          execution
+            ? `${execution.stages.length} stages · ${totalUsage ? formatTokens(totalUsage.tokens) : '0'} tokens · ${totalUsage ? formatCost(totalUsage.cost) : '$0.00'}`
+            : 'Loading execution details...'
+        }
+        actions={
+          <div className="flex items-center gap-3">
+            {execution && (
+              <>
+                {/* Status badge */}
+                <span
+                  className={cn(
+                    'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium',
+                    execution.status === 'completed' && 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20',
+                    execution.status === 'running' && 'bg-gold-500/10 text-gold-500 border border-gold-500/20',
+                    execution.status === 'failed' && 'bg-red-500/10 text-red-500 border border-red-500/20',
+                    execution.status !== 'completed' &&
+                      execution.status !== 'running' &&
+                      execution.status !== 'failed' &&
+                      'bg-muted text-muted-foreground border border-border',
+                  )}
+                >
+                  {execution.status === 'completed' && <CheckCircle2 className="h-3 w-3" />}
+                  {execution.status === 'running' && <Loader2 className="h-3 w-3 animate-spin" />}
+                  {execution.status}
                 </span>
-              )}
-            </div>
+
+                {/* Overall scores (row layout for hero) */}
+                {overallScores && (
+                  <ScoreDisplay scores={overallScores} size="sm" layout="row" />
+                )}
+              </>
+            )}
           </div>
+        }
+      />
 
-          <div ref={scrollRef} className="flex-1 overflow-y-auto">
-            <div ref={contentRef} className="px-4 py-6 space-y-6">
-              {showEmptyState ? (
-                <EmptyState onSendPrompt={handleSendPrompt} />
-              ) : (
-                <>
-                  {messages.map((msg, i) => {
-                    const isUser = msg.role === "user"
-                    const isLastAssistant =
-                      !isUser && i === lastIndex && hasStreamingDraft
-                    const attachedFileNames = (
-                      msg.extra_metadata as { file_names?: string[] } | null
-                    )?.file_names
+      {/* ── Stage Pipeline — Horizontal Stepper ── */}
+      {execution?.stages && execution.stages.length > 0 && (
+        <div className="bg-card/60 backdrop-blur-xl border border-border/50 rounded-xl p-3">
+          <div className="flex items-center overflow-x-auto pb-1">
+            {execution.stages.map((stage, idx) => {
+              const meta = getStageMetaByIndex(execution.workflow_id, idx)
+              const isSelected = selectedStageIds.has(String(idx))
+              const isActive = activeStageIndex === idx
 
-                    if (isUser) {
-                      return (
-                        <div key={msg.id} className="flex justify-end">
-                          <div className="ml-12 max-w-[80%] rounded-2xl rounded-tr-md bg-primary text-primary-foreground px-4 py-2.5 shadow-sm">
-                            <p className="text-sm whitespace-pre-wrap break-words">
-                              {msg.content}
-                            </p>
-                            {Array.isArray(attachedFileNames) &&
-                              attachedFileNames.length > 0 && (
-                                <div className="mt-2 flex flex-wrap gap-1.5">
-                                  {attachedFileNames.map((name) => (
-                                    <span
-                                      key={name}
-                                      className="inline-flex items-center gap-1 rounded-full bg-primary-foreground/20 px-2 py-0.5 text-[10px]"
-                                    >
-                                      <Paperclip className="h-3 w-3" />
-                                      <span className="truncate max-w-[140px]">
-                                        {name}
-                                      </span>
-                                    </span>
-                                  ))}
-                                </div>
-                              )}
-                          </div>
-                        </div>
-                      )
-                    }
+              return (
+                <div key={idx} className="flex items-center gap-0">
+                  {/* Connector line before (except first) */}
+                  {idx > 0 && (
+                    <div
+                      className={cn(
+                        'h-0.5 w-5 shrink-0',
+                        stage.status === 'completed' ? 'bg-emerald-500/50' : 'bg-border',
+                      )}
+                    />
+                  )}
 
-                    return (
+                  {/* Stage button */}
+                  <button
+                    onClick={() => setActiveStageIndex(idx)}
+                    className={cn(
+                      'relative flex flex-col items-center gap-1.5 p-2 rounded-lg transition-all min-w-[72px] group',
+                      isActive && 'bg-gold-500/10 ring-1 ring-gold-500/30',
+                    )}
+                  >
+                    <div className="relative">
+                      <WorkflowStageStatus
+                        status={toWorkflowStatus(stage.status)}
+                        size="sm"
+                      />
+                      {/* Selection toggle dot */}
                       <div
-                        key={msg.id}
-                        className="flex justify-start gap-3"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          toggleStage(String(idx))
+                        }}
+                        className={cn(
+                          'absolute -top-0.5 -right-0.5 h-4 w-4 rounded-sm border cursor-pointer flex items-center justify-center transition-colors',
+                          isSelected
+                            ? 'bg-gold-500 border-gold-500'
+                            : 'bg-card border-border group-hover:border-gold-500/50',
+                        )}
                       >
-                        <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-1">
-                          <Bot className="h-4 w-4 text-primary" />
-                        </div>
-                        <div className="mr-12 max-w-[80%] rounded-2xl rounded-tl-md bg-muted px-4 py-2.5 shadow-sm">
-                          <MarkdownRenderer
-                            content={msg.content}
-                            streaming={isLastAssistant}
-                          />
-                        </div>
-                      </div>
-                    )
-                  })}
-
-                  {hasStreamingDraft && (
-                    <div className="flex justify-start gap-3">
-                      <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-1">
-                        <Bot className="h-4 w-4 text-primary" />
-                      </div>
-                      <div className="mr-12 max-w-[80%] rounded-2xl rounded-tl-md bg-muted px-4 py-2.5 shadow-sm">
-                        {streamingContent ? (
-                          <MarkdownRenderer
-                            content={streamingContent}
-                            streaming={true}
-                          />
-                        ) : (
-                          <div className="flex items-center gap-2 text-muted-foreground">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            <span className="text-sm">Thinking…</span>
-                          </div>
+                        {isSelected && (
+                          <CheckCircle2 className="h-3 w-3 text-white" />
                         )}
                       </div>
                     </div>
-                  )}
-                </>
-              )}
-            </div>
+                    <span
+                      className={cn(
+                        'text-[10px] font-medium text-center leading-tight max-w-[72px] truncate',
+                        isActive ? 'text-gold-500' : 'text-muted-foreground',
+                      )}
+                    >
+                      {stage.agent_name ?? meta?.description ?? `Stage ${idx + 1}`}
+                    </span>
+                  </button>
+                </div>
+              )
+            })}
           </div>
+        </div>
+      )}
 
-          <div className="sticky bottom-0 bg-background border-t border-border/60 p-4 shrink-0">
-            {attachedFiles.length > 0 && (
-              <div className="mb-2 flex flex-wrap gap-2">
-                {attachedFiles.map((file, i) => (
-                  <FilePreviewChip
-                    key={`${file.file_key}-${i}`}
-                    file={{
-                      file_key: file.file_key,
-                      file_name: file.file_name,
-                    }}
-                    onRemove={() => removeAttachedFile(i)}
-                  />
-                ))}
-              </div>
-            )}
-            <div className="flex items-end gap-2">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept={PAPERCLIP_ACCEPT}
-                onChange={handleFileChange}
-                className="hidden"
-                aria-hidden="true"
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={handlePaperclipClick}
-                disabled={isStreaming}
-                aria-label="Attach file"
-                title="Attach file"
-              >
-                <Paperclip className="h-4 w-4" />
-              </Button>
-              <textarea
-                ref={textareaRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Ask a question or request a revision… (Shift+Enter for new line)"
-                rows={1}
-                disabled={isStreaming}
-                className={cn(
-                  "flex-1 min-h-[44px] max-h-[200px] resize-none rounded-md border border-input bg-background px-3 py-2 text-sm",
-                  "placeholder:text-muted-foreground",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                  "disabled:cursor-not-allowed disabled:opacity-50",
-                )}
-              />
-              {isStreaming ? (
-                <Button
-                  type="button"
-                  variant="destructive"
-                  size="icon"
-                  onClick={stopStreaming}
-                  aria-label="Stop generating"
-                  title="Stop"
-                >
-                  <Square className="h-4 w-4" />
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  size="icon"
-                  onClick={() => void handleSend()}
-                  disabled={!canSend}
-                  aria-label="Send message"
-                  title="Send"
-                >
-                  <Send className="h-4 w-4" />
-                </Button>
-              )}
-            </div>
-          </div>
-        </Panel>
-
-        <Separator className="w-1.5 bg-border/40 hover:bg-primary/40 transition-colors data-[resize-handle-state=drag]:bg-primary/60" />
-
-        <Panel
-          id={PANEL_IDS[1]}
-          defaultSize={30}
-          minSize={20}
-          className="h-full overflow-hidden border-l border-border/60"
-        >
-          {execution ? (
-            <WorkflowContextPanel
-              execution={execution}
-              selectedStageIds={selectedStageIds}
-              onToggleStage={toggleStage}
+      {/* ── Main Content ── */}
+      <div className="flex-1 min-h-0">
+        {/* Desktop: side-by-side */}
+        <div className="hidden md:grid md:grid-cols-[1fr_400px] gap-6 h-full">
+          {/* Left: Chat */}
+          <div className="bg-card/60 backdrop-blur-xl border border-border/50 rounded-xl overflow-hidden">
+            <ChatPanel
+              messages={chatListMessages}
+              isLoading={isLoading}
+              isStreaming={isStreaming}
+              onSend={handleSend}
             />
-          ) : (
-            <div className="flex h-full flex-col items-center justify-center text-muted-foreground gap-2 p-6">
-              {executionLoading ? (
-                <>
-                  <Loader2 className="h-6 w-6 animate-spin" />
-                  <p className="text-sm">Loading workflow context…</p>
-                </>
-              ) : (
-                <>
-                  <Bot className="h-8 w-8 opacity-40" />
-                  <p className="text-sm">No workflow context available</p>
-                </>
-              )}
+          </div>
+
+          {/* Right: Stage output */}
+          {execution?.stages && execution.stages.length > 0 && (
+            <div className="bg-card/60 backdrop-blur-xl border border-border/50 rounded-xl overflow-hidden">
+              <StageOutputPanel
+                stages={execution.stages}
+                activeIndex={activeStageIndex}
+                onStageChange={setActiveStageIndex}
+              />
             </div>
           )}
-        </Panel>
-      </Group>
+        </div>
+
+        {/* Mobile: tabs */}
+        <div className="md:hidden h-full flex flex-col">
+          <Tabs defaultValue="chat" className="flex flex-col flex-1 min-h-0">
+            <TabsList variant="pills" className="self-center mb-3 shrink-0">
+              <TabsTrigger value="chat" variant="pills">
+                Chat
+              </TabsTrigger>
+              <TabsTrigger value="output" variant="pills">
+                Output
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="chat" className="flex-1 min-h-0">
+              <div className="bg-card/60 backdrop-blur-xl border border-border/50 rounded-xl overflow-hidden h-full">
+                <ChatPanel
+                  messages={chatListMessages}
+                  isLoading={isLoading}
+                  isStreaming={isStreaming}
+                  onSend={handleSend}
+                />
+              </div>
+            </TabsContent>
+
+            <TabsContent value="output" className="flex-1 min-h-0">
+              {execution?.stages && execution.stages.length > 0 && (
+                <div className="bg-card/60 backdrop-blur-xl border border-border/50 rounded-xl overflow-hidden h-full">
+                  <StageOutputPanel
+                    stages={execution.stages}
+                    activeIndex={activeStageIndex}
+                    onStageChange={setActiveStageIndex}
+                  />
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
+        </div>
+      </div>
     </div>
   )
 }
