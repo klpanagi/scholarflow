@@ -930,7 +930,7 @@ export default function AgentsPage() {
               <p className="mb-3 text-xs text-muted-foreground">
                 Select skills to give this agent specialized capabilities
               </p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-1.5">
                 {availableSkills.map((skill) => {
                   const isAssigned =
                     selectedConfig?.skills?.some((s) => s.id === skill.id) ??
@@ -939,7 +939,7 @@ export default function AgentsPage() {
                     <label
                       key={skill.id}
                       className={cn(
-                        "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors",
+                        "flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 transition-colors",
                         isAssigned
                           ? "border-gold-500/40 bg-gold-500/5"
                           : "border-border/50 hover:border-muted-foreground/40",
@@ -960,16 +960,11 @@ export default function AgentsPage() {
                           })
                         }}
                         disabled={isCreating}
-                        className="mt-0.5 accent-gold-500"
+                        className="accent-gold-500"
                       />
-                      <div>
-                        <span className="text-sm font-medium text-foreground">
-                          {skill.name}
-                        </span>
-                        <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
-                          {skill.description}
-                        </p>
-                      </div>
+                      <span className="text-sm font-medium text-foreground">
+                        {skill.name}
+                      </span>
                     </label>
                   )
                 })}

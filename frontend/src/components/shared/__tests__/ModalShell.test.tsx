@@ -94,4 +94,43 @@ describe('ModalShell', () => {
     )
     expect(document.body.querySelector('p')?.textContent).toBe('Portal content')
   })
+
+  it('wrapper has flex and flex-col classes for scroll layout', () => {
+    render(
+      <ModalShell open={true} onOpenChange={vi.fn()} title="Test" footer={<button>Save</button>}>
+        <p>Content</p>
+      </ModalShell>,
+    )
+    const dialog = screen.getByRole('dialog')
+    const wrapper = dialog.querySelector('div.flex-col')
+    expect(wrapper).not.toBeNull()
+    expect(wrapper).toHaveClass('flex', 'flex-col', 'max-h-[85dvh]')
+  })
+
+  it('body has flex-1 min-h-0 overflow-y-auto classes', () => {
+    render(
+      <ModalShell open={true} onOpenChange={vi.fn()} title="Test">
+        <p>Content</p>
+      </ModalShell>,
+    )
+    const dialog = screen.getByRole('dialog')
+    const body = dialog.querySelector('[class*="min-h-0"]')
+    expect(body).not.toBeNull()
+    expect(body).toHaveClass('flex-1', 'min-h-0', 'overflow-y-auto')
+  })
+
+  it('header and footer have shrink-0 to prevent compression', () => {
+    render(
+      <ModalShell open={true} onOpenChange={vi.fn()} title="Header Test" footer={<button>Save</button>}>
+        <p>Content</p>
+      </ModalShell>,
+    )
+    const dialog = screen.getByRole('dialog')
+    const header = dialog.querySelector('div.border-b')
+    expect(header).not.toBeNull()
+    expect(header).toHaveClass('shrink-0')
+    const footer = dialog.querySelector('div.border-t')
+    expect(footer).not.toBeNull()
+    expect(footer).toHaveClass('shrink-0')
+  })
 })

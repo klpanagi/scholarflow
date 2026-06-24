@@ -103,14 +103,14 @@ export function ModalShell({
       {/* Content */}
       <div
         className={cn(
-          'relative w-full animate-in overflow-hidden rounded-xl border border-border/50 bg-card/60 shadow-2xl backdrop-blur-xl',
+          'relative w-full animate-in overflow-hidden rounded-xl border border-border/50 bg-card/60 shadow-2xl backdrop-blur-xl flex flex-col max-h-[85dvh]',
           sizeClasses[size],
         )}
         style={{ animationDuration: '200ms' }}
       >
         {/* Header */}
         {(title || description) && (
-          <div className="flex items-start justify-between gap-4 border-b border-border/50 px-6 py-4">
+          <div className="flex shrink-0 items-start justify-between gap-4 border-b border-border/50 px-6 py-4">
             <div className="min-w-0 flex-1">
               {title && (
                 <h2
@@ -138,11 +138,11 @@ export function ModalShell({
         )}
 
         {/* Body */}
-        <div className="overflow-y-auto px-6 py-4">{children}</div>
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">{children}</div>
 
         {/* Footer */}
         {footer && (
-          <div className="flex items-center justify-end gap-3 border-t border-border/50 px-6 py-4">
+          <div className="flex shrink-0 items-center justify-end gap-3 border-t border-border/50 px-6 py-4">
             {footer}
           </div>
         )}
