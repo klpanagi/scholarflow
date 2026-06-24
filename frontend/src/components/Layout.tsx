@@ -27,25 +27,37 @@ function MobileNav({ user, handleLogout }: { user: any; handleLogout: () => void
   return (
     <Dialog.Root>
       <Dialog.Trigger asChild>
-        <Button variant="ghost" size="icon" className="md:hidden text-slate-600">
-          <Menu className="h-5 w-5" />
+        <Button
+          variant="ghost"
+          size="icon"
+          className="md:hidden text-slate-600"
+          aria-label="Open navigation menu"
+        >
+          <Menu aria-hidden="true" className="h-5 w-5" />
         </Button>
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/40 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
-        <Dialog.Content className="fixed left-0 top-0 h-full w-72 bg-white shadow-xl data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left z-50">
+        <Dialog.Content
+          className="fixed left-0 top-0 h-full w-72 bg-white shadow-xl data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left z-50"
+          aria-describedby={undefined}
+        >
+          <Dialog.Title className="sr-only">Navigation menu</Dialog.Title>
           <div className="flex items-center justify-between p-4 border-b">
-            <Link to="/" className="flex items-center gap-2 font-bold text-xl text-primary">
-              <BookOpen className="h-6 w-6" />
+            <Link
+              to="/"
+              className="flex items-center gap-2 font-bold text-xl text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+            >
+              <BookOpen aria-hidden="true" className="h-6 w-6" />
               <span>ScholarFlow</span>
             </Link>
             <Dialog.Close asChild>
-              <Button variant="ghost" size="icon">
-                <X className="h-5 w-5" />
+              <Button variant="ghost" size="icon" aria-label="Close navigation menu">
+                <X aria-hidden="true" className="h-5 w-5" />
               </Button>
             </Dialog.Close>
           </div>
-          <nav className="flex flex-col p-4 gap-1">
+          <nav aria-label="Mobile primary" className="flex flex-col p-4 gap-1">
             {user ? (
               <>
                 {navLinks.map((link) => (
@@ -54,7 +66,7 @@ function MobileNav({ user, handleLogout }: { user: any; handleLogout: () => void
                       to={link.to}
                       className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-accent transition-colors"
                     >
-                      <link.icon className="h-4 w-4" />
+                      <link.icon aria-hidden="true" className="h-4 w-4" />
                       {link.label}
                     </Link>
                   </Dialog.Close>
@@ -65,15 +77,15 @@ function MobileNav({ user, handleLogout }: { user: any; handleLogout: () => void
                     to="/settings"
                     className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-accent transition-colors"
                   >
-                    <Settings className="h-4 w-4" />
+                    <Settings aria-hidden="true" className="h-4 w-4" />
                     Settings
                   </Link>
                 </Dialog.Close>
                 <button
                   onClick={handleLogout}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium text-red-600 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded transition-colors"
                 >
-                  <LogOut className="h-4 w-4" />
+                  <LogOut aria-hidden="true" className="h-4 w-4" />
                   Log out
                 </button>
               </>
@@ -115,12 +127,18 @@ export function Layout() {
 
   return (
     <div className="min-h-screen bg-background font-sans text-slate-900">
+      <a href="#main-content" className="skip-link">
+        Skip to main content
+      </a>
       <header className="sticky top-0 z-40 w-full border-b bg-white/80 backdrop-blur-md shadow-sm">
         <div className="container flex h-16 items-center justify-between px-4 md:px-8">
           <div className="flex items-center gap-3">
             <MobileNav user={user} handleLogout={handleLogout} />
-            <Link to="/" className="flex items-center gap-2 font-bold text-xl text-primary transition-colors hover:text-primary/80">
-              <BookOpen className="h-6 w-6" />
+            <Link
+              to="/"
+              className="flex items-center gap-2 font-bold text-xl text-primary transition-colors hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+            >
+              <BookOpen aria-hidden="true" className="h-6 w-6" />
               <span className="tracking-tight">ScholarFlow</span>
             </Link>
           </div>
@@ -136,20 +154,26 @@ export function Layout() {
                 </Link>
                 <Link to="/cult">
                   <Button variant="ghost" className="text-sm font-medium text-slate-600 hover:text-slate-900">
-                    <Bot className="h-4 w-4 mr-2" /> Cult
+                    <Bot aria-hidden="true" className="h-4 w-4 mr-2" /> Cult
                   </Button>
                 </Link>
                 <Link to="/workflows">
                   <Button variant="ghost" className="text-sm font-medium text-slate-600 hover:text-slate-900">
-                    <GitBranch className="h-4 w-4 mr-2" /> Workflows
+                    <GitBranch aria-hidden="true" className="h-4 w-4 mr-2" /> Workflows
                   </Button>
                 </Link>
                 <div className="h-4 w-px bg-slate-200 mx-2" />
 
                 <DropdownMenu.Root>
                   <DropdownMenu.Trigger asChild>
-                    <button className="flex items-center gap-2.5 ml-2 pl-2 border-l border-slate-200 outline-none">
-                      <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary font-semibold text-sm">
+                    <button
+                      className="flex items-center gap-2.5 ml-2 pl-2 border-l border-slate-200 outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+                      aria-label={`User menu for ${user.name}`}
+                    >
+                      <div
+                        aria-hidden="true"
+                        className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary font-semibold text-sm"
+                      >
                         {user.name.charAt(0).toUpperCase()}
                       </div>
                       <span className="text-sm font-medium hidden lg:inline-block">{user.name}</span>
@@ -174,7 +198,7 @@ export function Layout() {
                           to="/settings"
                           className="flex items-center gap-2 px-2 py-1.5 text-sm rounded hover:bg-accent cursor-pointer outline-none"
                         >
-                          <Settings className="h-4 w-4" />
+                          <Settings aria-hidden="true" className="h-4 w-4" />
                           Settings
                         </Link>
                       </DropdownMenu.Item>
@@ -183,7 +207,7 @@ export function Layout() {
                           onClick={handleLogout}
                           className="flex items-center gap-2 px-2 py-1.5 text-sm rounded hover:bg-red-50 text-red-600 cursor-pointer outline-none w-full"
                         >
-                          <LogOut className="h-4 w-4" />
+                          <LogOut aria-hidden="true" className="h-4 w-4" />
                           Log out
                         </button>
                       </DropdownMenu.Item>
@@ -205,7 +229,7 @@ export function Layout() {
         </div>
       </header>
 
-      <main className="container max-w-7xl mx-auto px-4 md:px-8 py-8 animate-in fade-in duration-500">
+      <main id="main-content" tabIndex={-1} className="container max-w-7xl mx-auto px-4 md:px-8 py-8 animate-in fade-in duration-500 focus:outline-none">
         <Outlet />
       </main>
     </div>
