@@ -1,27 +1,81 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useChat } from '@/hooks/useChat'
+import { useToast } from '@/hooks/use-toast'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { MessageList } from '@/components/chat/MessageList'
+import { ChatInput } from '@/components/chat/ChatInput'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { Badge } from '@/components/ui/badge'
-import { useToast } from '@/hooks/use-toast'
-import ReactMarkdown from 'react-markdown'
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import {
   Plus,
   Trash2,
-  Send,
-  Square,
-  GitFork,
-  Upload,
   MessageSquare,
-  Bot,
-  User,
-  ChevronDown,
+  Menu,
+  Sparkles,
+  BookOpen,
+  FileText,
+  Beaker,
+  GraduationCap,
   Search,
-  Loader2,
+  ChevronDown,
+  Square,
+  Bot,
+  GitFork,
 } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import type { ChatListMessage } from '@/components/chat/MessageList'
+
+/* ────────────────────────────────────────────── */
+/*  Constants                                      */
+/* ────────────────────────────────────────────── */
+
+const SUGGESTIONS = [
+  { icon: Sparkles, label: 'Summarize a paper', query: 'Can you summarize a research paper for me? I have the PDF ready.' },
+  { icon: BookOpen, label: 'Literature review', query: 'Help me conduct a literature review on recent advances in...' },
+  { icon: FileText, label: 'Write an abstract', query: 'Help me write an abstract for my paper about...' },
+  { icon: Beaker, label: 'Research methods', query: 'What research methods would you recommend for studying...' },
+  { icon: GraduationCap, label: 'Thesis outline', query: 'Help me create a detailed thesis outline for...' },
+]
+
+/* ────────────────────────────────────────────── */
+/*  Helpers                                        */
+/* ────────────────────────────────────────────── */
+
+function formatRelativeTime(dateString: string): string {
+  const date = new Date(dateString)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffMins = Math.floor(diffMs / 60_000)
+  const diffHours = Math.floor(diffMs / 3_600_000)
+  const diffDays = Math.floor(diffMs / 86_400_000)
+
+  if (diffMins < 1) return 'Just now'
+  if (diffMins < 60) return `${diffMins}m ago`
+  if (diffHours < 24) return `${diffHours}h ago`
+  if (diffDays < 7) return `${diffDays}d ago`
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+/* ────────────────────────────────────────────── */
+/*  Component                                      */
+/* ────────────────────────────────────────────── */
 
 export default function ChatPage() {
   const {
@@ -43,378 +97,685 @@ export default function ChatPage() {
   } = useChat()
 
   const { toast } = useToast()
-  const [input, setInput] = useState('')
+
+  /* ── UI state ── */
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [newSessionOpen, setNewSessionOpen] = useState(false)
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
+  const [showModelPicker, setShowModelPicker] = useState(false)
+
+  /* ── New session form ── */
   const [selectedProvider, setSelectedProvider] = useState('')
   const [selectedModel, setSelectedModel] = useState('')
-  const [showModelPicker, setShowModelPicker] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [showNewSession, setShowNewSession] = useState(false)
   const [newTitle, setNewTitle] = useState('')
   const [systemPrompt, setSystemPrompt] = useState('')
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
+  /* ── Model picker search ── */
+  const [modelSearchQuery, setModelSearchQuery] = useState('')
+
+  /* ── Effects ── */
   useEffect(() => {
     fetchSessions()
     fetchModels()
   }, [fetchSessions, fetchModels])
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, streamingContent])
-
-  const providers = [...new Set(availableModels.map((m) => m.provider))]
-  const filteredModels = availableModels.filter(
-    (m) => m.provider === selectedProvider && m.id.toLowerCase().includes(searchQuery.toLowerCase())
+  /* ── Derived data ── */
+  const providers = useMemo(
+    () => [...new Set(availableModels.map((m) => m.provider))],
+    [availableModels],
   )
 
-  const handleCreateSession = async () => {
+  const filteredModels = useMemo(
+    () =>
+      availableModels.filter(
+        (m) =>
+          m.provider === selectedProvider &&
+          m.id.toLowerCase().includes(modelSearchQuery.toLowerCase()),
+      ),
+    [availableModels, selectedProvider, modelSearchQuery],
+  )
+
+  /* ── Map messages → ChatListMessage ── */
+  const chatMessages = useMemo<ChatListMessage[]>(() => {
+    const mapped: ChatListMessage[] = messages.map((msg) => ({
+      id: msg.id,
+      role: msg.role,
+      content: msg.content,
+      timestamp: msg.timestamp,
+      model: msg.role === 'assistant' ? currentSession?.model : undefined,
+      provider: msg.role === 'assistant' ? currentSession?.provider : undefined,
+    }))
+
+    // During streaming, append a synthetic assistant message with partial content
+    if (isStreaming) {
+      mapped.push({
+        id: 'streaming-msg',
+        role: 'assistant',
+        content: streamingContent || '',
+        timestamp: new Date().toISOString(),
+        model: currentSession?.model,
+        provider: currentSession?.provider,
+      })
+    }
+
+    return mapped
+  }, [messages, isStreaming, streamingContent, currentSession])
+
+  /* ── Handlers ── */
+
+  const openNewSession = useCallback(() => {
+    setSelectedProvider('')
+    setSelectedModel('')
+    setNewTitle('')
+    setSystemPrompt('')
+    setNewSessionOpen(true)
+  }, [])
+
+  const handleCreateSession = useCallback(async () => {
     if (!selectedProvider || !selectedModel) {
-      toast({ title: 'Select a model', description: 'Choose a provider and model first.' })
+      toast({
+        title: 'Select a model',
+        description: 'Choose a provider and model first.',
+      })
       return
     }
     try {
-      await createSession(selectedModel, selectedProvider, newTitle || undefined, systemPrompt || undefined)
-      setShowNewSession(false)
+      await createSession(
+        selectedModel,
+        selectedProvider,
+        newTitle || undefined,
+        systemPrompt || undefined,
+      )
+      setNewSessionOpen(false)
       setNewTitle('')
       setSystemPrompt('')
+      setSelectedProvider('')
+      setSelectedModel('')
     } catch {
       toast({ title: 'Error', description: 'Failed to create session.' })
     }
-  }
+  }, [selectedProvider, selectedModel, newTitle, systemPrompt, createSession, toast])
 
-  const handleSend = async () => {
-    if (!input.trim() || isStreaming) return
-    const msg = input.trim()
-    setInput('')
-    if (textareaRef.current) textareaRef.current.style.height = 'auto'
-    await sendMessage(msg)
-  }
+  const handleSelectSession = useCallback(
+    (session: (typeof sessions)[number]) => {
+      selectSession(session)
+      setSidebarOpen(false)
+    },
+    [selectSession],
+  )
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
+  const handleDeleteSession = useCallback(
+    (e: React.MouseEvent, sessionId: string) => {
+      e.stopPropagation()
+      deleteSession(sessionId)
+    },
+    [deleteSession],
+  )
+
+  const handleClearAll = useCallback(async () => {
+    for (const session of sessions) {
+      await deleteSession(session.id)
     }
-  }
+    setClearConfirmOpen(false)
+    toast({
+      title: 'Conversations cleared',
+      description: 'All conversations have been deleted.',
+    })
+  }, [sessions, deleteSession, toast])
 
-  const handleFork = async (messageId: string) => {
+  const handleSend = useCallback(
+    async (content: string, files?: File[]) => {
+      if (!currentSession) return
+
+      let finalContent = content
+      if (files && files.length > 0) {
+        const references: string[] = []
+        for (const file of files) {
+          try {
+            const result = await uploadFile(file)
+            if (result) {
+              references.push(`[Attached: ${result.file_name}]`)
+            }
+          } catch {
+            toast({
+              title: 'Upload failed',
+              description: `Could not upload ${file.name}.`,
+            })
+          }
+        }
+        if (references.length > 0) {
+          finalContent = content + '\n\n' + references.join('\n')
+        }
+      }
+
+      await sendMessage(finalContent)
+    },
+    [currentSession, sendMessage, uploadFile, toast],
+  )
+
+  const handleFork = useCallback(async () => {
+    if (!currentSession || messages.length === 0) return
+    const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant')
+    if (!lastAssistant) return
     try {
-      await forkSession(messageId)
-      toast({ title: 'Session forked', description: 'A new session was created from this message.' })
+      await forkSession(lastAssistant.id)
+      toast({
+        title: 'Session forked',
+        description: 'A new session was created from this conversation.',
+      })
     } catch {
       toast({ title: 'Error', description: 'Failed to fork session.' })
     }
-  }
+  }, [currentSession, messages, forkSession, toast])
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file || !currentSession) return
-    try {
-      const result = await uploadFile(file)
-      if (result) {
-        setInput((prev) => prev + `\n\n[Attached: ${result.file_name}]`)
-        toast({ title: 'File uploaded', description: `${result.file_name} attached.` })
+  const handleSuggestionClick = useCallback(
+    (query: string) => {
+      if (!currentSession) {
+        openNewSession()
+        return
       }
-    } catch {
-      toast({ title: 'Error', description: 'Failed to upload file.' })
-    }
-    if (fileInputRef.current) fileInputRef.current.value = ''
-  }
+      sendMessage(query)
+    },
+    [currentSession, sendMessage, openNewSession],
+  )
 
-  const handleTextareaInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInput(e.target.value)
-    e.target.style.height = 'auto'
-    e.target.style.height = `${Math.min(e.target.scrollHeight, 200)}px`
-  }
+  /* ── Render: Sidebar content (shared by desktop + mobile) ── */
 
-  return (
-    <div className="flex h-full">
-      <div className="w-72 border-r bg-muted/30 flex flex-col">
-        <div className="p-3 border-b">
-          <Button onClick={() => setShowNewSession(true)} className="w-full" size="sm">
-            <Plus className="h-4 w-4 mr-2" /> New Chat
-          </Button>
-        </div>
-
-        {showNewSession && (
-          <div className="p-3 border-b space-y-2">
-            <select
-              value={selectedProvider}
-              onChange={(e) => {
-                setSelectedProvider(e.target.value)
-                setSelectedModel('')
-              }}
-              className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-            >
-              <option value="">Provider...</option>
-              {providers.map((p) => (
-                <option key={p} value={p}>{p}</option>
-              ))}
-            </select>
-            <select
-              value={selectedModel}
-              onChange={(e) => setSelectedModel(e.target.value)}
-              className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-            >
-              <option value="">Model...</option>
-              {availableModels.filter((m) => m.provider === selectedProvider).map((m) => (
-                <option key={m.id} value={m.id}>{m.id}</option>
-              ))}
-            </select>
-            <Input
-              placeholder="Session title (optional)"
-              value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
-              className="text-sm"
-            />
-            <Textarea
-              placeholder="System prompt (optional)"
-              value={systemPrompt}
-              onChange={(e) => setSystemPrompt(e.target.value)}
-              className="text-sm min-h-[60px]"
-            />
-            <div className="flex gap-2">
-              <Button size="sm" onClick={handleCreateSession} className="flex-1">Create</Button>
-              <Button size="sm" variant="ghost" onClick={() => setShowNewSession(false)}>Cancel</Button>
-            </div>
-          </div>
-        )}
-
-        <div className="flex-1 overflow-y-auto">
-          {sessions.length === 0 && (
-            <p className="text-sm text-muted-foreground p-4 text-center">No sessions yet</p>
+  const sidebarContent = (
+    <>
+      {/* New conversation button */}
+      <div className="p-3">
+        <Button
+          onClick={openNewSession}
+          className={cn(
+            'w-full gap-2 bg-gradient-to-r from-gold-500 to-amber-500',
+            'text-white hover:from-gold-600 hover:to-amber-600',
+            'shadow-sm transition-all duration-200',
           )}
-          {sessions.map((session) => (
-            <div
-              key={session.id}
-              onClick={() => selectSession(session)}
-              className={`group flex items-center gap-2 px-3 py-2.5 cursor-pointer hover:bg-accent transition-colors ${
-                currentSession?.id === session.id ? 'bg-accent' : ''
-              }`}
-            >
-              <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{session.title || 'Untitled'}</p>
-                <p className="text-xs text-muted-foreground truncate">{session.model}</p>
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  deleteSession(session.id)
-                }}
-              >
-                <Trash2 className="h-3 w-3" />
-              </Button>
-            </div>
-          ))}
-        </div>
+          size="default"
+        >
+          <Plus aria-hidden="true" className="h-4 w-4" />
+          New Conversation
+        </Button>
       </div>
 
-      <div className="flex-1 flex flex-col">
-        {currentSession ? (
-          <>
-            <div className="h-14 border-b px-4 flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-3">
-                <h2 className="font-semibold text-sm">{currentSession.title || 'Untitled'}</h2>
-                <Badge variant="outline" className="text-xs">{currentSession.provider}</Badge>
-                <Badge variant="secondary" className="text-xs">{currentSession.model}</Badge>
-              </div>
-              <div className="relative">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setShowModelPicker(!showModelPicker)}
-                  className="text-xs"
+      {/* Conversation list */}
+      <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-navy-200 dark:scrollbar-thumb-navy-700">
+        {sessions.length === 0 && (
+          <div className="flex flex-col items-center gap-2 px-4 py-12 text-center">
+            <MessageSquare aria-hidden="true" className="h-8 w-8 text-muted-foreground/20" />
+            <p className="text-xs text-muted-foreground/40">No conversations yet</p>
+          </div>
+        )}
+        {sessions.map((session) => (
+          <button
+            key={session.id}
+            onClick={() => handleSelectSession(session)}
+            className={cn(
+              'group relative w-full text-left px-3 py-3 transition-all duration-150',
+              'hover:bg-accent/50',
+              currentSession?.id === session.id &&
+                'bg-gold-500/5 border-l-2 border-gold-500',
+            )}
+          >
+            <div className="flex items-start gap-2.5">
+              <MessageSquare
+                aria-hidden="true"
+                className={cn(
+                  'mt-0.5 h-4 w-4 shrink-0',
+                  currentSession?.id === session.id
+                    ? 'text-gold-500'
+                    : 'text-muted-foreground/30 group-hover:text-muted-foreground/50',
+                )}
+              />
+              <div className="flex-1 min-w-0">
+                <p
+                  className={cn(
+                    'text-sm font-medium truncate leading-tight',
+                    currentSession?.id === session.id && 'text-gold-600 dark:text-gold-400',
+                  )}
                 >
-                  Switch Model <ChevronDown className="h-3 w-3 ml-1" />
-                </Button>
-                {showModelPicker && (
-                  <div className="absolute right-0 top-full mt-1 w-80 bg-popover border rounded-lg shadow-lg z-50 p-2">
-                    <div className="relative mb-2">
-                      <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        placeholder="Search models..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="pl-8 text-sm"
-                      />
-                    </div>
-                    <div className="max-h-60 overflow-y-auto space-y-1">
-                      {filteredModels.map((m) => (
+                  {session.title || 'Untitled'}
+                </p>
+                <p className="text-[11px] text-muted-foreground/40 mt-1">
+                  {formatRelativeTime(session.updated_at)}
+                </p>
+              </div>
+              <button
+                onClick={(e) => handleDeleteSession(e, session.id)}
+                className={cn(
+                  'absolute right-2 top-3 flex h-6 w-6 items-center justify-center rounded-md',
+                  'opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity',
+                  'text-muted-foreground/30 hover:text-destructive hover:bg-destructive/10',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                )}
+                aria-label={`Delete session "${session.title || 'Untitled'}"`}
+              >
+                <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {/* Clear all button */}
+      {sessions.length > 0 && (
+        <div className="border-t border-border/40 p-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setClearConfirmOpen(true)}
+            className="w-full gap-2 text-muted-foreground/50 hover:text-destructive text-xs"
+          >
+            <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
+            Clear all conversations
+          </Button>
+        </div>
+      )}
+    </>
+  )
+
+  /* ── Render: Welcome / suggestion chips ── */
+
+  const suggestionChips = (
+    <div className="flex flex-col items-center justify-center flex-1 px-4 py-12">
+      <div className="flex flex-col items-center gap-4 text-center max-w-lg">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-gold-500/15 to-amber-500/10 ring-1 ring-gold-500/20">
+          <Bot aria-hidden="true" className="h-8 w-8 text-gold-500" />
+        </div>
+        <div className="space-y-2">
+          <h2 className="font-display text-2xl font-semibold tracking-tight text-foreground">
+            Intelligence Chat
+          </h2>
+          <p className="text-sm text-muted-foreground/60 leading-relaxed">
+            Your AI-powered academic assistant. Ask questions, get summaries, and explore research.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full mt-4">
+          {SUGGESTIONS.map((suggestion) => {
+            const Icon = suggestion.icon
+            return (
+              <button
+                key={suggestion.label}
+                onClick={() => handleSuggestionClick(suggestion.query)}
+                className={cn(
+                  'flex items-center gap-3 rounded-xl px-4 py-3 text-left',
+                  'bg-card/50 backdrop-blur-sm border border-border/40',
+                  'hover:bg-gold-500/5 hover:border-gold-500/20',
+                  'transition-all duration-200 group',
+                )}
+              >
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gold-500/10 text-gold-500 group-hover:bg-gold-500/15 transition-colors">
+                  <Icon aria-hidden="true" className="h-4 w-4" />
+                </div>
+                <span className="text-sm font-medium text-foreground/70 group-hover:text-foreground transition-colors">
+                  {suggestion.label}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+
+  /* ── Render: Session header ── */
+
+  const sessionHeader = currentSession && (
+    <div className="flex items-center justify-between border-b border-border/40 px-4 lg:px-6 h-14 shrink-0 bg-card/20 backdrop-blur-sm">
+      <div className="flex items-center gap-3 min-w-0">
+        <SheetTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="lg:hidden -ml-2.5 h-10 w-10 shrink-0"
+            aria-label="Open conversations"
+          >
+            <Menu aria-hidden="true" className="h-4 w-4" />
+          </Button>
+        </SheetTrigger>
+        <h2 className="text-sm font-semibold truncate">
+          {currentSession.title || 'Untitled'}
+        </h2>
+        <Badge
+          variant="outline"
+          className="hidden sm:inline-flex text-[10px] px-1.5 py-0 h-5 border-gold-500/20 text-gold-600 dark:text-gold-400 bg-gold-500/5 leading-none"
+        >
+          {currentSession.provider}
+        </Badge>
+        <Badge
+          variant="secondary"
+          className="hidden sm:inline-flex text-[10px] px-1.5 py-0 h-5 leading-none"
+        >
+          {currentSession.model}
+        </Badge>
+      </div>
+
+      <div className="flex items-center gap-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleFork}
+          className="text-xs gap-1.5 text-muted-foreground/50 hover:text-foreground h-8"
+          disabled={messages.length === 0}
+        >
+          <GitFork aria-hidden="true" className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">Fork</span>
+        </Button>
+        <div className="relative">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowModelPicker(!showModelPicker)}
+            className="text-xs gap-1 text-muted-foreground/50 hover:text-foreground h-8"
+          >
+            Switch <ChevronDown aria-hidden="true" className="h-3 w-3" />
+          </Button>
+          {showModelPicker && (
+            <div className="absolute right-0 top-full mt-1 w-72 bg-popover border rounded-xl shadow-lg z-50 p-2 animate-in fade-in zoom-in-95">
+              <div className="relative mb-2">
+                <Search aria-hidden="true" className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground/40" />
+                <Input
+                  placeholder="Search models..."
+                  value={modelSearchQuery}
+                  onChange={(e) => setModelSearchQuery(e.target.value)}
+                  className="pl-8 h-9 text-sm"
+                  aria-label="Search models"
+                />
+              </div>
+              <div className="max-h-60 overflow-y-auto space-y-0.5">
+                {providers.length === 0 && (
+                  <p className="text-xs text-muted-foreground/40 px-2 py-4 text-center">
+                    No models available
+                  </p>
+                )}
+                {providers.map((provider) => {
+                  const providerModels = availableModels.filter(
+                    (m) =>
+                      m.provider === provider &&
+                      (modelSearchQuery === '' ||
+                        m.id.toLowerCase().includes(modelSearchQuery.toLowerCase())),
+                  )
+                  if (providerModels.length === 0) return null
+                  return (
+                    <div key={provider}>
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/40 px-2 py-1.5">
+                        {provider}
+                      </p>
+                      {providerModels.map((m) => (
                         <button
                           key={m.id}
                           onClick={() => {
-                            setSelectedProvider(m.provider)
-                            setSelectedModel(m.id)
+                            // Model switch is a display hint — the actual model
+                            // change would require a new session. For now, notify.
+                            toast({
+                              title: 'Model info',
+                              description: `Switch to "${m.id}" by starting a new session.`,
+                            })
                             setShowModelPicker(false)
-                            setSearchQuery('')
+                            setModelSearchQuery('')
                           }}
-                          className="w-full text-left px-3 py-2 rounded-md text-sm hover:bg-accent transition-colors"
+                          className="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-accent transition-colors"
                         >
                           <span className="font-medium">{m.id}</span>
-                          <span className="text-muted-foreground ml-2 text-xs">{m.provider}</span>
                         </button>
                       ))}
                     </div>
-                  </div>
-                )}
+                  )
+                })}
               </div>
             </div>
-
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {messages.length === 0 && !isStreaming && (
-                <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-                  <Bot className="h-12 w-12 mb-4 opacity-50" />
-                  <p className="text-lg font-medium">Start a conversation</p>
-                  <p className="text-sm">Send a message to begin</p>
-                </div>
-              )}
-              {messages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                >
-                  {msg.role !== 'user' && (
-                    <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                      <Bot className="h-4 w-4 text-primary" />
-                    </div>
-                  )}
-                  <div
-                    className={`max-w-[70%] rounded-2xl px-4 py-2.5 ${
-                      msg.role === 'user'
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-muted'
-                    }`}
-                  >
-                    {msg.role === 'user' ? (
-                      <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
-                    ) : (
-                      <div className="prose prose-sm dark:prose-invert max-w-none">
-                        <ReactMarkdown
-                          components={{
-                            code({ className, children, ...props }) {
-                              const match = /language-(\w+)/.exec(className || '')
-                              return match ? (
-                                <SyntaxHighlighter
-                                  style={oneDark}
-                                  language={match[1]}
-                                  PreTag="div"
-                                  className="rounded-lg text-xs"
-                                >
-                                  {String(children).replace(/\n$/, '')}
-                                </SyntaxHighlighter>
-                              ) : (
-                                <code className={className} {...props}>
-                                  {children}
-                                </code>
-                              )
-                            },
-                          }}
-                        >
-                          {msg.content}
-                        </ReactMarkdown>
-                      </div>
-                    )}
-                    {msg.file_name && (
-                      <div className="mt-2 flex items-center gap-1 text-xs opacity-70">
-                        <Upload className="h-3 w-3" /> {msg.file_name}
-                      </div>
-                    )}
-                    {msg.role === 'assistant' && (
-                      <div className="mt-2 flex items-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          onClick={() => handleFork(msg.id)}
-                          title="Fork from here"
-                        >
-                          <GitFork className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                  {msg.role === 'user' && (
-                    <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center shrink-0">
-                      <User className="h-4 w-4 text-primary-foreground" />
-                    </div>
-                  )}
-                </div>
-              ))}
-
-              {isStreaming && (
-                <div className="flex gap-3 justify-start">
-                  <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                    <Bot className="h-4 w-4 text-primary" />
-                  </div>
-                  <div className="max-w-[70%] rounded-2xl px-4 py-2.5 bg-muted">
-                    {streamingContent ? (
-                      <div className="prose prose-sm dark:prose-invert max-w-none">
-                        <ReactMarkdown>{streamingContent}</ReactMarkdown>
-                      </div>
-                    ) : (
-                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                    )}
-                  </div>
-                </div>
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-
-            <div className="border-t p-4 shrink-0">
-              <div className="flex gap-2 items-end">
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handleFileUpload}
-                  className="hidden"
-                  accept=".pdf,.txt,.md,.py,.js,.ts,.json,.csv"
-                />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={!currentSession || isStreaming}
-                  title="Upload file"
-                >
-                  <Upload className="h-4 w-4" />
-                </Button>
-                <div className="flex-1 relative">
-                  <Textarea
-                    ref={textareaRef}
-                    value={input}
-                    onChange={handleTextareaInput}
-                    onKeyDown={handleKeyDown}
-                    placeholder="Type a message... (Shift+Enter for new line)"
-                    className="min-h-[44px] max-h-[200px] resize-none pr-12"
-                    disabled={isStreaming}
-                  />
-                </div>
-                {isStreaming ? (
-                  <Button variant="destructive" size="icon" onClick={stopStreaming}>
-                    <Square className="h-4 w-4" />
-                  </Button>
-                ) : (
-                  <Button size="icon" onClick={handleSend} disabled={!input.trim()}>
-                    <Send className="h-4 w-4" />
-                  </Button>
-                )}
-              </div>
-            </div>
-          </>
-        ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground">
-            <MessageSquare className="h-16 w-16 mb-4 opacity-30" />
-            <p className="text-xl font-medium">Select or create a chat session</p>
-            <p className="text-sm mt-1">Choose a session from the sidebar or start a new one</p>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
+  )
+
+  /* ── Render: No session → welcome state ── */
+
+  const welcomeState = !currentSession && (
+    <div className="flex-1 flex flex-col">
+      {/* Mobile menu trigger */}
+      <div className="flex items-center px-4 lg:px-6 pt-3 lg:hidden">
+        <SheetTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-10 w-10 -ml-2.5"
+            aria-label="Open conversations"
+          >
+            <Menu aria-hidden="true" className="h-4 w-4" />
+          </Button>
+        </SheetTrigger>
+      </div>
+      <div className="flex-1 flex items-center justify-center">
+        {suggestionChips}
+      </div>
+    </div>
+  )
+
+  /* ── Render: Active chat area ── */
+
+  const chatArea = currentSession && (
+    <>
+      {sessionHeader}
+      <div className="flex-1 flex flex-col min-h-0 relative">
+        <MessageList
+          messages={chatMessages}
+          isStreaming={isStreaming}
+          className="flex-1"
+        />
+
+        {/* Chat input footer */}
+        <div className="border-t border-border/40 px-4 lg:px-6 py-3 shrink-0 bg-gradient-to-t from-background via-background/95 to-transparent">
+          <div className="flex items-end gap-2 max-w-4xl mx-auto">
+            <div className="flex-1">
+              <ChatInput
+                onSend={handleSend}
+                disabled={isStreaming}
+                isStreaming={isStreaming}
+                placeholder="Ask anything..."
+                acceptFileTypes=".pdf,.txt,.md,.py,.js,.ts,.json,.csv"
+              />
+            </div>
+            {isStreaming && (
+              <Button
+                variant="destructive"
+                size="icon"
+                onClick={stopStreaming}
+                className="h-10 w-10 shrink-0 rounded-xl mb-1"
+                aria-label="Stop streaming"
+              >
+                <Square aria-hidden="true" className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  )
+
+  /* ── MAIN RENDER ── */
+
+  return (
+    <>
+      {/* ── Clear all confirmation dialog ── */}
+      <Dialog open={clearConfirmOpen} onOpenChange={setClearConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Clear all conversations?</DialogTitle>
+            <DialogDescription>
+              This will permanently delete all your conversations. This action
+              cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setClearConfirmOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleClearAll}
+            >
+              Clear all
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── New session dialog ── */}
+      <Dialog open={newSessionOpen} onOpenChange={setNewSessionOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>New Conversation</DialogTitle>
+            <DialogDescription>
+              Choose a model and configure your session.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {/* Provider select */}
+            <div className="space-y-1.5">
+              <label htmlFor="new-session-provider" className="text-xs font-medium text-muted-foreground/60">
+                Provider
+              </label>
+              <select
+                id="new-session-provider"
+                value={selectedProvider}
+                onChange={(e) => {
+                  setSelectedProvider(e.target.value)
+                  setSelectedModel('')
+                }}
+                className={cn(
+                  'w-full rounded-lg border bg-background px-3 py-2 text-sm',
+                  'focus:outline-none focus:ring-2 focus:ring-gold-500/30 focus:border-gold-500/50',
+                )}
+              >
+                <option value="">Select a provider...</option>
+                {providers.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Model select */}
+            <div className="space-y-1.5">
+              <label htmlFor="new-session-model" className="text-xs font-medium text-muted-foreground/60">
+                Model
+              </label>
+              <select
+                id="new-session-model"
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value)}
+                disabled={!selectedProvider}
+                className={cn(
+                  'w-full rounded-lg border bg-background px-3 py-2 text-sm',
+                  'focus:outline-none focus:ring-2 focus:ring-gold-500/30 focus:border-gold-500/50',
+                  'disabled:opacity-40 disabled:cursor-not-allowed',
+                )}
+              >
+                <option value="">Select a model...</option>
+                {filteredModels.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.id}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Title */}
+            <div className="space-y-1.5">
+              <label htmlFor="new-session-title" className="text-xs font-medium text-muted-foreground/60">
+                Session title{' '}
+                <span className="text-muted-foreground/30">(optional)</span>
+              </label>
+              <Input
+                id="new-session-title"
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                placeholder="E.g., Literature review on transformers"
+                className="h-9 text-sm"
+              />
+            </div>
+
+            {/* System prompt */}
+            <div className="space-y-1.5">
+              <label htmlFor="new-session-system" className="text-xs font-medium text-muted-foreground/60">
+                System prompt{' '}
+                <span className="text-muted-foreground/30">(optional)</span>
+              </label>
+              <Textarea
+                id="new-session-system"
+                value={systemPrompt}
+                onChange={(e) => setSystemPrompt(e.target.value)}
+                placeholder="You are a helpful research assistant..."
+                className="min-h-[60px] text-sm resize-none"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setNewSessionOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateSession}
+              disabled={!selectedProvider || !selectedModel}
+              className="bg-gold-500 text-white hover:bg-gold-600"
+            >
+              Start Conversation
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Main layout ── */}
+      <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
+        {/* Mobile sidebar */}
+        <SheetContent side="left" className="w-72 p-0 flex flex-col">
+          <SheetHeader className="px-4 pt-4 pb-3 border-b border-border/40 shrink-0">
+            <SheetTitle className="text-sm font-display font-semibold text-left">
+              Conversations
+            </SheetTitle>
+          </SheetHeader>
+          <div className="flex-1 flex flex-col min-h-0">
+            {sidebarContent}
+          </div>
+        </SheetContent>
+
+        {/* Page layout */}
+        <div className="flex h-full">
+          {/* Desktop sidebar */}
+          <aside aria-label="Conversations" className="hidden lg:flex lg:flex-col w-72 border-r border-border/40 bg-card/20">
+            <div className="flex flex-col h-full">
+              {sidebarContent}
+            </div>
+          </aside>
+
+          {/* Main chat area */}
+          <div className="flex-1 flex flex-col min-w-0 bg-gradient-to-b from-background via-background to-navy-50/30 dark:to-navy-950/20">
+            {/* PageHeader — always visible */}
+            <div className="px-4 lg:px-6 pt-4 lg:pt-5 pb-1">
+              <PageHeader
+                title="Intelligence Chat"
+                description="AI-powered academic assistant"
+                className="mb-0"
+              />
+            </div>
+
+            {/* Content */}
+            {welcomeState}
+            {chatArea}
+          </div>
+        </div>
+      </Sheet>
+    </>
   )
 }
