@@ -122,7 +122,7 @@ export function HealthIndicator({ variant, className }: HealthIndicatorProps) {
         <Card className={cn("overflow-hidden", className)}>
           <CardContent className="py-3 px-4">
             <div className="flex items-center gap-2 text-muted-foreground">
-              <AlertTriangle className="h-4 w-4 text-amber-500" />
+              <AlertTriangle aria-hidden="true" className="h-4 w-4 text-amber-500" />
               <span className="text-sm">Health check unavailable</span>
             </div>
           </CardContent>
@@ -135,29 +135,36 @@ export function HealthIndicator({ variant, className }: HealthIndicatorProps) {
 
     return (
       <Card
-        className={cn("overflow-hidden cursor-pointer hover:shadow-sm transition-shadow", className)}
-        onClick={() => navigate("/settings")}
+        className={cn("overflow-hidden", className)}
       >
-        <CardContent className="py-3 px-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 min-w-0">
-              <div
-                className={cn(
-                  "p-1 rounded-md shrink-0",
-                  hasIssues ? "bg-amber-500/10" : "bg-emerald-500/10"
-                )}
-              >
-                <Icon className={cn("h-4 w-4", iconColor)} />
+        <button
+          type="button"
+          onClick={() => navigate("/settings")}
+          className="w-full text-left cursor-pointer hover:shadow-sm transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          aria-label={`View LLM provider health: ${activeProviderCount} active providers, ${activeModels} of ${totalModels} models healthy`}
+        >
+          <CardContent className="py-3 px-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 min-w-0">
+                <div
+                  aria-hidden="true"
+                  className={cn(
+                    "p-1 rounded-md shrink-0",
+                    hasIssues ? "bg-amber-500/10" : "bg-emerald-500/10"
+                  )}
+                >
+                  <Icon className={cn("h-4 w-4", iconColor)} />
+                </div>
+                <span className="text-sm truncate">
+                  {activeProviderCount > 0
+                    ? `${activeProviderCount} active provider${activeProviderCount !== 1 ? "s" : ""} \u00b7 ${activeModels}/${totalModels} models healthy`
+                    : "No active providers"}
+                </span>
               </div>
-              <span className="text-sm truncate">
-                {activeProviderCount > 0
-                  ? `${activeProviderCount} active provider${activeProviderCount !== 1 ? "s" : ""} \u00b7 ${activeModels}/${totalModels} models healthy`
-                  : "No active providers"}
-              </span>
+              <ChevronRight aria-hidden="true" className="h-4 w-4 text-muted-foreground shrink-0 ml-2" />
             </div>
-            <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0 ml-2" />
-          </div>
-        </CardContent>
+          </CardContent>
+        </button>
       </Card>
     )
   }
@@ -168,7 +175,7 @@ export function HealthIndicator({ variant, className }: HealthIndicatorProps) {
       <Card className={cn(className)}>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Activity className="h-5 w-5" />
+            <Activity aria-hidden="true" className="h-5 w-5" />
             LLM Provider Health
           </CardTitle>
           <CardDescription>Loading health status...</CardDescription>
@@ -185,7 +192,7 @@ export function HealthIndicator({ variant, className }: HealthIndicatorProps) {
         <div className="flex items-center justify-between">
           <div>
             <CardTitle className="flex items-center gap-2">
-              <Activity className="h-5 w-5" />
+              <Activity aria-hidden="true" className="h-5 w-5" />
               LLM Provider Health
             </CardTitle>
             <CardDescription>
@@ -193,7 +200,7 @@ export function HealthIndicator({ variant, className }: HealthIndicatorProps) {
             </CardDescription>
           </div>
           <Button variant="outline" size="sm" onClick={handleForceCheck}>
-            <RefreshCw className="h-4 w-4 mr-2" />
+            <RefreshCw aria-hidden="true" className="h-4 w-4 mr-2" />
             Check Now
           </Button>
         </div>
@@ -213,7 +220,10 @@ export function HealthIndicator({ variant, className }: HealthIndicatorProps) {
                 className="flex items-center justify-between p-3 border rounded-lg"
               >
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className={cn("p-1 rounded-md shrink-0", meta.bg)}>
+                  <div
+                    aria-hidden="true"
+                    className={cn("p-1 rounded-md shrink-0", meta.bg)}
+                  >
                     <MetaIcon className={cn("h-5 w-5", meta.color)} />
                   </div>
                   <div className="min-w-0">
@@ -241,8 +251,11 @@ export function HealthIndicator({ variant, className }: HealthIndicatorProps) {
         </div>
 
         {hasIssues && (
-          <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-start gap-2">
-            <AlertTriangle className="h-5 w-5 text-amber-500 mt-0.5 shrink-0" />
+          <div
+            role="alert"
+            className="mt-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-start gap-2"
+          >
+            <AlertTriangle aria-hidden="true" className="h-5 w-5 text-amber-500 mt-0.5 shrink-0" />
             <div>
               <p className="font-medium text-amber-500">Some providers are unavailable</p>
               <p className="text-sm text-muted-foreground">
