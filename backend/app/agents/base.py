@@ -187,11 +187,15 @@ class BaseAgent(ABC):
         # when the matching on_chain_end fires. The root graph ("LangGraph")
         # is excluded from this map.
         node_starts: dict[str, float] = {}
-        # Track the last seen final state. In LangGraph's v2 events the root
-        # ``on_chain_end`` has ``data.output`` = final state. Any intermediate
-        # on_chain_end with a dict ``data.output`` is also captured — the last
-        # one wins.
-        final_state: dict[str, Any] = state
+        # Track the last on_chain_end output whose data.output is a dict.
+        # In LangGraph's v2 events the root graph's ``on_chain_end`` fires
+        # LAST and its ``data.output`` is the final state. We do NOT
+        # deepcopy inside the loop — a deepcopy on every event is wasteful
+        # and creates a race window where the state can be mutated while
+        # the C-level dict iteration is in progress. The snapshot is taken
+        # once, after the stream has fully drained, when the state is
+        # stable (see post-loop block below).
+        last_output: dict[str, Any] | None = None
 
         async for ev in self.graph.astream_events(state, config=config, version="v2"):
             # Cancellation: checked at the TOP of each iteration so a
@@ -262,7 +266,26 @@ class BaseAgent(ABC):
                 data = ev.get("data") or {}
                 output = data.get("output")
                 if isinstance(output, dict):
-                    final_state = copy.deepcopy(output)
+                    last_output = output
+
+        # Snapshot the final state once, AFTER the stream has drained.
+        # A deepcopy is needed so the returned state is immune to later
+        # mutations (e.g. by a follow-up stage reusing the same state).
+        # We try the deep copy; if a concurrent mutation still slips in
+        # (the ``dictionary changed size during iteration`` symptom that
+        # motivated the move out of the loop), we fall back to a shallow
+        # copy so the caller always receives a usable snapshot.
+        final_state: dict[str, Any] = state
+        if last_output is not None:
+            try:
+                final_state = copy.deepcopy(last_output)
+            except RuntimeError:
+                logger.warning(
+                    "Deep copy of final state raised RuntimeError; "
+                    "falling back to shallow copy. Output dict id=%s",
+                    id(last_output),
+                )
+                final_state = dict(last_output)
 
         # ------------------------------------------------------------------
         # Phase 2: Strategy wrapping

@@ -834,7 +834,10 @@ async def _run_stage(
                 continue
             break
 
-    logger.error(f"Stage for role {stage_def['role']} failed: {last_error}")
+    logger.error(
+        f"Stage for role {stage_def['role']} failed: {last_error}",
+        exc_info=last_error,
+    )
     return {
         "agent_role": stage_def["role"],
         "agent_name": config.name,
