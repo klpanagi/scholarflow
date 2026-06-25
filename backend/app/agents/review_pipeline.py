@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from app.agents.base import BaseAgent, AgentState
 from app.utils.context_budget import fit_to_budget, budget_for_stages
 from app.utils.pdf_model_support import model_supports_pdf, create_multimodal_human_message
+from app.services.pdf_service import pdf_service
 from app.services.rubric_standards import get_rubric_standard, RubricStandard
 
 logger = logging.getLogger(__name__)
@@ -147,6 +148,30 @@ class DeepReviewAgent(BaseAgent):
             paper_fitted = fit_to_budget(paper_content, budgets["paper_content"], label="intake")
 
         pdf_bytes = state["context"].get("pdf_bytes")
+
+        # D-1: single-intake GROBID extraction → state["context"]["grobid"] for downstream stages.
+        if pdf_bytes and "grobid" not in state["context"]:
+            try:
+                grobid_result = await pdf_service.grobid_extract(pdf_bytes)
+                state["context"].setdefault("grobid", grobid_result.to_dict())
+                logger.info(
+                    "GROBID extraction complete: source=%s title=%r refs=%d time=%.2fs",
+                    grobid_result.source,
+                    grobid_result.title,
+                    len(grobid_result.references),
+                    grobid_result.extraction_time,
+                )
+            except Exception as exc:
+                # Fallback: empty dict keeps downstream shape consistent.
+                logger.warning(
+                    "GROBID extraction failed, continuing without structured bibliography: %s",
+                    exc,
+                )
+                state["context"].setdefault("grobid", {})
+        elif not pdf_bytes:
+            logger.info("No pdf_bytes in context, skipping GROBID extraction")
+            state["context"].setdefault("grobid", {})
+
         model_name = self._get_model_name()
         use_pdf = pdf_bytes and model_supports_pdf(model_name)
 
@@ -206,6 +231,11 @@ List the top 5 claims and their evidence strength (Strong/Moderate/Weak/Unsuppor
         claims = state["context"].get("claims", "")
         intake = state["context"].get("intake", "")
 
+        # Consume GROBID bibliography injected by _intake() for structured reference coverage.
+        # References extracted by GROBID are available in `state.context.grobid.references`.
+        grobid = state["context"].get("grobid") or {}
+        grobid_references = grobid.get("references", [])
+
         scholar_output = ""
         for msg in state.get("messages", []):
             text = msg.content if hasattr(msg, "content") else ""
@@ -214,14 +244,30 @@ List the top 5 claims and their evidence strength (Strong/Moderate/Weak/Unsuppor
                 scholar_output = text[idx:idx + 4000]
                 break
 
+        grobid_refs_block = ""
+        if grobid_references:
+            ref_lines = []
+            for i, ref in enumerate(grobid_references[:30], start=1):
+                title = (ref.get("title") or ref.get("raw_text") or "")[:120].strip()
+                year = ref.get("year") or "n.d."
+                doi = ref.get("doi") or ""
+                ref_lines.append(f"[{i}] {title} ({year}) {doi}".rstrip())
+            grobid_refs_block = (
+                f"\n\nStructured References (GROBID extraction, "
+                f"{len(grobid_references)} total):\n"
+                + "\n".join(ref_lines)
+            )
+
         messages = [
             SystemMessage(content=self.system_prompt),
             HumanMessage(content=f"""Stage 3: LITERATURE GROUNDING
 
 Assess literature coverage, baselines, novelty. Are key citations missing?
 Use the Scholar Agent's search results below to evaluate related work coverage.
+References extracted by GROBID are available in `state.context.grobid.references`.
 
 Claims: {claims}
+{grobid_refs_block}
 
 Scholar Output (from prior stage):
 {scholar_output[:3000]}"""),
@@ -253,6 +299,22 @@ Claims: {claims}"""),
         claims = state["context"].get("claims", "")
         methodology = state["context"].get("methodology", "")
 
+        # Consume GROBID references + sections for citation plausibility and source criticism.
+        grobid = state["context"].get("grobid") or {}
+        grobid_references = grobid.get("references", [])
+        grobid_sections = grobid.get("sections", [])
+
+        grobid_audit_block = ""
+        if grobid_references or grobid_sections:
+            grobid_audit_block = (
+                f"\n\n## GROBID Citation/Source Audit\n"
+                f"{len(grobid_references)} references (state.context.grobid.references) "
+                f"and {len(grobid_sections)} sections (state.context.grobid.sections) "
+                f"were extracted from the PDF. Challenge suspicious citations: missing DOIs, "
+                f"implausible years, venues outside the field, broken author lists, and "
+                f"structural gaps where key sections are absent or thin."
+            )
+
         messages = [
             SystemMessage(content=self.system_prompt),
             HumanMessage(content=f"""Stage 5: ADVERSARIAL RED TEAM
@@ -260,7 +322,8 @@ Claims: {claims}"""),
 Breaker: logical flaws. Butcher: missing experiments. Collector: novelty threats.
 
 Claims: {claims}
-Methodology: {methodology}"""),
+Methodology: {methodology}
+{grobid_audit_block}"""),
         ]
 
         response = await self._invoke_with_usage(state, messages)
