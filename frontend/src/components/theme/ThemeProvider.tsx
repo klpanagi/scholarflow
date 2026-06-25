@@ -6,7 +6,20 @@ import {
   type ReactNode,
 } from "react";
 
-type Theme = "light" | "dark";
+export const THEMES = [
+  "dark-navy",
+  "light",
+  "nord",
+  "dracula",
+  "ocean",
+  "forest",
+  "sunset",
+  "rose",
+] as const;
+
+export type Theme = (typeof THEMES)[number];
+
+const DEFAULT_THEME: Theme = "dark-navy";
 
 interface ThemeContextValue {
   theme: Theme;
@@ -16,20 +29,22 @@ interface ThemeContextValue {
 
 const STORAGE_KEY = "scholarflow-theme";
 
+function isTheme(value: unknown): value is Theme {
+  return typeof value === "string" && (THEMES as readonly string[]).includes(value);
+}
+
 function getInitialTheme(): Theme {
-  if (typeof window === "undefined") return "light";
+  if (typeof window === "undefined") return DEFAULT_THEME;
   const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored === "light" || stored === "dark") return stored;
+  if (isTheme(stored)) return stored;
   return window.matchMedia("(prefers-color-scheme: dark)").matches
-    ? "dark"
+    ? "dark-navy"
     : "light";
 }
 
 function applyTheme(theme: Theme) {
-  const root = document.documentElement;
-  root.classList.toggle("dark", theme === "dark");
+  document.documentElement.setAttribute("data-theme", theme);
 }
-
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
@@ -45,7 +60,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const handler = (e: MediaQueryListEvent) => {
       if (!localStorage.getItem(STORAGE_KEY)) {
-        setThemeState(e.matches ? "dark" : "light");
+        setThemeState(e.matches ? "dark-navy" : "light");
       }
     };
     mq.addEventListener("change", handler);
@@ -54,7 +69,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const setTheme = (next: Theme) => setThemeState(next);
   const toggleTheme = () =>
-    setThemeState((prev) => (prev === "dark" ? "light" : "dark"));
+    setThemeState((prev) => {
+      const idx = THEMES.indexOf(prev);
+      return THEMES[(idx + 1) % THEMES.length];
+    });
 
   return (
     <ThemeContext.Provider value={{ theme, setTheme, toggleTheme }}>
