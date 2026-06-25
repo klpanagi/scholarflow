@@ -94,10 +94,15 @@ services:
       - "19998:9998"
 
   grobid:
-    image: lfoppiano/grobid:0.8.0
+    image: lfoppiano/grobid:0.9.0-crf
     container_name: academic-pal-grobid
+    platform: linux/amd64
     ports:
       - "8070:8070"
+    deploy:
+      resources:
+        limits:
+          memory: 4G
 
 volumes:
   postgres_data:
