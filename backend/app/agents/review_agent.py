@@ -104,6 +104,9 @@ class ReviewAgent(BaseAgent):
                 "3. Strengths and potential weaknesses\n"
                 "4. Section structure and content quality\n"
                 "5. Any specific concerns or red flags\n\n"
+                "When the paper's full text is available, prefer `extract_citations` "
+                "(GROBID) for structured bibliography with DOI/year/venue — it is more "
+                "reliable than regex extraction.\n\n"
                 f"Document content:\n{content_preview}"
             )
 
