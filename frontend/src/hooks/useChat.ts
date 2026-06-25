@@ -2,31 +2,40 @@ import { useState, useCallback, useRef } from 'react'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
 
-export interface ChatSession {
-  id: string
-  title: string | null
-  model: string
-  provider: string
-  system_prompt: string | null
-  created_at: string
-  updated_at: string
-}
-
-export interface ChatMessage {
-  id: string
-  session_id: string
-  role: 'user' | 'assistant' | 'system'
-  content: string
-  file_key?: string | null
-  file_name?: string | null
-  parent_message_id?: string | null
-  extra_metadata?: Record<string, unknown> | null
-  timestamp: string
-}
+// Re-export types from the canonical types module so existing consumers
+// that import from this file keep working without changes.
+export type { ChatSession, ChatMessage, CreateSessionParams } from '../types/chat'
+import type { ChatSession, ChatMessage, CreateSessionParams } from '../types/chat'
 
 export interface AvailableModel {
   id: string
   provider: string
+}
+
+/**
+ * Internal implementation that accepts the new `CreateSessionParams` object.
+ */
+async function createSessionImpl(
+  params: CreateSessionParams,
+  setSessions: React.Dispatch<React.SetStateAction<ChatSession[]>>,
+  setCurrentSession: React.Dispatch<React.SetStateAction<ChatSession | null>>,
+  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
+): Promise<ChatSession> {
+  try {
+    const { data } = await api.post<ChatSession>('/chat/sessions', {
+      title: params.title || null,
+      agent_config_id: params.agentConfigId,
+      asset_ids: params.assetIds ?? [],
+      system_prompt: params.systemPrompt || null,
+    })
+    setSessions((prev) => [data, ...prev])
+    setCurrentSession(data)
+    setMessages([])
+    return data
+  } catch (err) {
+    console.error('Failed to create session:', err)
+    throw err
+  }
 }
 
 export function useChat() {
@@ -47,23 +56,61 @@ export function useChat() {
     }
   }, [])
 
-  const createSession = useCallback(async (model: string, provider: string, title?: string, systemPrompt?: string) => {
-    try {
-      const { data } = await api.post<ChatSession>('/chat/sessions', {
-        title: title || null,
-        model,
-        provider,
-        system_prompt: systemPrompt || null,
-      })
-      setSessions((prev) => [data, ...prev])
-      setCurrentSession(data)
-      setMessages([])
-      return data
-    } catch (err) {
-      console.error('Failed to create session:', err)
-      throw err
-    }
-  }, [])
+  /**
+   * Create a new chat session.
+   *
+   * **Preferred (Phase 3+)**: pass a `CreateSessionParams` object.
+   *
+   * ```ts
+   * createSession({ agentConfigId: '...', title: 'My Chat', assetIds: [...] })
+   * ```
+   *
+   * @deprecated The legacy positional-arg form
+   *   `createSession(model, provider, title?, systemPrompt?)` is still accepted
+   *   for backward compatibility but will be removed in **Phase 4**.
+   *   The call site in `ChatPage.tsx:handleCreateSession` MUST be updated in
+   *   Phase 4 to use the new object signature.
+   */
+  const createSession = useCallback(
+    (
+      paramsOrModel: CreateSessionParams | string,
+      provider?: string,
+      title?: string,
+      systemPrompt?: string,
+    ): Promise<ChatSession> => {
+      if (typeof paramsOrModel === 'string') {
+        // ---- Legacy positional-arg form ----
+        if (import.meta.env.DEV) {
+          console.warn(
+            '[useChat.createSession] Positional args are deprecated. ' +
+              'Use createSession({ agentConfigId, ... }) instead. ' +
+              'This form will be removed in Phase 4.',
+          )
+        }
+        return createSessionImpl(
+          {
+            agentConfigId: '',
+            model: paramsOrModel,
+            provider: provider ?? 'opencode',
+            title,
+            systemPrompt,
+          },
+          setSessions,
+          setCurrentSession,
+          setMessages,
+        )
+      }
+
+      // ---- New object form (Phase 3+) ----
+      return createSessionImpl(
+        paramsOrModel,
+        setSessions,
+        setCurrentSession,
+        setMessages,
+      )
+    },
+    [],
+  )
 
   const deleteSession = useCallback(async (sessionId: string) => {
     try {
@@ -94,11 +141,11 @@ export function useChat() {
       const { data } = await api.get('/chat/models')
       const models: AvailableModel[] = []
       if (data && typeof data === 'object') {
-        for (const [provider, providerModels] of Object.entries(data)) {
+        for (const [prov, providerModels] of Object.entries(data)) {
           if (Array.isArray(providerModels)) {
             for (const model of providerModels) {
               const modelId = typeof model === 'string' ? model : (model as { id?: string })?.id || String(model)
-              models.push({ id: modelId, provider })
+              models.push({ id: modelId, provider: prov })
             }
           }
         }
@@ -167,7 +214,9 @@ export function useChat() {
                 fullContent += parsed.content
                 setStreamingContent(fullContent)
               }
-            } catch {}
+            } catch {
+              // Skip unparseable SSE lines
+            }
           }
         }
       }
