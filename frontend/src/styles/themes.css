@@ -1,0 +1,418 @@
+/* ==========================================================================
+   Theme Definitions — Academic Pal
+   
+   8 complete themes, each defining all CSS custom properties used by the
+   shadcn/ui component system, sidebar, brand accents, and semantic tokens.
+   
+   Activated via `data-theme` attribute on <html> element.
+   All colors in raw HSL (no hsl() wrapper) for Tailwind v4 compatibility.
+   ========================================================================== */
+
+@layer base {
+  /* ========================================================================
+   *  DARK NAVY (default)
+   *  Deep navy background with warm gold accents.
+   *  Professional, authoritative, academic.
+   * ======================================================================== */
+  [data-theme="dark-navy"] {
+    /* Core shadcn tokens */
+    --background: 224 71% 4%;
+    --foreground: 213 31% 91%;
+    --card: 224 71% 4%;
+    --card-foreground: 213 31% 91%;
+    --popover: 224 71% 4%;
+    --popover-foreground: 213 31% 91%;
+    --primary: 239 84% 67%;
+    --primary-foreground: 224 71% 4%;
+    --secondary: 215 28% 17%;
+    --secondary-foreground: 213 31% 91%;
+    --muted: 215 28% 17%;
+    --muted-foreground: 218 11% 65%;
+    --accent: 215 28% 17%;
+    --accent-foreground: 213 31% 91%;
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 213 31% 91%;
+    --border: 215 28% 17%;
+    --input: 215 28% 17%;
+    --ring: 239 84% 67%;
+    --radius: 0.5rem;
+
+    /* Sidebar tokens */
+    --sidebar-background: 224 71% 4%;
+    --sidebar-foreground: 213 31% 91%;
+    --sidebar-primary: 239 84% 67%;
+    --sidebar-primary-foreground: 224 71% 4%;
+    --sidebar-accent: 215 28% 17%;
+    --sidebar-accent-foreground: 213 31% 91%;
+    --sidebar-border: 215 28% 17%;
+    --sidebar-ring: 239 84% 67%;
+
+    /* Brand accent — warm gold signature */
+    --color-accent-primary: 36 47% 64%;
+
+    /* Semantic tokens */
+    --color-success: 142 71% 45%;
+    --color-warning: 38 92% 50%;
+    --color-error: 0 84% 60%;
+    --color-info: 217 91% 60%;
+    --color-score-high: 142 71% 55%;
+    --color-score-medium: 38 92% 55%;
+    --color-score-low: 0 84% 60%;
+  }
+
+  /* ========================================================================
+   *  LIGHT
+   *  Clean, bright light theme with professional blue accents.
+   * ======================================================================== */
+  [data-theme="light"] {
+    /* Core shadcn tokens */
+    --background: 210 40% 98%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 215 25% 27%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 215 16% 47%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 215 25% 27%;
+    --radius: 0.5rem;
+
+    /* Sidebar tokens */
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 222.2 84% 4.9%;
+    --sidebar-primary: 215 25% 27%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 210 40% 96.1%;
+    --sidebar-accent-foreground: 222.2 47.4% 11.2%;
+    --sidebar-border: 214.3 31.8% 91.4%;
+    --sidebar-ring: 215 25% 27%;
+
+    /* Brand accent — professional blue */
+    --color-accent-primary: 217 91% 60%;
+
+    /* Semantic tokens — moderately saturated for light bg */
+    --color-success: 142 58% 40%;
+    --color-warning: 38 82% 45%;
+    --color-error: 0 72% 50%;
+    --color-info: 217 72% 50%;
+    --color-score-high: 142 58% 40%;
+    --color-score-medium: 38 82% 45%;
+    --color-score-low: 0 72% 50%;
+  }
+
+  /* ========================================================================
+   *  NORD
+   *  Arctic-inspired palette with frost blue accents.
+   *  Calm, cool, research-driven.
+   * ======================================================================== */
+  [data-theme="nord"] {
+    /* Core shadcn tokens */
+    --background: 220 16% 14%;
+    --foreground: 219 28% 88%;
+    --card: 220 16% 14%;
+    --card-foreground: 219 28% 88%;
+    --popover: 220 16% 14%;
+    --popover-foreground: 219 28% 88%;
+    --primary: 193 43% 67%;
+    --primary-foreground: 220 16% 14%;
+    --secondary: 222 16% 28%;
+    --secondary-foreground: 219 28% 88%;
+    --muted: 220 16% 22%;
+    --muted-foreground: 218 12% 50%;
+    --accent: 220 16% 32%;
+    --accent-foreground: 219 28% 88%;
+    --destructive: 355 40% 56%;
+    --destructive-foreground: 219 28% 88%;
+    --border: 222 16% 22%;
+    --input: 222 16% 22%;
+    --ring: 193 43% 67%;
+    --radius: 0.5rem;
+
+    /* Sidebar tokens */
+    --sidebar-background: 220 16% 14%;
+    --sidebar-foreground: 219 28% 88%;
+    --sidebar-primary: 193 43% 67%;
+    --sidebar-primary-foreground: 220 16% 14%;
+    --sidebar-accent: 222 16% 28%;
+    --sidebar-accent-foreground: 219 28% 88%;
+    --sidebar-border: 222 16% 22%;
+    --sidebar-ring: 193 43% 67%;
+
+    /* Brand accent — frost blue */
+    --color-accent-primary: 193 43% 67%;
+
+    /* Semantic tokens */
+    --color-success: 142 71% 45%;
+    --color-warning: 38 92% 50%;
+    --color-error: 0 84% 60%;
+    --color-info: 217 91% 60%;
+    --color-score-high: 142 71% 55%;
+    --color-score-medium: 38 92% 55%;
+    --color-score-low: 0 84% 60%;
+  }
+
+  /* ========================================================================
+   *  DRACULA
+   *  Dark purple-grey palette with vibrant pink accents.
+   *  Bold, creative, modern.
+   * ======================================================================== */
+  [data-theme="dracula"] {
+    /* Core shadcn tokens */
+    --background: 231 15% 16%;
+    --foreground: 60 30% 96%;
+    --card: 231 15% 16%;
+    --card-foreground: 60 30% 96%;
+    --popover: 231 15% 16%;
+    --popover-foreground: 60 30% 96%;
+    --primary: 331 100% 71%;
+    --primary-foreground: 231 15% 16%;
+    --secondary: 232 14% 24%;
+    --secondary-foreground: 60 30% 96%;
+    --muted: 231 14% 20%;
+    --muted-foreground: 232 12% 52%;
+    --accent: 232 14% 31%;
+    --accent-foreground: 60 30% 96%;
+    --destructive: 0 100% 67%;
+    --destructive-foreground: 60 30% 96%;
+    --border: 232 14% 24%;
+    --input: 232 14% 24%;
+    --ring: 331 100% 71%;
+    --radius: 0.5rem;
+
+    /* Sidebar tokens */
+    --sidebar-background: 231 15% 16%;
+    --sidebar-foreground: 60 30% 96%;
+    --sidebar-primary: 331 100% 71%;
+    --sidebar-primary-foreground: 231 15% 16%;
+    --sidebar-accent: 232 14% 24%;
+    --sidebar-accent-foreground: 60 30% 96%;
+    --sidebar-border: 232 14% 24%;
+    --sidebar-ring: 331 100% 71%;
+
+    /* Brand accent — vibrant pink */
+    --color-accent-primary: 331 100% 71%;
+
+    /* Semantic tokens */
+    --color-success: 142 71% 45%;
+    --color-warning: 38 92% 50%;
+    --color-error: 0 84% 60%;
+    --color-info: 217 91% 60%;
+    --color-score-high: 142 71% 55%;
+    --color-score-medium: 38 92% 55%;
+    --color-score-low: 0 84% 60%;
+  }
+
+  /* ========================================================================
+   *  OCEAN
+   *  Deep ocean palette with vibrant teal accents.
+   *  Deep, fluid, expansive.
+   * ======================================================================== */
+  [data-theme="ocean"] {
+    /* Core shadcn tokens */
+    --background: 200 50% 8%;
+    --foreground: 190 20% 88%;
+    --card: 200 50% 8%;
+    --card-foreground: 190 20% 88%;
+    --popover: 200 50% 8%;
+    --popover-foreground: 190 20% 88%;
+    --primary: 170 76% 53%;
+    --primary-foreground: 200 50% 8%;
+    --secondary: 200 30% 16%;
+    --secondary-foreground: 190 20% 88%;
+    --muted: 200 25% 12%;
+    --muted-foreground: 190 15% 50%;
+    --accent: 200 25% 22%;
+    --accent-foreground: 190 20% 88%;
+    --destructive: 0 70% 40%;
+    --destructive-foreground: 190 20% 88%;
+    --border: 200 30% 16%;
+    --input: 200 30% 16%;
+    --ring: 170 76% 53%;
+    --radius: 0.5rem;
+
+    /* Sidebar tokens */
+    --sidebar-background: 200 50% 8%;
+    --sidebar-foreground: 190 20% 88%;
+    --sidebar-primary: 170 76% 53%;
+    --sidebar-primary-foreground: 200 50% 8%;
+    --sidebar-accent: 200 30% 16%;
+    --sidebar-accent-foreground: 190 20% 88%;
+    --sidebar-border: 200 30% 16%;
+    --sidebar-ring: 170 76% 53%;
+
+    /* Brand accent — teal */
+    --color-accent-primary: 170 76% 53%;
+
+    /* Semantic tokens */
+    --color-success: 142 71% 50%;
+    --color-warning: 38 92% 50%;
+    --color-error: 0 84% 60%;
+    --color-info: 190 90% 55%;
+    --color-score-high: 142 71% 55%;
+    --color-score-medium: 38 92% 55%;
+    --color-score-low: 0 84% 60%;
+  }
+
+  /* ========================================================================
+   *  FOREST
+   *  Deep forest-green palette with vibrant green accents.
+   *  Natural, grounded, organic.
+   * ======================================================================== */
+  [data-theme="forest"] {
+    /* Core shadcn tokens */
+    --background: 150 30% 6%;
+    --foreground: 120 15% 85%;
+    --card: 150 30% 6%;
+    --card-foreground: 120 15% 85%;
+    --popover: 150 30% 6%;
+    --popover-foreground: 120 15% 85%;
+    --primary: 142 71% 45%;
+    --primary-foreground: 150 30% 6%;
+    --secondary: 150 25% 14%;
+    --secondary-foreground: 120 15% 85%;
+    --muted: 150 20% 10%;
+    --muted-foreground: 120 12% 50%;
+    --accent: 150 20% 20%;
+    --accent-foreground: 120 15% 85%;
+    --destructive: 0 60% 35%;
+    --destructive-foreground: 120 15% 85%;
+    --border: 150 25% 14%;
+    --input: 150 25% 14%;
+    --ring: 142 71% 45%;
+    --radius: 0.5rem;
+
+    /* Sidebar tokens */
+    --sidebar-background: 150 30% 6%;
+    --sidebar-foreground: 120 15% 85%;
+    --sidebar-primary: 142 71% 45%;
+    --sidebar-primary-foreground: 150 30% 6%;
+    --sidebar-accent: 150 25% 14%;
+    --sidebar-accent-foreground: 120 15% 85%;
+    --sidebar-border: 150 25% 14%;
+    --sidebar-ring: 142 71% 45%;
+
+    /* Brand accent — green */
+    --color-accent-primary: 142 71% 45%;
+
+    /* Semantic tokens */
+    --color-success: 142 71% 50%;
+    --color-warning: 38 92% 50%;
+    --color-error: 0 84% 60%;
+    --color-info: 210 80% 55%;
+    --color-score-high: 142 71% 55%;
+    --color-score-medium: 38 92% 55%;
+    --color-score-low: 0 84% 60%;
+  }
+
+  /* ========================================================================
+   *  SUNSET
+   *  Warm twilight palette with vibrant orange accents.
+   *  Creative, energetic, warm.
+   * ======================================================================== */
+  [data-theme="sunset"] {
+    /* Core shadcn tokens */
+    --background: 220 15% 8%;
+    --foreground: 30 25% 88%;
+    --card: 220 15% 8%;
+    --card-foreground: 30 25% 88%;
+    --popover: 220 15% 8%;
+    --popover-foreground: 30 25% 88%;
+    --primary: 25 95% 53%;
+    --primary-foreground: 220 15% 8%;
+    --secondary: 25 20% 18%;
+    --secondary-foreground: 30 25% 88%;
+    --muted: 25 15% 12%;
+    --muted-foreground: 25 12% 52%;
+    --accent: 25 18% 24%;
+    --accent-foreground: 30 25% 88%;
+    --destructive: 0 70% 40%;
+    --destructive-foreground: 30 25% 88%;
+    --border: 25 20% 18%;
+    --input: 25 20% 18%;
+    --ring: 25 95% 53%;
+    --radius: 0.5rem;
+
+    /* Sidebar tokens */
+    --sidebar-background: 220 15% 8%;
+    --sidebar-foreground: 30 25% 88%;
+    --sidebar-primary: 25 95% 53%;
+    --sidebar-primary-foreground: 220 15% 8%;
+    --sidebar-accent: 25 20% 18%;
+    --sidebar-accent-foreground: 30 25% 88%;
+    --sidebar-border: 25 20% 18%;
+    --sidebar-ring: 25 95% 53%;
+
+    /* Brand accent — orange */
+    --color-accent-primary: 25 95% 53%;
+
+    /* Semantic tokens */
+    --color-success: 142 71% 50%;
+    --color-warning: 38 92% 50%;
+    --color-error: 0 84% 60%;
+    --color-info: 210 80% 55%;
+    --color-score-high: 142 71% 55%;
+    --color-score-medium: 38 92% 55%;
+    --color-score-low: 0 84% 60%;
+  }
+
+  /* ========================================================================
+   *  ROSE
+   *  Deep mauve palette with vibrant rose-pink accents.
+   *  Elegant, refined, sophisticated.
+   * ======================================================================== */
+  [data-theme="rose"] {
+    /* Core shadcn tokens */
+    --background: 340 10% 10%;
+    --foreground: 0 10% 90%;
+    --card: 340 10% 10%;
+    --card-foreground: 0 10% 90%;
+    --popover: 340 10% 10%;
+    --popover-foreground: 0 10% 90%;
+    --primary: 347 90% 60%;
+    --primary-foreground: 340 10% 10%;
+    --secondary: 340 15% 16%;
+    --secondary-foreground: 0 10% 90%;
+    --muted: 340 12% 13%;
+    --muted-foreground: 340 8% 50%;
+    --accent: 340 12% 22%;
+    --accent-foreground: 0 10% 90%;
+    --destructive: 347 60% 35%;
+    --destructive-foreground: 0 10% 90%;
+    --border: 340 15% 16%;
+    --input: 340 15% 16%;
+    --ring: 347 90% 60%;
+    --radius: 0.5rem;
+
+    /* Sidebar tokens */
+    --sidebar-background: 340 10% 10%;
+    --sidebar-foreground: 0 10% 90%;
+    --sidebar-primary: 347 90% 60%;
+    --sidebar-primary-foreground: 340 10% 10%;
+    --sidebar-accent: 340 15% 16%;
+    --sidebar-accent-foreground: 0 10% 90%;
+    --sidebar-border: 340 15% 16%;
+    --sidebar-ring: 347 90% 60%;
+
+    /* Brand accent — rose pink */
+    --color-accent-primary: 347 90% 60%;
+
+    /* Semantic tokens */
+    --color-success: 142 71% 50%;
+    --color-warning: 38 92% 50%;
+    --color-error: 0 84% 60%;
+    --color-info: 210 80% 55%;
+    --color-score-high: 142 71% 55%;
+    --color-score-medium: 38 92% 55%;
+    --color-score-low: 0 84% 60%;
+  }
+}

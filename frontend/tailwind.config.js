@@ -1,6 +1,9 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  darkMode: ['class'],
+  // Dark mode is driven by data-theme attribute on <html>.
+  // Use :not([data-theme="light"]) so any non-light theme counts as dark.
+  // The actual @custom-variant in src/index.css controls Tailwind v4.
+  darkMode: ['selector', ':not([data-theme="light"])'],
   content: [
     './pages/**/*.{ts,tsx}',
     './components/**/*.{ts,tsx}',
