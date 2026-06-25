@@ -282,7 +282,7 @@ function WorkflowCardCompact({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <Zap className="h-4 w-4 text-gold-500 shrink-0" />
+              <Zap className="h-4 w-4 text-primary shrink-0" />
               <h3 className="font-semibold text-foreground truncate">
                 {workflow.name}
               </h3>
@@ -293,7 +293,7 @@ function WorkflowCardCompact({
           </div>
           <Badge
             variant="outline"
-            className="shrink-0 text-[10px] px-2 py-0 h-5 border-gold-500/20 text-gold-500"
+            className="shrink-0 text-[10px] px-2 py-0 h-5 border-primary/20 text-primary"
           >
             {workflow.stages.length} stages
           </Badge>
@@ -334,7 +334,7 @@ function WorkflowCardCompact({
         <Button
           variant="default"
           size="sm"
-          className="w-full mt-4 gap-1.5 bg-gold-500 text-white hover:bg-gold-600 shadow-sm"
+          className="w-full mt-4 gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
           onClick={(e) => {
             e.stopPropagation();
             onConfigure();
@@ -367,7 +367,7 @@ function ExecutionDetailModal({
       onOpenChange={onOpenChange}
       title={
         <div className="flex items-center gap-2">
-          <Layers className="h-5 w-5 text-gold-500" />
+          <Layers className="h-5 w-5 text-primary" />
           <span>Pipeline: {execution.workflow_name}</span>
         </div>
       }
@@ -390,7 +390,7 @@ function ExecutionDetailModal({
             <Button
               variant="default"
               size="sm"
-              className="gap-1.5 bg-gold-500 text-white hover:bg-gold-600"
+              className="gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
               onClick={() => onOpenChange(false)}
             >
               <RotateCcw className="h-3.5 w-3.5" />
@@ -499,7 +499,7 @@ function ExecutionDetailModal({
                     <div
                       className={cn(
                         "flex h-10 w-10 items-center justify-center rounded-full text-white text-sm shadow-sm transition-all",
-                        meta.color || "bg-navy-500",
+                        meta.color || "bg-muted",
                         isActive === "completed" && "ring-2 ring-emerald-500/30 ring-offset-2 ring-offset-card",
                         isActive === "running" && "ring-2 ring-gold-500/30 ring-offset-2 ring-offset-card animate-pulse",
                         isActive === "failed" && "ring-2 ring-red-500/30 ring-offset-2 ring-offset-card",
@@ -623,9 +623,9 @@ function WorkflowDialog({
           <div className="flex items-start justify-between mb-6">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <Zap className="h-5 w-5 text-gold-500" />
+                <Zap className="h-5 w-5 text-primary" />
                 <h2 className="text-xl font-bold text-foreground">{workflow.name}</h2>
-                <Badge variant="outline" className="text-[10px] px-2 py-0 h-5 border-gold-500/20 text-gold-500">
+                <Badge variant="outline" className="text-[10px] px-2 py-0 h-5 border-primary/20 text-primary">
                   {workflow.stages.length} agents
                 </Badge>
               </div>
@@ -750,7 +750,7 @@ function WorkflowDialog({
             <Button
               onClick={handleExecute}
               disabled={isExecuting || isMissingAssignments}
-              className="w-full bg-gold-500 text-white hover:bg-gold-600"
+              className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
             >
               {isExecuting ? (
                 <>
@@ -995,7 +995,7 @@ export default function WorkflowsPage() {
         description="Orchestrate specialized AI agents to accomplish complex academic tasks. Each workflow chains agents with distinct expertise for end-to-end results."
         actions={
           <Button
-            className="bg-gold-500 text-white hover:bg-gold-600 shadow-sm gap-1.5"
+            className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm gap-1.5"
             onClick={() => {
               const el = document.getElementById("workflows-grid");
               if (el) el.scrollIntoView({ behavior: "smooth" });
@@ -1013,7 +1013,7 @@ export default function WorkflowsPage() {
           label="Total"
           value={totalExecutions}
           icon={Activity}
-          color="bg-gold-500/10 text-gold-500"
+          color="bg-primary/10 text-primary"
         />
         <StatsCard
           label="Active"
@@ -1045,7 +1045,7 @@ export default function WorkflowsPage() {
             className={cn(
               "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all",
               activeTab === "execute"
-                ? "bg-gold-500 text-white shadow-sm"
+                ? "bg-primary text-primary-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
             )}
           >
@@ -1058,7 +1058,7 @@ export default function WorkflowsPage() {
             className={cn(
               "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all",
               activeTab === "results"
-                ? "bg-gold-500 text-white shadow-sm"
+                ? "bg-primary text-primary-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
             )}
           >
@@ -1101,7 +1101,7 @@ export default function WorkflowsPage() {
                       className={cn(
                         "rounded-md px-3 py-1 text-xs font-medium transition-all",
                         statusFilter === f.key
-                          ? "bg-gold-500 text-white shadow-sm"
+                          ? "bg-primary text-primary-foreground shadow-sm"
                           : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
                       )}
                     >
@@ -1184,7 +1184,7 @@ export default function WorkflowsPage() {
                       <button
                         type="button"
                         onClick={() => setDetailExecution(exec)}
-                        className="absolute top-3 right-12 z-10 flex items-center gap-1 rounded-md border border-border/40 bg-card/80 px-2 py-1 text-[11px] font-medium text-muted-foreground backdrop-blur-sm opacity-0 transition-opacity group-hover:opacity-100 hover:text-gold-500 hover:border-gold-500/30"
+                        className="absolute top-3 right-12 z-10 flex items-center gap-1 rounded-md border border-border/40 bg-card/80 px-2 py-1 text-[11px] font-medium text-muted-foreground backdrop-blur-sm opacity-0 transition-opacity group-hover:opacity-100 hover:text-primary hover:border-primary/30"
                       >
                         <Layers className="h-3 w-3" />
                         Pipeline

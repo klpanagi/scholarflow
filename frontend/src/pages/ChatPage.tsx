@@ -288,8 +288,8 @@ export default function ChatPage() {
         <Button
           onClick={openNewSession}
           className={cn(
-            'w-full gap-2 bg-gradient-to-r from-gold-500 to-amber-500',
-            'text-white hover:from-gold-600 hover:to-amber-600',
+            'w-full gap-2 bg-gradient-to-r from-primary to-primary',
+            'text-primary-foreground hover:from-primary/90 hover:to-primary/80',
             'shadow-sm transition-all duration-200',
           )}
           size="default"
@@ -300,7 +300,7 @@ export default function ChatPage() {
       </div>
 
       {/* Conversation list */}
-      <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-navy-200 dark:scrollbar-thumb-navy-700">
+      <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-muted-foreground/20 dark:scrollbar-thumb-muted-foreground/30">
         {sessions.length === 0 && (
           <div className="flex flex-col items-center gap-2 px-4 py-12 text-center">
             <MessageSquare aria-hidden="true" className="h-8 w-8 text-muted-foreground/20" />
@@ -315,7 +315,7 @@ export default function ChatPage() {
               'group relative w-full text-left px-3 py-3 transition-all duration-150',
               'hover:bg-accent/50',
               currentSession?.id === session.id &&
-                'bg-gold-500/5 border-l-2 border-gold-500',
+                'bg-primary/5 border-l-2 border-primary',
             )}
           >
             <div className="flex items-start gap-2.5">
@@ -324,7 +324,7 @@ export default function ChatPage() {
                 className={cn(
                   'mt-0.5 h-4 w-4 shrink-0',
                   currentSession?.id === session.id
-                    ? 'text-gold-500'
+                    ? 'text-primary'
                     : 'text-muted-foreground/30 group-hover:text-muted-foreground/50',
                 )}
               />
@@ -332,7 +332,7 @@ export default function ChatPage() {
                 <p
                   className={cn(
                     'text-sm font-medium truncate leading-tight',
-                    currentSession?.id === session.id && 'text-gold-600 dark:text-gold-400',
+                    currentSession?.id === session.id && 'text-primary dark:text-primary',
                   )}
                 >
                   {session.title || 'Untitled'}
@@ -380,8 +380,8 @@ export default function ChatPage() {
   const suggestionChips = (
     <div className="flex flex-col items-center justify-center flex-1 px-4 py-12">
       <div className="flex flex-col items-center gap-4 text-center max-w-lg">
-        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-gold-500/15 to-amber-500/10 ring-1 ring-gold-500/20">
-          <Bot aria-hidden="true" className="h-8 w-8 text-gold-500" />
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/15 to-primary/10 ring-1 ring-primary/20">
+          <Bot aria-hidden="true" className="h-8 w-8 text-primary" />
         </div>
         <div className="space-y-2">
           <h2 className="font-display text-2xl font-semibold tracking-tight text-foreground">
@@ -402,11 +402,11 @@ export default function ChatPage() {
                 className={cn(
                   'flex items-center gap-3 rounded-xl px-4 py-3 text-left',
                   'bg-card/50 backdrop-blur-sm border border-border/40',
-                  'hover:bg-gold-500/5 hover:border-gold-500/20',
+                  'hover:bg-primary/5 hover:border-primary/20',
                   'transition-all duration-200 group',
                 )}
               >
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gold-500/10 text-gold-500 group-hover:bg-gold-500/15 transition-colors">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary group-hover:bg-primary/15 transition-colors">
                   <Icon aria-hidden="true" className="h-4 w-4" />
                 </div>
                 <span className="text-sm font-medium text-foreground/70 group-hover:text-foreground transition-colors">
@@ -440,7 +440,7 @@ export default function ChatPage() {
         </h2>
         <Badge
           variant="outline"
-          className="hidden sm:inline-flex text-[10px] px-1.5 py-0 h-5 border-gold-500/20 text-gold-600 dark:text-gold-400 bg-gold-500/5 leading-none"
+          className="hidden sm:inline-flex text-[10px] px-1.5 py-0 h-5 border-primary/20 text-primary dark:text-primary bg-primary/5 leading-none"
         >
           {currentSession.provider}
         </Badge>
@@ -651,7 +651,7 @@ export default function ChatPage() {
                 }}
                 className={cn(
                   'w-full rounded-lg border bg-background px-3 py-2 text-sm',
-                  'focus:outline-none focus:ring-2 focus:ring-gold-500/30 focus:border-gold-500/50',
+                  'focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50',
                 )}
               >
                 <option value="">Select a provider...</option>
@@ -675,7 +675,7 @@ export default function ChatPage() {
                 disabled={!selectedProvider}
                 className={cn(
                   'w-full rounded-lg border bg-background px-3 py-2 text-sm',
-                  'focus:outline-none focus:ring-2 focus:ring-gold-500/30 focus:border-gold-500/50',
+                  'focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50',
                   'disabled:opacity-40 disabled:cursor-not-allowed',
                 )}
               >
@@ -728,7 +728,7 @@ export default function ChatPage() {
             <Button
               onClick={handleCreateSession}
               disabled={!selectedProvider || !selectedModel}
-              className="bg-gold-500 text-white hover:bg-gold-600"
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
             >
               Start Conversation
             </Button>
@@ -760,7 +760,7 @@ export default function ChatPage() {
           </aside>
 
           {/* Main chat area */}
-          <div className="flex-1 flex flex-col min-w-0 bg-gradient-to-b from-background via-background to-navy-50/30 dark:to-navy-950/20">
+          <div className="flex-1 flex flex-col min-w-0 bg-gradient-to-b from-background via-background to-background/30 dark:to-background/20">
             {/* PageHeader — always visible */}
             <div className="px-4 lg:px-6 pt-4 lg:pt-5 pb-1">
               <PageHeader

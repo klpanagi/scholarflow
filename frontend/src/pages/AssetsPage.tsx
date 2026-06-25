@@ -473,7 +473,7 @@ export default function AssetsPage() {
               Settings
             </Button>
             <Button
-              className="bg-gradient-to-r from-gold-500 to-gold-600 text-white hover:from-gold-600 hover:to-gold-700 shadow-lg shadow-gold-500/20"
+              className="bg-gradient-to-r from-primary to-primary text-primary-foreground hover:from-primary/90 hover:to-primary/80 shadow-lg shadow-primary/20"
               onClick={() => setDialogOpen(true)}
             >
               <Upload className="mr-2 h-4 w-4" />
@@ -486,7 +486,7 @@ export default function AssetsPage() {
       {/* ── Stats Row ── */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {[
-          { icon: Library, label: "Total Papers", value: stats.total, color: "text-gold-500" },
+          { icon: Library, label: "Total Papers", value: stats.total, color: "text-primary" },
           {
             icon: BookmarkCheck,
             label: "Analyzed",
@@ -498,11 +498,11 @@ export default function AssetsPage() {
         ].map((stat) => (
           <div
             key={stat.label}
-            className="group relative overflow-hidden rounded-xl border border-border/40 bg-card/60 p-4 backdrop-blur-xl transition-all duration-200 hover:border-gold-500/40 hover:shadow-lg hover:shadow-gold-500/5"
+            className="group relative overflow-hidden rounded-xl border border-border/40 bg-card/60 p-4 backdrop-blur-xl transition-all duration-200 hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5"
           >
-            <div className="absolute inset-x-0 top-0 h-0.5 scale-x-0 bg-gradient-to-r from-transparent via-gold-500/40 to-transparent transition-transform duration-300 group-hover:scale-x-100" />
+            <div className="absolute inset-x-0 top-0 h-0.5 scale-x-0 bg-gradient-to-r from-transparent via-primary/40 to-transparent transition-transform duration-300 group-hover:scale-x-100" />
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gold-500/10">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10">
                 <stat.icon className={cn("h-5 w-5", stat.color)} />
               </div>
               <div className="min-w-0">
@@ -539,7 +539,7 @@ export default function AssetsPage() {
             placeholder="Search by title, author, or topic…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10 focus-visible:ring-gold-500/50 pr-20"
+            className="pl-10 focus-visible:ring-primary/50 pr-20"
           />
           <Button
             type="submit"
@@ -561,8 +561,8 @@ export default function AssetsPage() {
               className={cn(
                 "inline-flex items-center rounded-full px-3.5 py-1.5 text-xs font-medium transition-all duration-200",
                 activeFilter === filter.value
-                  ? "bg-gold-500 text-white shadow-sm"
-                  : "bg-navy-500/10 text-muted-foreground hover:bg-navy-500/20 hover:text-foreground",
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "bg-primary/10 text-muted-foreground hover:bg-primary/20 hover:text-foreground",
               )}
             >
               {filter.label}
@@ -573,7 +573,7 @@ export default function AssetsPage() {
           {tagFilter && (
             <button
               onClick={() => setTagFilter(null)}
-              className="inline-flex items-center gap-1 rounded-full bg-gold-500/10 px-3 py-1.5 text-xs font-medium text-gold-500 transition-all hover:bg-gold-500/20"
+              className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-all hover:bg-primary/20"
             >
               <Tag className="h-3 w-3" />
               {tagFilter}
@@ -589,13 +589,13 @@ export default function AssetsPage() {
                 size="sm"
                 className={cn(
                   "border-border/50 text-xs",
-                  selectedSources.length > 0 && "border-gold-500/50 text-gold-500",
+                  selectedSources.length > 0 && "border-primary/50 text-primary",
                 )}
               >
                 <SlidersHorizontal className="mr-1.5 h-3.5 w-3.5" />
                 Sources
                 {selectedSources.length > 0 && (
-                  <span className="ml-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-gold-500/20 text-[10px] font-bold">
+                  <span className="ml-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary/20 text-[10px] font-bold">
                     {selectedSources.length}
                   </span>
                 )}
@@ -615,15 +615,15 @@ export default function AssetsPage() {
                       className={cn(
                         "flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition-colors",
                         selected
-                          ? "bg-gold-500/10 text-gold-500"
-                          : "text-muted-foreground hover:bg-navy-500/10 hover:text-foreground",
+                          ? "bg-primary/10 text-primary"
+                          : "text-muted-foreground hover:bg-primary/10 hover:text-foreground",
                       )}
                     >
                       <div
                         className={cn(
                           "flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors",
                           selected
-                            ? "border-gold-500 bg-gold-500 text-white"
+                            ? "border-primary bg-primary text-primary-foreground"
                             : "border-border",
                         )}
                       >
@@ -670,14 +670,14 @@ export default function AssetsPage() {
               key={i}
               className="group relative overflow-hidden rounded-xl border border-border/40 bg-card/60 backdrop-blur-xl p-5 animate-pulse"
             >
-              <div className="absolute inset-x-0 top-0 h-0.5 scale-x-0 bg-gradient-to-r from-transparent via-gold-500/40 to-transparent transition-transform duration-300" />
-              <div className="h-4 bg-navy-700/30 rounded w-3/4 mb-3" />
-              <div className="h-3 bg-navy-700/20 rounded w-1/2 mb-4" />
-              <div className="h-3 bg-navy-700/20 rounded w-full mb-2" />
-              <div className="h-3 bg-navy-700/20 rounded w-2/3 mb-4" />
+              <div className="absolute inset-x-0 top-0 h-0.5 scale-x-0 bg-gradient-to-r from-transparent via-primary/40 to-transparent transition-transform duration-300" />
+              <div className="h-4 bg-muted/30 rounded w-3/4 mb-3" />
+              <div className="h-3 bg-muted/20 rounded w-1/2 mb-4" />
+              <div className="h-3 bg-muted/20 rounded w-full mb-2" />
+              <div className="h-3 bg-muted/20 rounded w-2/3 mb-4" />
               <div className="flex gap-2">
-                <div className="h-6 bg-navy-700/20 rounded-full w-16" />
-                <div className="h-6 bg-navy-700/20 rounded-full w-12" />
+                <div className="h-6 bg-muted/20 rounded-full w-16" />
+                <div className="h-6 bg-muted/20 rounded-full w-12" />
               </div>
             </div>
           ))}
@@ -713,7 +713,7 @@ export default function AssetsPage() {
                     analyzeMutation.mutate(paper.id)
                   }}
                   disabled={analyzing === paper.id}
-                  className="inline-flex items-center justify-center rounded-md p-1.5 text-muted-foreground hover:text-gold-500 hover:bg-gold-500/10 transition-colors"
+                  className="inline-flex items-center justify-center rounded-md p-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
                   title="Analyze paper"
                 >
                   {analyzing === paper.id ? (
@@ -750,7 +750,7 @@ export default function AssetsPage() {
             <Button
               onClick={startUpload}
               disabled={!uploads.some((u) => u.status === "pending")}
-              className="bg-gradient-to-r from-gold-500 to-gold-600 text-white hover:from-gold-600 hover:to-gold-700"
+              className="bg-gradient-to-r from-primary to-primary text-primary-foreground hover:from-primary/90 hover:to-primary/80"
             >
               <FileUp className="mr-2 h-4 w-4" />
               Upload All
@@ -764,7 +764,7 @@ export default function AssetsPage() {
             className={cn(
               "relative flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-8 text-center transition-colors",
               dragActive
-                ? "border-gold-500 bg-gold-500/5"
+                ? "border-primary bg-primary/5"
                 : "border-border/40 hover:border-border/60",
             )}
             onDrop={handleDrop}
@@ -784,7 +784,7 @@ export default function AssetsPage() {
               onChange={(e) => e.target.files && handleFiles(e.target.files)}
             />
             <UploadCloud
-              className={cn("mb-3 h-10 w-10", dragActive ? "text-gold-500" : "text-muted-foreground/50")}
+              className={cn("mb-3 h-10 w-10", dragActive ? "text-primary" : "text-muted-foreground/50")}
             />
             <p className="text-sm font-medium">Drop PDFs here or click to browse</p>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -825,8 +825,8 @@ export default function AssetsPage() {
                 className={cn(
                   "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
                   selectedDocType === dt.value
-                    ? "bg-gold-500/10 text-gold-500"
-                    : "bg-navy-500/10 text-muted-foreground hover:text-foreground",
+                    ? "bg-primary/10 text-primary"
+                    : "bg-primary/10 text-muted-foreground hover:text-foreground",
                 )}
               >
                 {dt.icon} {dt.label}
@@ -852,7 +852,7 @@ export default function AssetsPage() {
                   <div className="shrink-0">
                     {item.status === "pending" && <FileText className="h-4 w-4 text-muted-foreground" />}
                     {item.status === "uploading" && (
-                      <Loader2 className="h-4 w-4 animate-spin text-gold-500" />
+                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
                     )}
                     {item.status === "done" && <CheckCircle className="h-4 w-4 text-emerald-500" />}
                     {item.status === "error" && <AlertCircle className="h-4 w-4 text-red-500" />}
@@ -864,9 +864,9 @@ export default function AssetsPage() {
                         {(item.file.size / 1024 / 1024).toFixed(1)} MB
                       </span>
                       {item.status === "uploading" && (
-                        <div className="h-1 flex-1 overflow-hidden rounded-full bg-navy-700/30">
+                        <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted/30">
                           <div
-                            className="h-full rounded-full bg-gold-500 transition-all"
+                            className="h-full rounded-full bg-primary transition-all"
                             style={{ width: `${item.progress}%` }}
                           />
                         </div>
@@ -922,7 +922,7 @@ export default function AssetsPage() {
                 </span>
               )}
               {selectedPaper.venue && (
-                <span className="inline-flex items-center gap-1 rounded-md bg-navy-500/10 px-2 py-0.5 text-xs">
+                <span className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-0.5 text-xs">
                   {selectedPaper.venue}
                 </span>
               )}
@@ -952,18 +952,18 @@ export default function AssetsPage() {
               <>
                 {selectedPaper.analysis.field_of_study && (
                   <div className="flex flex-wrap gap-2">
-                    <span className="inline-flex items-center rounded-full bg-navy-500/10 px-2.5 py-0.5 text-xs font-medium text-navy-300">
+                    <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
                       {selectedPaper.analysis.field_of_study}
                     </span>
                     {selectedPaper.analysis.subfield && (
-                      <span className="inline-flex items-center rounded-full bg-navy-500/10 px-2.5 py-0.5 text-xs font-medium text-navy-300">
+                      <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
                         {selectedPaper.analysis.subfield}
                       </span>
                     )}
                     {selectedPaper.analysis.scientific_areas?.map((area) => (
                       <span
                         key={area}
-                        className="inline-flex items-center rounded-full bg-navy-500/10 px-2.5 py-0.5 text-xs font-medium text-navy-300"
+                        className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-muted-foreground"
                       >
                         {area}
                       </span>
@@ -1011,7 +1011,7 @@ export default function AssetsPage() {
                   {selectedPaper.tags.map((tag) => (
                     <span
                       key={tag}
-                      className="inline-flex items-center rounded-md bg-navy-500/10 px-2 py-0.5 text-xs font-medium text-navy-400 dark:text-navy-300"
+                      className="inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-muted-foreground"
                     >
                       <Tag className="mr-1 h-3 w-3" />
                       {tag}
@@ -1077,8 +1077,8 @@ export default function AssetsPage() {
                   className={cn(
                     "truncate max-w-[200px] rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
                     tagTargetId === p.id
-                      ? "bg-gold-500/10 text-gold-500 border border-gold-500/30"
-                      : "bg-navy-500/10 text-muted-foreground hover:text-foreground border border-transparent",
+                      ? "bg-primary/10 text-primary border border-primary/30"
+                      : "bg-primary/10 text-muted-foreground hover:text-foreground border border-transparent",
                   )}
                 >
                   {p.title}
@@ -1110,7 +1110,7 @@ export default function AssetsPage() {
                   return asset.tags.map((tag) => (
                     <span
                       key={tag}
-                      className="group/tag inline-flex items-center gap-1 rounded-md bg-navy-500/10 px-2 py-0.5 text-xs font-medium text-navy-400 dark:text-navy-300"
+                      className="group/tag inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-muted-foreground"
                     >
                       {tag}
                       <button
@@ -1144,7 +1144,7 @@ export default function AssetsPage() {
               size="sm"
               onClick={handleAddTag}
               disabled={!newTagInput.trim() || !tagTargetId}
-              className="bg-gold-500 text-white hover:bg-gold-600 shrink-0"
+              className="bg-primary text-primary-foreground hover:bg-primary/90 shrink-0"
             >
               <Plus className="mr-1 h-3.5 w-3.5" />
               Add
@@ -1168,8 +1168,8 @@ export default function AssetsPage() {
                     className={cn(
                       "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
                       tagFilter === tag
-                        ? "bg-gold-500 text-white"
-                        : "bg-navy-500/10 text-muted-foreground hover:text-foreground",
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-primary/10 text-muted-foreground hover:text-foreground",
                     )}
                   >
                     {tag}
@@ -1218,8 +1218,8 @@ export default function AssetsPage() {
                     className="flex items-center justify-between rounded-lg border border-border/30 bg-card/40 px-4 py-3 backdrop-blur-xl"
                   >
                     <div className="flex items-center gap-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gold-500/10">
-                        <Icon className="h-4 w-4 text-gold-500" />
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
+                        <Icon className="h-4 w-4 text-primary" />
                       </div>
                       <div>
                         <p className="text-sm font-medium text-foreground">{source.label}</p>
