@@ -36,21 +36,21 @@ export function Sidebar() {
         <ScrollArea className="h-full px-3 py-4">
         <SidebarNavGroup
           label="Overview"
-          gradient="bg-gradient-to-r from-gold-500/10 to-transparent"
+          gradient="bg-gradient-to-r from-[hsl(var(--color-accent-primary)_/_10%)] to-transparent"
         >
           <SidebarNavItem to="/dashboard" label="Dashboard" icon={LayoutDashboard} end />
         </SidebarNavGroup>
 
         <SidebarNavGroup
           label="Research"
-          gradient="bg-gradient-to-r from-blue-500/10 to-transparent"
+          gradient="bg-gradient-to-r from-[hsl(var(--color-info)_/_10%)] to-transparent"
         >
           <SidebarNavItem to="/assets" label="Assets" icon={HardDrive} end />
         </SidebarNavGroup>
 
         <SidebarNavGroup
           label="Intelligence"
-          gradient="bg-gradient-to-r from-amber-400/10 to-transparent"
+          gradient="bg-gradient-to-r from-[hsl(var(--color-warning)_/_10%)] to-transparent"
         >
           <SidebarNavItem to="/cult/agents" label="Agents" icon={Bot} end />
           <SidebarNavItem to="/cult/skills" label="Skills" icon={ScrollText} end />
@@ -59,14 +59,14 @@ export function Sidebar() {
 
         <SidebarNavGroup
           label="Productivity"
-          gradient="bg-gradient-to-r from-emerald-500/10 to-transparent"
+          gradient="bg-gradient-to-r from-[hsl(var(--color-success)_/_10%)] to-transparent"
         >
           <SidebarNavItem to="/workflows" label="Workflows" icon={GitBranch} end />
         </SidebarNavGroup>
 
         <SidebarNavGroup
           label="Settings"
-          gradient="bg-gradient-to-r from-slate-400/10 to-transparent"
+          gradient="bg-gradient-to-r from-muted/10 to-transparent"
         >
           <SidebarNavItem to="/settings" label="Settings" icon={SettingsIcon} end />
         </SidebarNavGroup>
