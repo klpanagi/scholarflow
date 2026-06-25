@@ -24,6 +24,7 @@ from app.agents.factory import create_agent
 from app.utils.context_budget import fit_to_budget, budget_for_stages
 from app.utils.pdf_model_support import model_supports_pdf, create_multimodal_human_message
 from app.services.llm_service import fetch_model_pricing, calculate_cost, llm_service
+from app.services.pdf_service import pdf_service
 from app.services.progress import (
     EventType,
     ExecutionEvent,
@@ -652,6 +653,7 @@ async def _run_stage(
     paper_content: str | None = None,
     rubric_standard: str = "general",
     research_dossier=None,
+    grobid_dict: dict | None = None,
     progress_manager: Optional[ProgressManager] = None,
     execution_id: Optional[UUID] = None,
 ) -> dict:
@@ -715,6 +717,9 @@ async def _run_stage(
         agent_context["rubric_standard"] = rubric_standard
     if research_dossier:
         agent_context["research_dossier"] = research_dossier
+    if grobid_dict:
+        agent_context["grobid"] = grobid_dict
+
 
     max_retries = 3
     last_error = None
@@ -1126,6 +1131,22 @@ async def _run_workflow_background(
             prior_findings = []
             current_dossier = None
 
+            # Programmatic GROBID extraction — done once, shared with all stages.
+            grobid_dict: dict = {}
+            if pdf_bytes:
+                try:
+                    grobid_result = await pdf_service.grobid_extract(pdf_bytes)
+                    grobid_dict = grobid_result.to_dict()
+                    logger.info(
+                        "Workflow GROBID extraction: source=%s title=%r refs=%d",
+                        grobid_result.source,
+                        grobid_result.title,
+                        len(grobid_result.references),
+                    )
+                except Exception as exc:
+                    logger.warning("Workflow GROBID extraction failed: %s", exc)
+
+
             for i, stage_def in enumerate(workflow["stages"]):
                 if _cancel_flags.get(execution_id, False):
                     for r in stage_results:
@@ -1205,6 +1226,7 @@ async def _run_workflow_background(
                         pdf_bytes=pdf_bytes, paper_s2_id=paper_s2_id, topic_query=topic_query,
                         paper_content=paper_content, rubric_standard=rubric_standard,
                         research_dossier=current_dossier,
+                        grobid_dict=grobid_dict,
                         progress_manager=progress_manager,
                         execution_id=exec_uuid,
                     )
