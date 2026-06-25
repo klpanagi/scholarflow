@@ -92,7 +92,7 @@ function getSkillIcon(name: string) {
 }
 
 const ICON_COLORS = [
-  "text-gold-400 bg-gold-500/10",
+  "text-primary bg-primary/10",
   "text-emerald-400 bg-emerald-500/10",
   "text-amber-400 bg-amber-500/10",
   "text-sky-400 bg-sky-500/10",
@@ -367,7 +367,7 @@ export default function SkillsPage() {
       value: stats.total,
       icon: Puzzle,
       suffix: "custom skills",
-      color: "text-gold-400 bg-gold-500/10",
+      color: "text-primary bg-primary/10",
     },
     {
       label: "Active",
@@ -438,7 +438,7 @@ export default function SkillsPage() {
             return (
               <div
                 key={stat.label}
-                className="group rounded-xl border border-border/50 bg-card/60 p-5 backdrop-blur-xl transition-all duration-300 hover:border-gold-500/30 hover:shadow-lg hover:shadow-gold-500/5"
+                className="group rounded-xl border border-border/50 bg-card/60 p-5 backdrop-blur-xl transition-all duration-300 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5"
               >
                 <div className="mb-3 flex items-center justify-between">
                   <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -504,7 +504,7 @@ export default function SkillsPage() {
               return (
                 <div
                   key={skill.id}
-                  className="group relative overflow-hidden rounded-xl border border-border/50 bg-card/60 backdrop-blur-xl transition-all duration-300 hover:border-gold-500/40 hover:shadow-lg hover:shadow-gold-500/10"
+                  className="group relative overflow-hidden rounded-xl border border-border/50 bg-card/60 backdrop-blur-xl transition-all duration-300 hover:border-primary/40 hover:shadow-lg hover:shadow-primary/10"
                 >
                   {/* Hover glow */}
                   <div
@@ -512,7 +512,7 @@ export default function SkillsPage() {
                     className="pointer-events-none absolute -inset-px rounded-xl opacity-0 transition-opacity duration-300 group-hover:opacity-100"
                     style={{
                       background:
-                        "radial-gradient(600px circle at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(212, 165, 116, 0.06), transparent 40%)",
+                    "radial-gradient(600px circle at var(--mouse-x, 50%) var(--mouse-y, 50%), color-mix(in srgb, hsl(var(--primary)) 6%, transparent), transparent 40%)",
                     }}
                   />
 
@@ -587,7 +587,7 @@ export default function SkillsPage() {
                       <Button
                         size="sm"
                         variant="default"
-                        className="flex-1 gap-1.5 bg-gold-500 text-white hover:bg-gold-600"
+                        className="flex-1 gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
                         onClick={() => setDetailSkill(skill)}
                       >
                         <Eye className="h-3.5 w-3.5" />
@@ -668,7 +668,7 @@ export default function SkillsPage() {
               )}
               <Button
                 size="sm"
-                className="gap-1.5 bg-gold-500 text-white hover:bg-gold-600"
+                className="gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
               >
                 <Play className="h-4 w-4" />
                 Use this skill
@@ -711,12 +711,12 @@ export default function SkillsPage() {
             {detailSkill.builtin_tools && detailSkill.builtin_tools.length > 0 && (
               <div>
                 <h4 className="mb-2 flex items-center gap-1.5 text-sm font-medium text-foreground">
-                  <Wrench className="h-3.5 w-3.5 text-gold-500" />
+                  <Wrench className="h-3.5 w-3.5 text-primary" />
                   Builtin Tools
                 </h4>
                 <div className="flex flex-wrap gap-1.5">
                   {detailSkill.builtin_tools.map((tool) => (
-                    <Badge key={tool} variant="outline" className="border-gold-500/20 text-gold-400">
+                    <Badge key={tool} variant="outline" className="border-primary/20 text-primary">
                       {tool}
                     </Badge>
                   ))}
@@ -728,7 +728,7 @@ export default function SkillsPage() {
             {(detailSkill.input_schema || detailSkill.output_schema) && (
               <div>
                 <h4 className="mb-2 flex items-center gap-1.5 text-sm font-medium text-foreground">
-                  <SlidersHorizontal className="h-3.5 w-3.5 text-gold-500" />
+                  <SlidersHorizontal className="h-3.5 w-3.5 text-primary" />
                   Parameters
                 </h4>
                 <div className="space-y-3">
@@ -756,7 +756,7 @@ export default function SkillsPage() {
             {detailSkill.prompt_template && (
               <div>
                 <h4 className="mb-2 flex items-center gap-1.5 text-sm font-medium text-foreground">
-                  <Terminal className="h-3.5 w-3.5 text-gold-500" />
+                  <Terminal className="h-3.5 w-3.5 text-primary" />
                   Prompt Template
                 </h4>
                 <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
@@ -768,7 +768,7 @@ export default function SkillsPage() {
             {/* Usage stats (derived) */}
             <div>
               <h4 className="mb-2 flex items-center gap-1.5 text-sm font-medium text-foreground">
-                <Activity className="h-3.5 w-3.5 text-gold-500" />
+                <Activity className="h-3.5 w-3.5 text-primary" />
                 Usage Summary
               </h4>
               <div className="grid grid-cols-2 gap-3">
@@ -877,7 +877,7 @@ export default function SkillsPage() {
                   className={cn(
                     "flex items-center gap-1 px-3 py-1.5 rounded-md text-sm border transition-colors",
                     !form.is_public
-                      ? "bg-gold-500 text-white border-gold-500"
+                      ? "bg-primary text-primary-foreground border-primary"
                       : "border-border text-muted-foreground hover:border-muted-foreground/40",
                   )}
                 >
@@ -889,7 +889,7 @@ export default function SkillsPage() {
                   className={cn(
                     "flex items-center gap-1 px-3 py-1.5 rounded-md text-sm border transition-colors",
                     form.is_public
-                      ? "bg-gold-500 text-white border-gold-500"
+                      ? "bg-primary text-primary-foreground border-primary"
                       : "border-border text-muted-foreground hover:border-muted-foreground/40",
                   )}
                 >
@@ -946,7 +946,7 @@ Provide feedback on:
           {/* Builtin Tools */}
           <div>
             <label className="mb-2 flex items-center gap-1.5 text-sm font-medium">
-              <Wrench className="h-3.5 w-3.5 text-gold-500" />
+              <Wrench className="h-3.5 w-3.5 text-primary" />
               Builtin Tools
             </label>
             <div className="grid grid-cols-2 gap-2">
@@ -956,7 +956,7 @@ Provide feedback on:
                   className={cn(
                     "flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors",
                     form.builtin_tools.includes(tool.name)
-                      ? "border-gold-500/40 bg-gold-500/5"
+                      ? "border-primary/40 bg-primary/5"
                       : "border-border hover:border-muted-foreground/40",
                   )}
                 >

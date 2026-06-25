@@ -14,7 +14,7 @@ import { Badge } from '../components/ui/badge'
 import { PageHeader } from '../components/shared/PageHeader'
 import { ModalShell } from '../components/shared/ModalShell'
 import { ConfirmDialog } from '../components/shared/ConfirmDialog'
-import { ThemeToggle } from '../components/theme/ThemeToggle'
+import { ThemePicker } from '../components/theme/ThemePicker'
 import { useAuthStore } from '../stores/auth'
 import { useToast } from '../hooks/use-toast'
 import { cn } from '../lib/utils'
@@ -208,7 +208,7 @@ function SidebarNav({
               'group flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-all duration-200',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
               isActive
-                ? 'border border-gold-500/20 bg-gold-500/10 text-gold-500 shadow-sm'
+                ? 'border border-primary/20 bg-primary/10 text-primary shadow-sm'
                 : 'text-muted-foreground hover:bg-accent hover:text-foreground',
             )}
           >
@@ -216,7 +216,7 @@ function SidebarNav({
               aria-hidden="true"
               className={cn(
                 'h-4 w-4 shrink-0 transition-colors',
-                isActive ? 'text-gold-500' : 'text-muted-foreground group-hover:text-foreground',
+                isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground',
               )}
             />
             <span>{tab.label}</span>
@@ -282,7 +282,7 @@ function ProfileSection() {
       <Card className="border-border/50 bg-card/60 backdrop-blur-xl">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <User aria-hidden="true" className="h-4 w-4 text-gold-500" />
+            <User aria-hidden="true" className="h-4 w-4 text-primary" />
             Personal Information
           </CardTitle>
           <CardDescription>Your account details and profile picture</CardDescription>
@@ -301,7 +301,7 @@ function ProfileSection() {
                       className="h-full w-full object-cover"
                     />
                   ) : (
-                    <span className="font-display text-2xl text-gold-500">{initials}</span>
+                    <span className="font-display text-2xl text-primary">{initials}</span>
                   )}
                 </div>
                 <label
@@ -352,7 +352,7 @@ function ProfileSection() {
       <Card className="border-border/50 bg-card/60 backdrop-blur-xl">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <Shield aria-hidden="true" className="h-4 w-4 text-gold-500" />
+            <Shield aria-hidden="true" className="h-4 w-4 text-primary" />
             Change Password
           </CardTitle>
           <CardDescription>Update your account password</CardDescription>
@@ -460,7 +460,7 @@ function ProfileSection() {
               <Button
                 type="submit"
                 disabled={isSubmitting}
-                className="bg-gold-500 text-white hover:bg-gold-600 focus-visible:ring-gold-500"
+                className="bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:ring-primary"
               >
                 {isSubmitting ? (
                   <>
@@ -605,7 +605,7 @@ function ApiKeysSection() {
       <Card className="border-border/50 bg-card/60 backdrop-blur-xl">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <Key aria-hidden="true" className="h-4 w-4 text-gold-500" />
+            <Key aria-hidden="true" className="h-4 w-4 text-primary" />
             LLM Providers
           </CardTitle>
           <CardDescription>
@@ -693,7 +693,7 @@ function ApiKeysSection() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="flex items-center gap-2 text-base">
-                <Globe aria-hidden="true" className="h-4 w-4 text-gold-500" />
+                <Globe aria-hidden="true" className="h-4 w-4 text-primary" />
                 Academic & External API Keys
               </CardTitle>
               <CardDescription>
@@ -708,7 +708,7 @@ function ApiKeysSection() {
                 setNewKeyService('semantic_scholar')
                 setNewKeyValue('')
               }}
-              className="gap-1.5 bg-gold-500 text-white hover:bg-gold-600"
+              className="gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
             >
               <Plus aria-hidden="true" className="h-3.5 w-3.5" />
               Add Key
@@ -849,7 +849,7 @@ function ApiKeysSection() {
             <Button
               onClick={handleAddKey}
               disabled={!newKeyValue.trim() || saveApiKeyMutation.isPending}
-              className="bg-gold-500 text-white hover:bg-gold-600"
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
             >
               {saveApiKeyMutation.isPending ? (
                 <>
@@ -939,7 +939,7 @@ function PreferencesSection() {
     <Card className="border-border/50 bg-card/60 backdrop-blur-xl">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <Settings2 aria-hidden="true" className="h-4 w-4 text-gold-500" />
+            <Settings2 aria-hidden="true" className="h-4 w-4 text-primary" />
             Application Preferences
           </CardTitle>
         <CardDescription>
@@ -949,14 +949,14 @@ function PreferencesSection() {
       <CardContent>
         <div className="space-y-6 divide-y divide-border/30">
           {/* Theme */}
-          <div className="flex items-center justify-between pb-6">
-            <div className="space-y-0.5">
+          <div className="pb-6">
+            <div className="space-y-0.5 mb-4">
               <Label className="text-sm font-medium">Theme</Label>
               <p className="text-xs text-muted-foreground">
-                Toggle between light and dark mode
+                Choose your preferred color theme
               </p>
             </div>
-            <ThemeToggle />
+            <ThemePicker />
           </div>
 
           {/* Language */}
@@ -986,7 +986,7 @@ function PreferencesSection() {
           <div className="space-y-4 pt-6">
             <div>
               <span className="flex items-center gap-2 text-sm font-medium">
-                <Bell aria-hidden="true" className="h-4 w-4 text-gold-500" />
+                <Bell aria-hidden="true" className="h-4 w-4 text-primary" />
                 Notification Preferences
               </span>
               <p className="mt-0.5 text-xs text-muted-foreground">
@@ -1059,15 +1059,15 @@ function BillingSection() {
     <Card className="border-border/50 bg-card/60 backdrop-blur-xl">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <CreditCard aria-hidden="true" className="h-4 w-4 text-gold-500" />
+            <CreditCard aria-hidden="true" className="h-4 w-4 text-primary" />
             Billing & Subscription
           </CardTitle>
         <CardDescription>Manage your plan and payment methods</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="flex flex-col items-center gap-4 py-8 text-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gold-500/10">
-            <CreditCard aria-hidden="true" className="h-8 w-8 text-gold-500" />
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+            <CreditCard aria-hidden="true" className="h-8 w-8 text-primary" />
           </div>
           <div>
             <h3 className="text-lg font-medium text-foreground">Free Plan</h3>
@@ -1081,7 +1081,7 @@ function BillingSection() {
           <Button
             disabled
             variant="outline"
-            className="mt-2 gap-2 border-gold-500/30 text-gold-500"
+            className="mt-2 gap-2 border-primary/30 text-primary"
           >
             <ExternalLink aria-hidden="true" className="h-4 w-4" />
             Upgrade Plan

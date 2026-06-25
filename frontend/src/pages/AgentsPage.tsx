@@ -155,13 +155,13 @@ function AgentCard({
       onClick={onConfigure}
       className={cn(
         "group cursor-pointer rounded-xl border border-border/50 bg-card/60 p-5 backdrop-blur-xl transition-all duration-300",
-        "hover:border-gold-500/40 hover:shadow-lg hover:shadow-gold-500/5 hover:-translate-y-0.5",
+        "hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5 hover:-translate-y-0.5",
       )}
     >
       {/* Icon + Name Row */}
       <div className="mb-3 flex items-start justify-between">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gold-500/10 text-gold-500">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
             <Icon className="h-5 w-5" />
           </div>
           <div>
@@ -192,7 +192,7 @@ function AgentCard({
           {displayTools.map((tool) => (
             <span
               key={tool}
-              className="inline-flex items-center rounded-full border border-gold-500/20 bg-gold-500/5 px-2 py-0.5 text-[10px] font-medium text-gold-600 dark:text-gold-400"
+              className="inline-flex items-center rounded-full border border-primary/20 bg-primary/5 px-2 py-0.5 text-[10px] font-medium text-primary"
             >
               {tool}
             </span>
@@ -222,7 +222,7 @@ function AgentCard({
         <Button
           variant="outline"
           size="sm"
-          className="border-gold-500/20 text-gold-600 hover:bg-gold-500/10 hover:text-gold-500 dark:text-gold-400"
+          className="border-primary/20 text-primary hover:bg-primary/10 hover:text-primary"
           onClick={(e) => {
             e.stopPropagation()
             onConfigure()
@@ -609,7 +609,7 @@ export default function AgentsPage() {
         actions={
           <Button
             onClick={handleNew}
-            className="gap-2 border-gold-500/30 bg-gold-500/10 text-gold-600 shadow-sm backdrop-blur-sm hover:bg-gold-500/20 hover:text-gold-500 dark:text-gold-400 dark:hover:text-gold-300"
+            className="gap-2 border-primary/30 bg-primary/10 text-primary shadow-sm backdrop-blur-sm hover:bg-primary/20 hover:text-primary"
           >
             <Plus className="h-4 w-4" />
             New Agent
@@ -621,12 +621,12 @@ export default function AgentsPage() {
       {/* Stats Row                                                        */}
       {/* ================================================================= */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <div className="rounded-xl border border-border/50 bg-card/60 p-5 backdrop-blur-xl transition-all duration-300 hover:border-gold-500/20 hover:shadow-md hover:shadow-gold-500/5">
+        <div className="rounded-xl border border-border/50 bg-card/60 p-5 backdrop-blur-xl transition-all duration-300 hover:border-primary/20 hover:shadow-md hover:shadow-primary/5">
           <div className="mb-3 flex items-center justify-between">
             <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Total Agents
             </span>
-            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-gold-500/10 text-gold-500">
+            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 text-primary">
               <Bot className="h-4 w-4" />
             </div>
           </div>
@@ -651,12 +651,12 @@ export default function AgentsPage() {
           <p className="mt-1 text-xs text-muted-foreground">ready to use</p>
         </div>
 
-        <div className="rounded-xl border border-border/50 bg-card/60 p-5 backdrop-blur-xl transition-all duration-300 hover:border-gold-500/20 hover:shadow-md hover:shadow-gold-500/5">
+        <div className="rounded-xl border border-border/50 bg-card/60 p-5 backdrop-blur-xl transition-all duration-300 hover:border-primary/20 hover:shadow-md hover:shadow-primary/5">
           <div className="mb-3 flex items-center justify-between">
             <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Total Runs
             </span>
-            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-gold-500/10 text-gold-500">
+            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 text-primary">
               <Activity className="h-4 w-4" />
             </div>
           </div>
@@ -666,12 +666,12 @@ export default function AgentsPage() {
           <p className="mt-1 text-xs text-muted-foreground">executions today</p>
         </div>
 
-        <div className="rounded-xl border border-border/50 bg-card/60 p-5 backdrop-blur-xl transition-all duration-300 hover:border-gold-500/20 hover:shadow-md hover:shadow-gold-500/5">
+        <div className="rounded-xl border border-border/50 bg-card/60 p-5 backdrop-blur-xl transition-all duration-300 hover:border-primary/20 hover:shadow-md hover:shadow-primary/5">
           <div className="mb-3 flex items-center justify-between">
             <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Agent Types
             </span>
-            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-gold-500/10 text-gold-500">
+            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 text-primary">
               <BarChart3 className="h-4 w-4" />
             </div>
           </div>
@@ -752,7 +752,7 @@ export default function AgentsPage() {
         }}
         title={
           <div className="flex items-center gap-2">
-            <Settings2 className="h-5 w-5 text-gold-500" />
+            <Settings2 className="h-5 w-5 text-primary" />
             {isCreating ? "Create Agent Config" : `Edit: ${selectedConfig?.name}`}
           </div>
         }
@@ -876,7 +876,7 @@ export default function AgentsPage() {
                 onChange={(e) =>
                   updateForm("temperature", parseFloat(e.target.value))
                 }
-                className="w-full accent-gold-500"
+                className="w-full accent-[hsl(var(--primary))]"
               />
             </div>
             <div>
@@ -914,7 +914,7 @@ export default function AgentsPage() {
               id="is_default"
               checked={form.is_default}
               onChange={(e) => updateForm("is_default", e.target.checked)}
-              className="accent-gold-500"
+              className="accent-[hsl(var(--primary))]"
             />
             <label htmlFor="is_default" className="text-sm text-foreground">
               Set as default config for this role
@@ -925,7 +925,7 @@ export default function AgentsPage() {
           {selectedConfig && !isCreating && (
             <div className="border-t border-border/50 pt-5">
               <label className="mb-1.5 flex items-center gap-2 text-sm font-medium text-foreground">
-                <Puzzle className="h-4 w-4 text-gold-500" /> Assigned Skills
+                <Puzzle className="h-4 w-4 text-primary" /> Assigned Skills
               </label>
               <p className="mb-3 text-xs text-muted-foreground">
                 Select skills to give this agent specialized capabilities
@@ -941,7 +941,7 @@ export default function AgentsPage() {
                       className={cn(
                         "flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 transition-colors",
                         isAssigned
-                          ? "border-gold-500/40 bg-gold-500/5"
+                          ? "border-primary/40 bg-primary/5"
                           : "border-border/50 hover:border-muted-foreground/40",
                       )}
                     >
@@ -960,7 +960,7 @@ export default function AgentsPage() {
                           })
                         }}
                         disabled={isCreating}
-                        className="accent-gold-500"
+                        className="accent-[hsl(var(--primary))]"
                       />
                       <span className="text-sm font-medium text-foreground">
                         {skill.name}
@@ -981,7 +981,7 @@ export default function AgentsPage() {
           {selectedConfig && !isCreating && (
             <div className="border-t border-border/50 pt-5">
               <h4 className="mb-1.5 flex items-center gap-2 text-sm font-medium text-foreground">
-                <Tag className="h-4 w-4 text-gold-500" /> Tools &amp; Capabilities
+                <Tag className="h-4 w-4 text-primary" /> Tools &amp; Capabilities
               </h4>
               <p className="mb-3 text-xs text-muted-foreground">
                 Tools available to this agent from direct config and assigned
@@ -1036,7 +1036,7 @@ export default function AgentsPage() {
           {selectedConfig && !isCreating && (
             <div className="border-t border-border/50 pt-5">
               <h4 className="mb-1.5 flex items-center gap-2 text-sm font-medium text-foreground">
-                <Play className="h-4 w-4 text-gold-500" /> Test Agent
+                <Play className="h-4 w-4 text-primary" /> Test Agent
               </h4>
               <p className="mb-3 text-xs text-muted-foreground">
                 Run this agent config with a test query
@@ -1051,7 +1051,7 @@ export default function AgentsPage() {
                 <Button
                   onClick={handleRun}
                   disabled={runMutation.isPending || !runInput.trim()}
-                  className="bg-gradient-to-r from-gold-500 to-amber-500 text-white hover:from-gold-600 hover:to-amber-600"
+                  className="bg-primary text-primary-foreground hover:bg-primary/90"
                 >
                   {runMutation.isPending ? (
                     <>

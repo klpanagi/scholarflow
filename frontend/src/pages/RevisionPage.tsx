@@ -103,7 +103,7 @@ function StageOutputPanel({ stages, activeIndex, onStageChange }: StageOutputPan
             className={cn(
               'flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap',
               idx === activeIndex
-                ? 'bg-gold-500/10 text-gold-500'
+                ? 'bg-primary/10 text-primary'
                 : 'text-muted-foreground hover:text-foreground hover:bg-accent/50',
             )}
           >
@@ -111,7 +111,7 @@ function StageOutputPanel({ stages, activeIndex, onStageChange }: StageOutputPan
               className={cn(
                 'h-1.5 w-1.5 rounded-full shrink-0',
                 s.status === 'completed' && 'bg-emerald-500',
-                s.status === 'running' && 'bg-gold-500 animate-pulse',
+                s.status === 'running' && 'bg-primary animate-pulse',
                 s.status === 'failed' && 'bg-red-500',
                 s.status === 'pending' && 'bg-muted-foreground/30',
               )}
@@ -197,8 +197,8 @@ function ChatPanel({ messages, isLoading, isStreaming, onSend }: ChatPanelProps)
           className="h-full"
           emptyState={
             <div className="flex flex-col items-center gap-3 py-16">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gold-500/10">
-                <MessageSquare className="h-6 w-6 text-gold-500" />
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+                <MessageSquare className="h-6 w-6 text-primary" />
               </div>
               <p className="text-sm font-medium text-muted-foreground">
                 Start a conversation about this review
@@ -342,7 +342,7 @@ export default function RevisionPage() {
     return (
       <div className="flex h-[60vh] items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 className="h-8 w-8 animate-spin text-gold-500" />
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
           <p className="text-sm text-muted-foreground">Loading revision session...</p>
         </div>
       </div>
@@ -376,7 +376,7 @@ export default function RevisionPage() {
                   className={cn(
                     'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium',
                     execution.status === 'completed' && 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20',
-                    execution.status === 'running' && 'bg-gold-500/10 text-gold-500 border border-gold-500/20',
+                    execution.status === 'running' && 'bg-primary/10 text-primary border border-primary/20',
                     execution.status === 'failed' && 'bg-red-500/10 text-red-500 border border-red-500/20',
                     execution.status !== 'completed' &&
                       execution.status !== 'running' &&
@@ -425,7 +425,7 @@ export default function RevisionPage() {
                     onClick={() => setActiveStageIndex(idx)}
                     className={cn(
                       'relative flex flex-col items-center gap-1.5 p-2 rounded-lg transition-all min-w-[72px] group',
-                      isActive && 'bg-gold-500/10 ring-1 ring-gold-500/30',
+                      isActive && 'bg-primary/10 ring-1 ring-primary/30',
                     )}
                   >
                     <div className="relative">
@@ -442,8 +442,8 @@ export default function RevisionPage() {
                         className={cn(
                           'absolute -top-0.5 -right-0.5 h-4 w-4 rounded-sm border cursor-pointer flex items-center justify-center transition-colors',
                           isSelected
-                            ? 'bg-gold-500 border-gold-500'
-                            : 'bg-card border-border group-hover:border-gold-500/50',
+                            ? 'bg-primary border-primary'
+                            : 'bg-card border-border group-hover:border-primary/50',
                         )}
                       >
                         {isSelected && (
@@ -454,7 +454,7 @@ export default function RevisionPage() {
                     <span
                       className={cn(
                         'text-[10px] font-medium text-center leading-tight max-w-[72px] truncate',
-                        isActive ? 'text-gold-500' : 'text-muted-foreground',
+                        isActive ? 'text-primary' : 'text-muted-foreground',
                       )}
                     >
                       {stage.agent_name ?? meta?.description ?? `Stage ${idx + 1}`}
