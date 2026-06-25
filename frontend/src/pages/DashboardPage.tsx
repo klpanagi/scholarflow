@@ -179,8 +179,8 @@ function todayFormatted(): string {
 function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ name?: string; value?: number; color?: string }>; label?: string | number }) {
   if (!active || !payload?.length) return null
   return (
-    <div className="rounded-lg border border-gold-500/20 bg-navy-900/90 px-4 py-3 shadow-xl backdrop-blur-xl">
-      <p className="mb-1 text-xs font-medium text-navy-200">{label}</p>
+    <div className="rounded-lg border border-primary/20 bg-card/90 px-4 py-3 shadow-xl backdrop-blur-xl">
+      <p className="mb-1 text-xs font-medium text-muted-foreground">{label}</p>
       {payload.map((entry, idx) => (
         <p key={idx} className="text-sm font-semibold" style={{ color: entry.color }}>
           {entry.name ?? "Value"}: {entry.value}
@@ -193,10 +193,11 @@ function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: 
 function PieTooltip({ active, payload }: { active?: boolean; payload?: Array<{ name?: string; value?: number; color?: string }> }) {
   if (!active || !payload?.length) return null
   return (
-    <div className="rounded-lg border border-gold-500/20 bg-navy-900/90 px-4 py-3 shadow-xl backdrop-blur-xl">
+    <div className="rounded-lg border border-primary/20 bg-card/90 px-4 py-3 shadow-xl backdrop-blur-xl">
+      <p className="mb-1 text-xs font-medium text-muted-foreground">Papers</p>
       {payload.map((entry, idx) => (
         <p key={idx} className="text-sm font-semibold" style={{ color: entry.color }}>
-          {entry.name}: {entry.value}
+          {entry.name ?? "Value"}: {entry.value}
         </p>
       ))}
     </div>
@@ -366,12 +367,12 @@ export default function DashboardPage() {
   if (statsLoading) {
     return (
       <div className="space-y-6 animate-in fade-in duration-500">
-        <div className="rounded-xl border border-navy-700/50 bg-navy-800/50 p-8">
+        <div className="rounded-xl border border-border bg-card p-8">
           <Skeleton className="mb-2 h-9 w-72" />
           <Skeleton className="mb-6 h-4 w-48" />
           <div className="mt-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
             {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="rounded-lg border border-navy-700/50 bg-navy-800/80 p-5">
+              <div key={i} className="rounded-lg border border-border bg-card/80 p-5">
                 <Skeleton className="mb-3 h-4 w-16" />
                 <Skeleton className="mb-1 h-9 w-20" />
                 <Skeleton className="h-3 w-24" />
@@ -382,14 +383,14 @@ export default function DashboardPage() {
 
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="rounded-lg border border-navy-700/50 bg-navy-800/50 p-6">
+            <div key={i} className="rounded-lg border border-border bg-card p-6">
               <Skeleton className="mb-4 h-5 w-32" />
               <Skeleton className="mb-2 h-48 w-full rounded-lg" />
             </div>
           ))}
         </div>
 
-        <div className="rounded-lg border border-navy-700/50 bg-navy-800/50 p-6">
+        <div className="rounded-lg border border-border bg-card p-6">
           <Skeleton className="mb-4 h-5 w-36" />
           <div className="space-y-3">
             {[1, 2, 3, 4].map((i) => (
@@ -416,31 +417,31 @@ export default function DashboardPage() {
       {/* ================================================================= */}
       {/* Hero Section — Greeting + Metric Cards                            */}
       {/* ================================================================= */}
-      <section className="relative overflow-hidden rounded-xl border border-gold-500/10 bg-gradient-to-br from-navy-900 via-navy-950 to-navy-900 p-8">
+      <section className="relative overflow-hidden rounded-xl border border-primary/10 bg-gradient-to-br from-background via-card to-background p-8">
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-gold-500/5 blur-3xl"
+          className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-primary/5 blur-3xl"
         />
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute -bottom-20 -left-20 h-48 w-48 rounded-full bg-gold-500/5 blur-3xl"
+          className="pointer-events-none absolute -bottom-20 -left-20 h-48 w-48 rounded-full bg-primary/5 blur-3xl"
         />
 
         <div className="relative">
           <div className="mb-8 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h1 className="font-display text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+              <h1 className="font-display text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
                 {getGreeting()}, {user?.name?.split(" ")[0] || "Researcher"}
-                <span className="text-gold-400">.</span>
+                <span className="text-primary">.</span>
               </h1>
-              <div className="mt-2 h-0.5 w-16 rounded-full bg-gold-500/60" />
-              <p className="mt-3 text-sm text-navy-200">
+              <div className="mt-2 h-0.5 w-16 rounded-full bg-primary/60" />
+              <p className="mt-3 text-sm text-muted-foreground">
                 Here&apos;s your research overview &mdash; {todayFormatted()}
               </p>
             </div>
             <Button
               size="lg"
-              className="gap-2 border-gold-500/30 bg-gold-500/10 text-gold-300 shadow-sm backdrop-blur-sm hover:bg-gold-500/20 hover:text-gold-200"
+              className="gap-2 border-primary/30 bg-primary/10 text-primary shadow-sm backdrop-blur-sm hover:bg-primary/20 hover:text-primary"
               asChild
             >
               <Link to="/assets?action=search">
@@ -456,19 +457,19 @@ export default function DashboardPage() {
               const MetricIcon = metric.icon
               return (
                 <Link key={metric.label} to={metric.href} className="group">
-                  <div className="rounded-lg border border-navy-700/50 bg-navy-800/40 p-5 backdrop-blur-sm transition-all duration-300 group-hover:border-gold-500/30 group-hover:bg-navy-800/60 group-hover:shadow-lg group-hover:shadow-gold-500/5">
+                  <div className="rounded-lg border border-border bg-card/40 p-5 backdrop-blur-sm transition-all duration-300 group-hover:border-primary/30 group-hover:bg-card/60 group-hover:shadow-lg group-hover:shadow-primary/5">
                     <div className="mb-3 flex items-center justify-between">
-                      <span className="text-xs font-medium uppercase tracking-wider text-navy-300">
+                      <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                         {metric.label}
                       </span>
-                      <div className="flex h-8 w-8 items-center justify-center rounded-md bg-gold-500/10 text-gold-400">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 text-primary">
                         <MetricIcon className="h-4 w-4" />
                       </div>
                     </div>
-                    <div className="font-display text-3xl font-semibold text-gold-300">
+                    <div className="font-display text-3xl font-semibold text-primary">
                       {metric.value}
                     </div>
-                    <p className="mt-1 text-xs text-navy-400">{metric.suffix}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{metric.suffix}</p>
                   </div>
                 </Link>
               )
@@ -491,17 +492,17 @@ export default function DashboardPage() {
                   className={cn(
                     "h-auto w-full flex-col items-start gap-2 p-5 text-left",
                     action.variant === "default"
-                      ? "border-gold-500/20 bg-gold-500/10 text-gold-300 hover:bg-gold-500/20"
-                      : "border-navy-700/50 bg-navy-800/40 text-navy-100 hover:bg-navy-700/50",
+                      ? "border-primary/20 bg-primary/10 text-primary hover:bg-primary/20"
+                      : "border-border bg-card/40 text-foreground hover:bg-muted",
                   )}
                 >
                   <div className="flex w-full items-center justify-between">
                     <ActionIcon className="h-5 w-5 shrink-0" />
-                    <ArrowRight className="h-4 w-4 shrink-0 text-navy-400 transition-transform group-hover:translate-x-0.5" />
+                    <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
                   </div>
                   <div>
                     <span className="block text-sm font-semibold">{action.label}</span>
-                    <span className="mt-0.5 block text-xs font-normal text-navy-300">
+                    <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
                       {action.description}
                     </span>
                   </div>
@@ -517,16 +518,16 @@ export default function DashboardPage() {
       {/* ================================================================= */}
       <section>
         <div className="mb-4 flex items-center gap-2">
-          <Activity className="h-5 w-5 text-gold-400" />
+          <Activity className="h-5 w-5 text-primary" />
           <h2 className="font-display text-xl font-semibold text-foreground">Analytics</h2>
-          <div className="ml-2 h-px flex-1 bg-gradient-to-r from-gold-500/20 to-transparent" />
+          <div className="ml-2 h-px flex-1 bg-gradient-to-r from-primary/20 to-transparent" />
         </div>
 
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-          <Card className="border-navy-700/50 bg-navy-800/30 backdrop-blur-sm">
+          <Card className="border-border bg-card/30 backdrop-blur-sm">
             <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-sm font-medium text-navy-200">
-                <TrendingUp className="h-4 w-4 text-gold-400" />
+              <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <TrendingUp className="h-4 w-4 text-primary" />
                 Activity Over Time
               </CardTitle>
             </CardHeader>
@@ -562,7 +563,7 @@ export default function DashboardPage() {
                   </ResponsiveContainer>
                 </div>
               ) : (
-                <div className="flex h-56 flex-col items-center justify-center text-navy-400">
+                <div className="flex h-56 flex-col items-center justify-center text-muted-foreground">
                   <TrendingUp className="mb-2 h-8 w-8" />
                   <p className="text-xs">No activity data yet</p>
                 </div>
@@ -570,10 +571,10 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card className="border-navy-700/50 bg-navy-800/30 backdrop-blur-sm">
+          <Card className="border-border bg-card/30 backdrop-blur-sm">
             <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-sm font-medium text-navy-200">
-                <PieChartIcon className="h-4 w-4 text-gold-400" />
+              <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <PieChartIcon className="h-4 w-4 text-primary" />
                 Workflow Status
               </CardTitle>
             </CardHeader>
@@ -609,7 +610,7 @@ export default function DashboardPage() {
                   </ResponsiveContainer>
                 </div>
               ) : (
-                <div className="flex h-56 flex-col items-center justify-center text-navy-400">
+                <div className="flex h-56 flex-col items-center justify-center text-muted-foreground">
                   <PieChartIcon className="mb-2 h-8 w-8" />
                   <p className="text-xs">No execution data yet</p>
                 </div>
@@ -617,10 +618,10 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card className="border-navy-700/50 bg-navy-800/30 backdrop-blur-sm">
+          <Card className="border-border bg-card/30 backdrop-blur-sm">
             <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-sm font-medium text-navy-200">
-                <BarChart3 className="h-4 w-4 text-gold-400" />
+              <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <BarChart3 className="h-4 w-4 text-primary" />
                 Workflows per Period
               </CardTitle>
             </CardHeader>
@@ -653,7 +654,7 @@ export default function DashboardPage() {
                   </ResponsiveContainer>
                 </div>
               ) : (
-                <div className="flex h-56 flex-col items-center justify-center text-navy-400">
+                <div className="flex h-56 flex-col items-center justify-center text-muted-foreground">
                   <BarChart3 className="mb-2 h-8 w-8" />
                   <p className="text-xs">No workflow data yet</p>
                 </div>
@@ -669,16 +670,16 @@ export default function DashboardPage() {
       {activityItems.length > 0 && (
         <section>
           <div className="mb-4 flex items-center gap-2">
-            <Activity className="h-5 w-5 text-gold-400" />
+            <Activity className="h-5 w-5 text-primary" />
             <h2 className="font-display text-xl font-semibold text-foreground">Recent Activity</h2>
-            <div className="ml-2 h-px flex-1 bg-gradient-to-r from-gold-500/20 to-transparent" />
+            <div className="ml-2 h-px flex-1 bg-gradient-to-r from-primary/20 to-transparent" />
           </div>
 
-          <div className="rounded-xl border border-navy-700/50 bg-navy-800/30 px-6 py-5 backdrop-blur-sm">
+          <div className="rounded-xl border border-border bg-card/30 px-6 py-5 backdrop-blur-sm">
             <div className="relative">
               <div
                 aria-hidden="true"
-                className="absolute left-[17px] top-2 h-[calc(100%-16px)] w-px bg-gradient-to-b from-gold-500/30 via-navy-600/30 to-transparent"
+                className="absolute left-[17px] top-2 h-[calc(100%-16px)] w-px bg-gradient-to-b from-primary/30 via-accent/30 to-transparent"
               />
 
               <div className="space-y-0">
@@ -691,7 +692,7 @@ export default function DashboardPage() {
                           ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
                           : item.type === "execution"
                             ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
-                            : "border-gold-500/30 bg-gold-500/10 text-gold-400",
+                            : "border-primary/30 bg-primary/10 text-primary",
                       )}
                     >
                       {item.type === "asset" ? (
@@ -707,7 +708,7 @@ export default function DashboardPage() {
                       <p className="truncate text-sm font-medium text-foreground">
                         {item.title}
                       </p>
-                      <p className="mt-0.5 flex items-center gap-1.5 text-xs text-navy-400">
+                      <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
                         <Clock className="h-3 w-3 shrink-0" />
                         <span>{item.description ?? item.type}</span>
                         <span aria-hidden="true">&middot;</span>
@@ -725,16 +726,16 @@ export default function DashboardPage() {
       {activityItems.length === 0 && !statsLoading && (
         <section>
           <div className="mb-4 flex items-center gap-2">
-            <Activity className="h-5 w-5 text-gold-400" />
+            <Activity className="h-5 w-5 text-primary" />
             <h2 className="font-display text-xl font-semibold text-foreground">Recent Activity</h2>
-            <div className="ml-2 h-px flex-1 bg-gradient-to-r from-gold-500/20 to-transparent" />
+            <div className="ml-2 h-px flex-1 bg-gradient-to-r from-primary/20 to-transparent" />
           </div>
-          <div className="flex flex-col items-center justify-center rounded-xl border border-navy-700/50 bg-navy-800/30 px-6 py-16 backdrop-blur-sm">
-            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-gold-500/10">
-              <Activity className="h-6 w-6 text-gold-400" />
+          <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card/30 px-6 py-16 backdrop-blur-sm">
+            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
+              <Activity className="h-6 w-6 text-primary" />
             </div>
             <h3 className="mb-1 text-base font-medium text-foreground">No activity yet</h3>
-            <p className="max-w-xs text-center text-sm text-navy-400">
+            <p className="max-w-xs text-center text-sm text-muted-foreground">
               Start by searching for papers or creating a workflow. Your recent activity will appear here.
             </p>
           </div>

@@ -110,23 +110,23 @@ function StatCard({
     <Wrapper
       to={href ?? "#"}
       className={cn(
-        "group rounded-lg border border-navy-700/50 bg-navy-800/40 p-5 backdrop-blur-sm transition-all duration-300",
-        href && "hover:border-gold-500/30 hover:bg-navy-800/60 hover:shadow-lg hover:shadow-gold-500/5",
+        "group rounded-lg border border-border bg-card/40 p-5 backdrop-blur-sm transition-all duration-300",
+        href && "hover:border-primary/30 hover:bg-card/60 hover:shadow-lg hover:shadow-primary/5",
       )}
     >
       <div className="mb-3 flex items-center justify-between">
-        <span className="text-xs font-medium uppercase tracking-wider text-navy-300">
+        <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
           {label}
         </span>
-        <div className="flex h-8 w-8 items-center justify-center rounded-md bg-gold-500/10 text-gold-400">
+        <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 text-primary">
           <Icon className="h-4 w-4" />
         </div>
       </div>
-      <div className="font-display text-3xl font-semibold text-gold-300">
+      <div className="font-display text-3xl font-semibold text-primary">
         {value}
       </div>
       {suffix && (
-        <p className="mt-1 text-xs text-navy-400">{suffix}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{suffix}</p>
       )}
     </Wrapper>
   )
@@ -143,10 +143,10 @@ function ConversationCard({
   return (
     <Link
       to={`/workspaces/${workspaceId}`}
-      className="group relative overflow-hidden rounded-xl border border-border/40 bg-card/60 p-5 backdrop-blur-xl transition-all duration-200 hover:border-gold-500/50 hover:shadow-lg hover:shadow-gold-500/5"
+      className="group relative overflow-hidden rounded-xl border border-border/40 bg-card/60 p-5 backdrop-blur-xl transition-all duration-200 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/5"
     >
       {/* Gold accent line */}
-      <div className="absolute inset-x-0 top-0 h-0.5 scale-x-0 bg-gradient-to-r from-transparent via-gold-500/60 to-transparent transition-transform duration-300 group-hover:scale-x-100" />
+      <div className="absolute inset-x-0 top-0 h-0.5 scale-x-0 bg-gradient-to-r from-transparent via-primary/60 to-transparent transition-transform duration-300 group-hover:scale-x-100" />
 
       <div className="flex flex-col gap-3">
         <div className="flex items-start justify-between gap-3">
@@ -281,12 +281,12 @@ export default function WorkspacePage() {
     return (
       <div className="space-y-6 animate-in fade-in duration-500">
         {/* Skeleton hero */}
-        <div className="rounded-xl border border-navy-700/50 bg-navy-800/50 p-8">
+        <div className="rounded-xl border border-border bg-card p-8">
           <Skeleton className="mb-2 h-9 w-72" />
           <Skeleton className="mb-6 h-4 w-48" />
           <div className="mt-8 grid grid-cols-2 gap-4 lg:grid-cols-3">
             {[1, 2, 3].map((i) => (
-              <div key={i} className="rounded-lg border border-navy-700/50 bg-navy-800/80 p-5">
+              <div key={i} className="rounded-lg border border-border bg-card/80 p-5">
                 <Skeleton className="mb-3 h-4 w-16" />
                 <Skeleton className="mb-1 h-9 w-20" />
                 <Skeleton className="h-3 w-24" />
@@ -349,33 +349,33 @@ export default function WorkspacePage() {
       {/* ================================================================= */}
       {/* Hero Section                                                     */}
       {/* ================================================================= */}
-      <section className="relative overflow-hidden rounded-xl border border-gold-500/10 bg-gradient-to-br from-navy-900 via-navy-950 to-navy-900 p-8">
+      <section className="relative overflow-hidden rounded-xl border border-primary/10 bg-gradient-to-br from-background via-card to-background p-8">
         {/* Decorative blur blobs */}
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-gold-500/5 blur-3xl"
+          className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-primary/5 blur-3xl"
         />
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute -bottom-20 -left-20 h-48 w-48 rounded-full bg-gold-500/5 blur-3xl"
+          className="pointer-events-none absolute -bottom-20 -left-20 h-48 w-48 rounded-full bg-primary/5 blur-3xl"
         />
 
         <div className="relative">
           <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-3">
-                <h1 className="font-display text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+                <h1 className="font-display text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
                   {workspace.name}
                 </h1>
                 <StatusBadge status="success" label="Active" />
               </div>
-              <div className="h-0.5 w-16 rounded-full bg-gold-500/60" />
+              <div className="h-0.5 w-16 rounded-full bg-primary/60" />
               {workspace.description && (
-                <p className="max-w-2xl text-sm text-navy-200">
+                <p className="max-w-2xl text-sm text-muted-foreground">
                   {workspace.description}
                 </p>
               )}
-              <div className="flex flex-wrap items-center gap-4 text-xs text-navy-300">
+              <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
                 <span className="inline-flex items-center gap-1.5">
                   <Calendar className="h-3.5 w-3.5" />
                   Created {formatFullDate(workspace.created_at)}
@@ -390,7 +390,7 @@ export default function WorkspacePage() {
             <div className="flex shrink-0 items-center gap-3">
               <Button
                 size="lg"
-                className="gap-2 border-gold-500/30 bg-gold-500/10 text-gold-300 shadow-sm backdrop-blur-sm hover:bg-gold-500/20 hover:text-gold-200"
+                className="gap-2 border-primary/30 bg-primary/10 text-primary shadow-sm backdrop-blur-sm hover:bg-primary/20 hover:text-primary"
                 onClick={() => navigate(`/workspaces/${workspace.id}`)}
               >
                 <Plus className="h-5 w-5" />
@@ -429,11 +429,11 @@ export default function WorkspacePage() {
       {hasPapers && (
         <section>
           <div className="mb-4 flex items-center gap-2">
-            <BookOpen className="h-5 w-5 text-gold-400" />
+            <BookOpen className="h-5 w-5 text-primary" />
             <h2 className="font-display text-xl font-semibold text-foreground">
               Papers
             </h2>
-            <div className="ml-2 h-px flex-1 bg-gradient-to-r from-gold-500/20 to-transparent" />
+            <div className="ml-2 h-px flex-1 bg-gradient-to-r from-primary/20 to-transparent" />
           </div>
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -454,11 +454,11 @@ export default function WorkspacePage() {
       {/* ================================================================= */}
       <section>
         <div className="mb-4 flex items-center gap-2">
-          <MessageSquare className="h-5 w-5 text-gold-400" />
+          <MessageSquare className="h-5 w-5 text-primary" />
           <h2 className="font-display text-xl font-semibold text-foreground">
             Conversations
           </h2>
-          <div className="ml-2 h-px flex-1 bg-gradient-to-r from-gold-500/20 to-transparent" />
+          <div className="ml-2 h-px flex-1 bg-gradient-to-r from-primary/20 to-transparent" />
         </div>
 
         {convLoading ? (
