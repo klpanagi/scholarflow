@@ -139,7 +139,7 @@ class BaseAgent(ABC):
             self.llm,
             messages,
             self.system_prompt,
-            tools or self.tools,
+            tools if tools is not None else self.tools,
         ):
             if event.type is StrategyEventType.STRATEGY_COMPLETE:
                 if event.result is not None:
