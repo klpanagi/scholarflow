@@ -1,0 +1,218 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xmlns="http://www.tei-c.org/ns/1.0">
+  <teiHeader>
+    <fileDesc>
+      <titleStmt>
+        <title level="a" type="main">Sample Paper Title</title>
+      </titleStmt>
+      <publicationStmt>
+        <publisher>Sample Publisher</publisher>
+        <pubPlace>Sample City</pubPlace>
+        <date when="2024-03-15"/>
+        <availability>
+          <licence target="https://creativecommons.org/licenses/by/4.0/">CC-BY-4.0</licence>
+        </availability>
+        <idno type="DOI">10.1234/sample.2024.001</idno>
+      </publicationStmt>
+      <sourceDesc>
+        <biblStruct>
+          <analytic>
+            <author>
+              <persName>
+                <surname>Doe</surname>
+                <forename>Jane</forename>
+              </persName>
+              <affiliation>
+                <orgName type="institution">University of Examples</orgName>
+                <address>
+                  <country>United States</country>
+                </address>
+              </affiliation>
+              <email>jane.doe@example.edu</email>
+            </author>
+            <author>
+              <persName>
+                <surname>Smith</surname>
+                <forename>John</forename>
+              </persName>
+              <affiliation>
+                <orgName type="institution">Institute of Sample Research</orgName>
+              </affiliation>
+            </author>
+            <author>
+              <persName>
+                <surname>García</surname>
+                <forename>María</forename>
+              </persName>
+              <affiliation>
+                <orgName type="institution">Universidad de Ejemplos</orgName>
+              </affiliation>
+            </author>
+            <title type="main">Sample Paper Title</title>
+          </analytic>
+          <monogr>
+            <title level="j">Journal of Examples</title>
+            <imprint>
+              <date when="2024"/>
+              <biblScope unit="volume">12</biblScope>
+              <biblScope unit="issue">3</biblScope>
+              <biblScope unit="page" from="100" to="120">100-120</biblScope>
+            </imprint>
+          </monogr>
+        </biblStruct>
+      </sourceDesc>
+    </fileDesc>
+    <profileDesc>
+      <abstract>
+        <div>
+          <p>This is the abstract text. It describes the motivation, method, and main findings of the sample paper. The work introduces a new framework for processing academic PDFs and extracting structured metadata using a combination of statistical and machine-learning techniques.</p>
+          <p>The proposed approach achieves state-of-the-art results on three benchmark datasets while remaining computationally efficient. We also perform an extensive ablation study to identify the contribution of each component.</p>
+        </div>
+      </abstract>
+      <textClass classCode="I.2.7">
+        <keywords>
+          <term>natural language processing</term>
+          <term>document understanding</term>
+          <term>information extraction</term>
+        </keywords>
+      </textClass>
+    </profileDesc>
+  </teiHeader>
+  <text>
+    <body>
+      <div>
+        <head>1. Introduction</head>
+        <p>Intro text. The challenge of extracting structured information from unstructured academic PDFs has motivated a large body of research. In this work, we address the limitations of prior approaches and propose a unified framework.</p>
+        <p>More intro. The remainder of this paper is organized as follows. Section 2 reviews related work. Section 3 describes our method. Section 4 reports experimental results. Section 5 concludes.</p>
+      </div>
+      <div>
+        <head>2. Method</head>
+        <p>Method text. Our method consists of three main components: a layout-aware encoder, a token-level classifier, and a graph-based decoder. Each component is described in detail below.</p>
+        <p>We train the model on a corpus of 50,000 annotated academic papers. Training takes approximately 12 hours on 4 NVIDIA A100 GPUs.</p>
+      </div>
+      <div>
+        <head>3. Results</head>
+        <p>Results text. Table 1 summarizes the main results. Our approach outperforms all baselines by a margin of at least 2.3 F1 points, while using 30% fewer parameters than the strongest baseline.</p>
+        <p>An ablation study reveals that the layout-aware encoder contributes the largest gain, followed by the graph-based decoder. The token-level classifier contributes the smallest but still meaningful improvement.</p>
+      </div>
+    </body>
+    <back>
+      <listBibl>
+        <biblStruct>
+          <analytic>
+            <title level="a">Reference One: A Comprehensive Survey</title>
+            <author>
+              <persName>
+                <surname>Author1</surname>
+                <forename>A</forename>
+              </persName>
+            </author>
+            <author>
+              <persName>
+                <surname>Author2</surname>
+                <forename>B</forename>
+              </persName>
+            </author>
+          </analytic>
+          <monogr>
+            <title level="j">Journal A</title>
+            <imprint>
+              <date when="2020"/>
+            </imprint>
+          </monogr>
+          <idno type="DOI">10.1000/ref1.2020.001</idno>
+        </biblStruct>
+        <biblStruct>
+          <analytic>
+            <title level="a">Reference Two: A Novel Framework</title>
+            <author>
+              <persName>
+                <surname>Author3</surname>
+                <forename>C</forename>
+              </persName>
+            </author>
+          </analytic>
+          <monogr>
+            <title level="j">Journal B</title>
+            <imprint>
+              <date when="2021"/>
+            </imprint>
+          </monogr>
+          <idno type="DOI">10.1000/ref2.2021.002</idno>
+        </biblStruct>
+        <biblStruct>
+          <analytic>
+            <title level="a">Reference Three: An Empirical Study</title>
+            <author>
+              <persName>
+                <surname>Author4</surname>
+                <forename>D</forename>
+              </persName>
+            </author>
+            <author>
+              <persName>
+                <surname>Author5</surname>
+                <forename>E</forename>
+              </persName>
+            </author>
+            <author>
+              <persName>
+                <surname>Author6</surname>
+                <forename>F</forename>
+              </persName>
+            </author>
+          </analytic>
+          <monogr>
+            <title level="j">Conference C</title>
+            <imprint>
+              <date when="2022"/>
+            </imprint>
+          </monogr>
+          <idno type="DOI">10.1000/ref3.2022.003</idno>
+        </biblStruct>
+        <biblStruct>
+          <analytic>
+            <title level="a">Reference Four: A Position Paper</title>
+            <author>
+              <persName>
+                <surname>Author7</surname>
+                <forename>G</forename>
+              </persName>
+            </author>
+          </analytic>
+          <monogr>
+            <title level="j">Journal D</title>
+            <imprint>
+              <date when="2023"/>
+            </imprint>
+          </monogr>
+          <idno type="DOI">10.1000/ref4.2023.004</idno>
+        </biblStruct>
+        <biblStruct>
+          <analytic>
+            <title level="a">Reference Five: A Bench-mark</title>
+            <author>
+              <persName>
+                <surname>Author8</surname>
+                <forename>H</forename>
+              </persName>
+            </author>
+            <author>
+              <persName>
+                <surname>Author9</surname>
+                <forename>I</forename>
+              </persName>
+            </author>
+          </analytic>
+          <monogr>
+            <title level="j">Journal E</title>
+            <imprint>
+              <date when="2019"/>
+            </imprint>
+          </monogr>
+          <idno type="DOI">10.1000/ref5.2019.005</idno>
+        </biblStruct>
+      </listBibl>
+    </back>
+  </text>
+</TEI>
