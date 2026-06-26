@@ -694,7 +694,7 @@ export default function ChatPage() {
         </SheetContent>
 
         {/* Page layout */}
-        <div className="flex h-full">
+        <div className="flex h-full overflow-hidden">
           {/* Desktop sidebar */}
           <aside aria-label="Conversations" className="hidden lg:flex lg:flex-col w-72 border-r border-border/40 bg-card/20">
             <div className="flex flex-col h-full">
@@ -705,7 +705,7 @@ export default function ChatPage() {
           {/* Main chat area */}
           <div className="flex-1 flex flex-col min-w-0 bg-gradient-to-b from-background via-background to-background/30 dark:to-background/20">
             {/* PageHeader — always visible */}
-            <div className="px-4 lg:px-6 pt-4 lg:pt-5 pb-1">
+            <div className="px-4 lg:px-6 pt-4 lg:pt-5 pb-1 shrink-0">
               <PageHeader
                 title="Intelligence Chat"
                 description="AI-powered academic assistant"
