@@ -88,6 +88,7 @@ export default function ChatPage() {
     fetchSessions,
     createSession,
     deleteSession,
+    clearAllSessions,
     selectSession,
     fetchModels,
     sendMessage,
@@ -213,15 +214,32 @@ export default function ChatPage() {
   )
 
   const handleClearAll = useCallback(async () => {
-    for (const session of sessions) {
-      await deleteSession(session.id)
+    if (sessions.length === 0) {
+      setClearConfirmOpen(false)
+      return
     }
+    const deleted = await clearAllSessions()
     setClearConfirmOpen(false)
+    if (deleted < 0) {
+      toast({
+        title: 'Error',
+        description: 'Failed to clear conversations. Please try again.',
+        variant: 'destructive',
+      })
+      return
+    }
+    if (deleted === 0) {
+      toast({
+        title: 'No conversations cleared',
+        description: 'No conversations were deleted.',
+      })
+      return
+    }
     toast({
       title: 'Conversations cleared',
-      description: 'All conversations have been deleted.',
+      description: `${deleted} conversation${deleted === 1 ? '' : 's'} deleted.`,
     })
-  }, [sessions, deleteSession, toast])
+  }, [sessions, clearAllSessions, toast])
 
   const handleSend = useCallback(
     async (content: string, files?: File[]) => {

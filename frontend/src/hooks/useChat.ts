@@ -112,18 +112,37 @@ export function useChat() {
     [],
   )
 
-  const deleteSession = useCallback(async (sessionId: string) => {
-    try {
-      await api.delete(`/chat/sessions/${sessionId}`)
-      setSessions((prev) => prev.filter((s) => s.id !== sessionId))
-      if (currentSession?.id === sessionId) {
-        setCurrentSession(null)
-        setMessages([])
+  const deleteSession = useCallback(
+    async (sessionId: string): Promise<boolean> => {
+      try {
+        await api.delete(`/chat/sessions/${sessionId}`)
+        setSessions((prev) => prev.filter((s) => s.id !== sessionId))
+        if (currentSession?.id === sessionId) {
+          setCurrentSession(null)
+          setMessages([])
+        }
+        return true
+      } catch (err) {
+        console.error('Failed to delete session:', err)
+        return false
       }
+    },
+    [currentSession],
+  )
+
+  const clearAllSessions = useCallback(async (): Promise<number> => {
+    try {
+      const { data } = await api.delete<{ deleted: number }>('/chat/sessions')
+      const deleted = data?.deleted ?? 0
+      setSessions([])
+      setCurrentSession(null)
+      setMessages([])
+      return deleted
     } catch (err) {
-      console.error('Failed to delete session:', err)
+      console.error('Failed to clear all sessions:', err)
+      return -1
     }
-  }, [currentSession])
+  }, [])
 
   const selectSession = useCallback(async (session: ChatSession) => {
     try {
@@ -289,6 +308,7 @@ export function useChat() {
     fetchSessions,
     createSession,
     deleteSession,
+    clearAllSessions,
     selectSession,
     fetchModels,
     sendMessage,
