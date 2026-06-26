@@ -5,6 +5,14 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
+    // jsdom >= 25 made localStorage/sessionStorage opt-in until a URL is set.
+    // Without this, localStorage.getItem is `undefined` and any code path
+    // that touches storage in a render (e.g. ThemeProvider) crashes.
+    environmentOptions: {
+      jsdom: {
+        url: 'http://localhost:3000',
+      },
+    },
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
     coverage: {

@@ -1,6 +1,53 @@
 import '@testing-library/jest-dom';
 import { cleanup } from '@testing-library/react';
-import { afterEach } from 'vitest';
+import { afterEach, beforeEach, vi } from 'vitest';
+
+// ────────────────────────────────────────────────────────────────────────────
+// Polyfill localStorage / sessionStorage
+//
+// jsdom >= 25 leaves `localStorage` undefined until a same-origin document
+// is associated with the window. Vitest's `environmentOptions.jsdom.url`
+// should enable this, but in practice `localStorage` is still `undefined`
+// in some versions. Provide a no-op in-memory store so render code that
+// touches storage (e.g. ThemeProvider) does not crash.
+// ────────────────────────────────────────────────────────────────────────────
+
+function createMemoryStorage(): Storage {
+  const store = new Map<string, string>();
+  return {
+    get length() {
+      return store.size;
+    },
+    clear: () => store.clear(),
+    getItem: (key: string) => (store.has(key) ? store.get(key)! : null),
+    key: (index: number) => Array.from(store.keys())[index] ?? null,
+    removeItem: (key: string) => {
+      store.delete(key);
+    },
+    setItem: (key: string, value: string) => {
+      store.set(key, String(value));
+    },
+  };
+}
+
+beforeEach(() => {
+  if (typeof window !== 'undefined') {
+    if (typeof window.localStorage === 'undefined' || typeof window.localStorage.getItem !== 'function') {
+      Object.defineProperty(window, 'localStorage', {
+        configurable: true,
+        writable: true,
+        value: createMemoryStorage(),
+      });
+    }
+    if (typeof window.sessionStorage === 'undefined' || typeof window.sessionStorage.getItem !== 'function') {
+      Object.defineProperty(window, 'sessionStorage', {
+        configurable: true,
+        writable: true,
+        value: createMemoryStorage(),
+      });
+    }
+  }
+});
 
 // ────────────────────────────────────────────────────────────────────────────
 // Clean up after each test
