@@ -88,7 +88,11 @@ def _extract_usage(response: AIMessage) -> dict[str, int]:
 
 
 def _merge_usage(acc: dict[str, int], usage: dict[str, int]) -> dict[str, int]:
-    return {k: acc[k] + usage[k] for k in acc}
+    return {
+        "input_tokens": acc.get("input_tokens", 0) + usage.get("input_tokens", 0),
+        "output_tokens": acc.get("output_tokens", 0) + usage.get("output_tokens", 0),
+        "total_tokens": acc.get("total_tokens", 0) + usage.get("total_tokens", 0),
+    }
 
 
 class AgentStrategy(ABC):

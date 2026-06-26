@@ -104,6 +104,7 @@ class ReviewAgent(BaseAgent):
                 "3. Strengths and potential weaknesses\n"
                 "4. Section structure and content quality\n"
                 "5. Any specific concerns or red flags\n\n"
+
                 f"Document content:\n{content_preview}"
             )
 

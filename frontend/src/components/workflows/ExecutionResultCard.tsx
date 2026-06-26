@@ -185,17 +185,17 @@ function StageDetail({ stage, meta, index }: StageDetailProps) {
 }
 
 function getScoreColor(score: number): string {
-  if (score >= 81) return "text-blue-600 bg-blue-50 border-blue-200";
-  if (score >= 61) return "text-green-600 bg-green-50 border-green-200";
-  if (score >= 41) return "text-yellow-600 bg-yellow-50 border-yellow-200";
-  return "text-red-600 bg-red-50 border-red-200";
+  if (score >= 81) return "text-[hsl(var(--color-score-high))] bg-[hsl(var(--color-score-high)_/_10%)] border-[hsl(var(--color-score-high)_/_20%)]";
+  if (score >= 61) return "text-[hsl(var(--color-score-high))] bg-[hsl(var(--color-score-high)_/_10%)] border-[hsl(var(--color-score-high)_/_20%)]";
+  if (score >= 41) return "text-[hsl(var(--color-score-medium))] bg-[hsl(var(--color-score-medium)_/_10%)] border-[hsl(var(--color-score-medium)_/_20%)]";
+  return "text-[hsl(var(--color-score-low))] bg-[hsl(var(--color-score-low)_/_10%)] border-[hsl(var(--color-score-low)_/_20%)]";
 }
 
 function getScoreBarColor(score: number): string {
-  if (score >= 81) return "bg-blue-500";
-  if (score >= 61) return "bg-green-500";
-  if (score >= 41) return "bg-yellow-500";
-  return "bg-red-500";
+  if (score >= 81) return "bg-[hsl(var(--color-score-high))]";
+  if (score >= 61) return "bg-[hsl(var(--color-score-high))]";
+  if (score >= 41) return "bg-[hsl(var(--color-score-medium))]";
+  return "bg-[hsl(var(--color-score-low))]";
 }
 
 function getConfidenceBadge(confidence: string): string {

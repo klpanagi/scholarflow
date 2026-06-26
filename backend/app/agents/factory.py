@@ -8,7 +8,6 @@ from app.agents.deep_debate_agent import DeepDebateAgent
 from app.agents.recommendation_agent import RecommendationAgent
 from app.agents.review_agent import ReviewAgent
 from app.agents.review_pipeline import DeepReviewAgent
-from app.agents.review_writer_agent import ReviewWriterAgent
 from app.agents.revision_agent import RevisionAgent
 from app.agents.search_agent import SearchAgent
 from app.agents.simple_debate_agent import SimpleDebateAgent
@@ -26,7 +25,6 @@ AGENT_REGISTRY: dict[str, Union[type[BaseAgent], dict[str, type[BaseAgent]]]] = 
     AgentRole.RESEARCHER.value: SearchAgent,
     AgentRole.WRITER.value: WritingAgent,
     AgentRole.REVIEWER.value: ReviewAgent,
-    AgentRole.REVIEW_WRITER.value: ReviewWriterAgent,
     AgentRole.RECOMMENDER.value: RecommendationAgent,
     AgentRole.REVISION.value: RevisionAgent,
     AgentRole.MANAGER.value: WritingAgent,

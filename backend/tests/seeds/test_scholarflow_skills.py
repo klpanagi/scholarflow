@@ -79,7 +79,7 @@ async def test_seed_does_not_create_duplicate_review_writer_config(
     existing = AgentConfig(
         user_id=test_user.id,
         name="Review Writer",
-        role=AgentRole.REVIEW_WRITER,
+        role=AgentRole.WRITER,
         provider="opencode",
         model="custom-user-model",
         temperature=0.5,
@@ -123,7 +123,7 @@ async def test_seed_with_existing_user_creates_only_missing_skills_and_configs(
     pre_existing = AgentConfig(
         user_id=test_user.id,
         name="Review Writer",
-        role=AgentRole.REVIEW_WRITER,
+        role=AgentRole.WRITER,
         provider="opencode",
         model="user-model",
         temperature=0.5,

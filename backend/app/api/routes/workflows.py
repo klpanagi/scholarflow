@@ -24,6 +24,7 @@ from app.agents.factory import create_agent
 from app.utils.context_budget import fit_to_budget, budget_for_stages
 from app.utils.pdf_model_support import model_supports_pdf, create_multimodal_human_message
 from app.services.llm_service import fetch_model_pricing, calculate_cost, llm_service
+from app.services.pdf_service import pdf_service
 from app.services.progress import (
     EventType,
     ExecutionEvent,
@@ -167,7 +168,7 @@ WORKFLOW_DEFINITIONS = {
             },
             {
                 "id": "paper-review-writer",
-                "role": AgentRole.REVIEW_WRITER.value,
+                "role": AgentRole.WRITER.value,
                 "task_template": (
                     "You are the Paper Review Writer. Transform the prior peer review stages below "
                     "into TWO polished, editorial-manager-ready documents in a single response: "
@@ -619,13 +620,19 @@ def _sanitize_output(text: str) -> str:
     return text.strip()
 
 
-def _validate_paper_review_writer_output(output: str) -> tuple[bool, list[str]]:
-    """Check that a paper-review-writer output contains both required sections.
+def _validate_dual_section_output(
+    output: str,
+    required_sections: list[str] | None = None,
+) -> tuple[bool, list[str]]:
+    """Check that *output* contains all *required_sections*.
 
-    Returns (is_valid, missing_sections) where missing_sections lists the
-    section headings not found (case-insensitive substring match).
+    Returns ``(is_valid, missing_sections)`` where *missing_sections* lists
+    the section headings not found (case-insensitive substring match).
+    When *required_sections* is ``None``, defaults to the paper-review-writer
+    pair for backward compatibility.
     """
-    required_sections = ["## Response to Authors", "## Response to Editor"]
+    if required_sections is None:
+        required_sections = ["## Response to Authors", "## Response to Editor"]
     lower_output = output.lower()
     missing = [s for s in required_sections if s.lower() not in lower_output]
     return len(missing) == 0, missing
@@ -652,6 +659,7 @@ async def _run_stage(
     paper_content: str | None = None,
     rubric_standard: str = "general",
     research_dossier=None,
+    grobid_dict: dict | None = None,
     progress_manager: Optional[ProgressManager] = None,
     execution_id: Optional[UUID] = None,
 ) -> dict:
@@ -715,6 +723,9 @@ async def _run_stage(
         agent_context["rubric_standard"] = rubric_standard
     if research_dossier:
         agent_context["research_dossier"] = research_dossier
+    if grobid_dict:
+        agent_context["grobid"] = grobid_dict
+
 
     max_retries = 3
     last_error = None
@@ -752,7 +763,7 @@ async def _run_stage(
             # --- Section-delimiter validation for paper-review-writer ---
             if stage_def.get("id") == "paper-review-writer":
                 output_text = result.get("output", "") or ""
-                is_valid, missing = _validate_paper_review_writer_output(output_text)
+                is_valid, missing = _validate_dual_section_output(output_text)
                 if not is_valid:
                     # Retry once with a reminder
                     reminder = (
@@ -772,7 +783,7 @@ async def _run_stage(
                         )
                         retry_output = retry_result.get("output", "") or ""
                         result = retry_result  # use retry result going forward
-                        is_valid2, missing2 = _validate_paper_review_writer_output(retry_output)
+                        is_valid2, missing2 = _validate_dual_section_output(retry_output)
                         if not is_valid2:
                             metadata["validation_warning"] = (
                                 f"missing section(s) after retry: {', '.join(missing2)}"
@@ -834,7 +845,10 @@ async def _run_stage(
                 continue
             break
 
-    logger.error(f"Stage for role {stage_def['role']} failed: {last_error}")
+    logger.error(
+        f"Stage for role {stage_def['role']} failed: {last_error}",
+        exc_info=last_error,
+    )
     return {
         "agent_role": stage_def["role"],
         "agent_name": config.name,
@@ -933,7 +947,9 @@ async def _ensure_review_writer_config(db: AsyncSession, user_id: str) -> None:
     result = await db.execute(
         select(AgentConfig).where(
             AgentConfig.user_id == user_id_uuid,
-            AgentConfig.role == AgentRole.REVIEW_WRITER,
+            AgentConfig.role == AgentRole.WRITER,
+            AgentConfig.name == "Review Writer",
+            AgentConfig.name == "Review Writer",
         )
     )
     if result.scalar_one_or_none():
@@ -1123,6 +1139,22 @@ async def _run_workflow_background(
             prior_findings = []
             current_dossier = None
 
+            # Programmatic GROBID extraction — done once, shared with all stages.
+            grobid_dict: dict = {}
+            if pdf_bytes:
+                try:
+                    grobid_result = await pdf_service.grobid_extract(pdf_bytes)
+                    grobid_dict = grobid_result.to_dict()
+                    logger.info(
+                        "Workflow GROBID extraction: source=%s title=%r refs=%d",
+                        grobid_result.source,
+                        grobid_result.title,
+                        len(grobid_result.references),
+                    )
+                except Exception as exc:
+                    logger.warning("Workflow GROBID extraction failed: %s", exc)
+
+
             for i, stage_def in enumerate(workflow["stages"]):
                 if _cancel_flags.get(execution_id, False):
                     for r in stage_results:
@@ -1202,6 +1234,7 @@ async def _run_workflow_background(
                         pdf_bytes=pdf_bytes, paper_s2_id=paper_s2_id, topic_query=topic_query,
                         paper_content=paper_content, rubric_standard=rubric_standard,
                         research_dossier=current_dossier,
+                        grobid_dict=grobid_dict,
                         progress_manager=progress_manager,
                         execution_id=exec_uuid,
                     )

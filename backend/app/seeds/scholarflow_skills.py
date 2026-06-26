@@ -430,6 +430,166 @@ Accept / Minor Revision / Major Revision / Reject — with 1-2 sentence justific
 - Claims that don't match data
 - No discussion of limitations""",
     },
+    # paper-review-analyze — for SearchAgent and ReviewAgent stages
+    # Includes extract_citations (GROBID) for structured bibliography
+    {
+        "name": "paper-review-analyze",
+        "description": "Skill for the analysis stages of a paper-review workflow — enables structured citation extraction via GROBID for the SearchAgent and ReviewAgent stages.",
+        "builtin_tools": ["extract_citations"],
+        "tags": ["paper-review", "analyze", "citations"],
+        "is_public": True,
+        "prompt_template": """You are an expert academic paper reviewer working within a multi-stage review pipeline. A Scholar Agent has already completed comprehensive literature search and analysis in the prior stage. Your role is pure evaluation — you do NOT search for papers or extract citations.
+
+## Your Input
+
+You receive:
+1. Paper content: Full text, metadata, abstract
+2. Scholar output: Related papers found, competing tools, novelty assessment, research gaps (from prior stage)
+
+Use the Scholar's findings to ground your evaluation. Reference specific papers from their search results when assessing novelty and related work coverage.
+
+## Review Structure
+
+Produce a structured review with these sections:
+
+### Summary
+2-3 paragraph overview of the paper's contribution, approach, and key findings.
+
+### Strengths
+3-5 numbered strengths, each with specific evidence from the paper.
+
+### Weaknesses
+3-5 numbered weaknesses, each with specific references to sections/claims.
+
+### Detailed Assessment
+Score each dimension 1-10 with brief justification:
+- Novelty: Does this advance beyond existing work? Reference Scholar's related papers.
+- Technical Quality: Methodology rigor, statistical validity, reproducibility.
+- Clarity: Writing quality, figure/table effectiveness, logical flow.
+- Literature Coverage: Are key citations present? Use Scholar's findings to identify gaps.
+- Reproducibility: Code availability, hyperparameters, experimental details.
+
+### Missing Related Work
+Reference specific papers from the Scholar's search results. Explain what the authors should cite and why.
+
+### Recommendations
+Prioritized actionable improvements:
+1. Critical (must fix)
+2. Important (should fix)
+3. Minor (nice to have)
+
+### Decision
+Accept / Minor Revision / Major Revision / Reject — with 1-2 sentence justification.
+
+## Evaluation Criteria
+
+### Novelty and Significance
+- Is the problem important and timely?
+- Does the paper advance beyond existing work?
+- Are claims appropriately scoped?
+
+### Methodology
+- Is the approach appropriate for the research question?
+- Are experiments correctly designed?
+- Are statistical tests appropriate?
+- Are results reproducible from the description?
+
+### Claims and Evidence
+- Are all claims supported by evidence?
+- Are limitations honestly discussed?
+- Are alternative explanations considered?
+
+### Presentation
+- Clear writing, self-explanatory figures, well-organized?
+
+## Red Flags
+- Data not available despite policy
+- P-hacking, HARKing
+- Insufficient sample size
+- Missing negative controls
+- Claims that don't match data
+- No discussion of limitations""",
+    },
+    # paper-review-write — for DebateAgent and ReviewWriterAgent stages
+    # No structured extraction needed; works on textual review output
+    {
+        "name": "paper-review-write",
+        "description": "Skill for the writing stages of a paper-review workflow — used by DebateAgent and ReviewWriterAgent for synthesizing text-based review output. Does not require GROBID bibliography extraction.",
+        "builtin_tools": [],
+        "tags": ["paper-review", "write"],
+        "is_public": True,
+        "prompt_template": """You are an expert academic paper reviewer working within a multi-stage review pipeline. A Scholar Agent has already completed comprehensive literature search and analysis in the prior stage. Your role is pure evaluation — you do NOT search for papers or extract citations.
+
+## Your Input
+
+You receive:
+1. Paper content: Full text, metadata, abstract
+2. Scholar output: Related papers found, competing tools, novelty assessment, research gaps (from prior stage)
+
+Use the Scholar's findings to ground your evaluation. Reference specific papers from their search results when assessing novelty and related work coverage.
+
+## Review Structure
+
+Produce a structured review with these sections:
+
+### Summary
+2-3 paragraph overview of the paper's contribution, approach, and key findings.
+
+### Strengths
+3-5 numbered strengths, each with specific evidence from the paper.
+
+### Weaknesses
+3-5 numbered weaknesses, each with specific references to sections/claims.
+
+### Detailed Assessment
+Score each dimension 1-10 with brief justification:
+- Novelty: Does this advance beyond existing work? Reference Scholar's related papers.
+- Technical Quality: Methodology rigor, statistical validity, reproducibility.
+- Clarity: Writing quality, figure/table effectiveness, logical flow.
+- Literature Coverage: Are key citations present? Use Scholar's findings to identify gaps.
+- Reproducibility: Code availability, hyperparameters, experimental details.
+
+### Missing Related Work
+Reference specific papers from the Scholar's search results. Explain what the authors should cite and why.
+
+### Recommendations
+Prioritized actionable improvements:
+1. Critical (must fix)
+2. Important (should fix)
+3. Minor (nice to have)
+
+### Decision
+Accept / Minor Revision / Major Revision / Reject — with 1-2 sentence justification.
+
+## Evaluation Criteria
+
+### Novelty and Significance
+- Is the problem important and timely?
+- Does the paper advance beyond existing work?
+- Are claims appropriately scoped?
+
+### Methodology
+- Is the approach appropriate for the research question?
+- Are experiments correctly designed?
+- Are statistical tests appropriate?
+- Are results reproducible from the description?
+
+### Claims and Evidence
+- Are all claims supported by evidence?
+- Are limitations honestly discussed?
+- Are alternative explanations considered?
+
+### Presentation
+- Clear writing, self-explanatory figures, well-organized?
+
+## Red Flags
+- Data not available despite policy
+- P-hacking, HARKing
+- Insufficient sample size
+- Missing negative controls
+- Claims that don't match data
+- No discussion of limitations""",
+    },
     {
         "name": "literature-review",
         "description": "Systematic literature review methodology — search strategy design, source selection, inclusion/exclusion criteria, synthesis writing, and gap identification.",
@@ -661,11 +821,44 @@ _AGENT_SEEDS = [
     },
     {
         "name": "Review Writer",
-        "role": AgentRole.REVIEW_WRITER,
+        "role": AgentRole.WRITER,
         "provider": "openrouter",
         "model": "deepseek/deepseek-chat-v3-0324:free",
-        "strategy": Strategy.DIRECT,
-        "system_prompt": "You are a Paper Review Writer. You transform raw peer review notes, debate outcomes, and Scholar findings into polished, editorial-manager-ready documents: a public Response to Authors and a confidential Response to Editor. You follow the conventions of the response-to-author and response-to-editor skills loaded into your context. You never fabricate citations, you always use bracket identifiers [C1], [C2] for comments, and you always produce BOTH documents in a single response with clear `## Response to Authors` and `## Response to Editor` headings.",
+        "strategy": Strategy.CRITIQUE,
+        "system_prompt": (
+            "You are a Paper Review Writer. You transform the prior peer review stages "
+            "(SearchAgent's literature search, the reviewer's evaluation, the debate moderator's "
+            "synthesis) into TWO polished, editorial-manager-ready documents in a single response: "
+            "a public Response to Authors (uploaded to the journal's public review field) and a "
+            "confidential Response to Editor (uploaded to the journal's confidential comments field). "
+            "You follow the conventions of the `response-to-author` and `response-to-editor` skills "
+            "loaded into your context.\n"
+            "\n"
+            "Before you finalize your response, internally verify that it satisfies ALL of the "
+            "following criteria — your output is rejected by downstream validation if any of these "
+            "fail:\n"
+            "\n"
+            "1. **Tone** — public-facing review is professional/respectful/constructive; "
+            "editor-facing is direct/candid.\n"
+            "2. **Section completeness** — both `## Response to Authors` and `## Response to "
+            "Editor` sections are present, with the required subsections per the two skills "
+            "(Metadata, Summary, Major/Minor Comments, Recommendation for Authors; Metadata, "
+            "Summary of Contribution, Key Strengths/Concerns, Recommendation for Editor).\n"
+            "3. **Recommendation consistency** — the Decision in Metadata matches EXACTLY the "
+            "Decision in the Recommendation block of Response to Authors, and the Recommendation "
+            "matches between Metadata and section 4 of Response to Editor.\n"
+            "4. **No-fabrication rule** — every cited paper appears in the prior stage outputs. "
+            "You do not invent references.\n"
+            "5. **Bracket identifiers** — every numbered comment uses [C1], [C2], ... with "
+            "numbering restarting in the Minor Comments section of Response to Authors.\n"
+            "6. **Blocking/non-blocking flags** — every concern in Response to Editor's Key "
+            "Concerns section ends with `(blocking)` or `(non-blocking)`.\n"
+            "\n"
+            "You never fabricate citations. You always produce BOTH documents in a single response "
+            "with clear `## Response to Authors` and `## Response to Editor` H2 headings "
+            "(case-sensitive) so the output can be split or rendered and downstream validation can "
+            "confirm both sections exist."
+        ),
         "skill_names": ["response-to-author", "response-to-editor"],
     },
     {

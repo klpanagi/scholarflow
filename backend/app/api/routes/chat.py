@@ -6,13 +6,13 @@ from io import BytesIO
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select, desc
+from sqlalchemy import delete, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import AsyncSessionLocal, get_db
 from app.core.security import get_current_user
-from app.models import ChatMessage, ChatSession, User
+from app.models import AgentConfig, ChatMessage, ChatSession, Paper, User, chat_session_assets_table
 from app.schemas import (
     ChatFileUploadResponse,
     ChatForkRequest,
@@ -95,18 +95,80 @@ async def create_session(
     db: AsyncSession = Depends(get_db),
 ):
     await _get_user(user_id, db)
+
+    # Validate the agent belongs to the user (G1)
+    agent_result = await db.execute(
+        select(AgentConfig).where(
+            AgentConfig.id == data.agent_config_id,
+            AgentConfig.user_id == user_id,
+        )
+    )
+    agent = agent_result.scalar_one_or_none()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent config not found")
+
+    # Enforce hard cap of 20 assets (R3)
+    if len(data.asset_ids) > 20:
+        raise HTTPException(
+            status_code=400,
+            detail="Maximum 20 assets per chat session",
+        )
+
+    # Validate assets (if any) belong to the user
+    if data.asset_ids:
+        assets_result = await db.execute(
+            select(Paper).where(
+                Paper.id.in_(data.asset_ids),
+                Paper.owner_id == user_id,
+            )
+        )
+        found = {a.id for a in assets_result.scalars().all()}
+        missing = [str(aid) for aid in data.asset_ids if aid not in found]
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Assets not found or not owned: {missing}",
+            )
+
     session = ChatSession(
         id=uuid.uuid4(),
         user_id=user_id,
         title=data.title,
-        model=data.model,
-        provider=data.provider,
+        model=agent.model,                  # copy from agent — agent wins
+        provider=agent.provider,
         system_prompt=data.system_prompt,
+        agent_config_id=agent.id,
     )
     db.add(session)
+
+    if data.asset_ids:
+        # Insert join rows directly (cheaper than loading Paper objects)
+        await db.flush()
+        for aid in data.asset_ids:
+            await db.execute(
+                chat_session_assets_table.insert().values(
+                    chat_session_id=session.id,
+                    asset_id=aid,
+                )
+            )
+
     await db.commit()
     await db.refresh(session)
-    return session
+
+    # Re-load with attached_assets so the response includes asset_ids
+    result = await db.execute(
+        select(ChatSession)
+        .options(selectinload(ChatSession.attached_assets))
+        .where(ChatSession.id == session.id)
+    )
+    loaded = result.scalar_one()
+    return ChatSessionResponse(
+        id=loaded.id, title=loaded.title, model=loaded.model,
+        provider=loaded.provider, system_prompt=loaded.system_prompt,
+        agent_config_id=loaded.agent_config_id,
+        asset_ids=[a.id for a in loaded.attached_assets],
+        created_at=loaded.created_at, updated_at=loaded.updated_at,
+    )
 
 
 @router.get("/sessions", response_model=list[ChatSessionResponse])
@@ -116,10 +178,21 @@ async def list_sessions(
 ):
     result = await db.execute(
         select(ChatSession)
+        .options(selectinload(ChatSession.attached_assets))
         .where(ChatSession.user_id == user_id)
         .order_by(desc(ChatSession.updated_at))
     )
-    return result.scalars().all()
+    sessions = result.scalars().all()
+    return [
+        ChatSessionResponse(
+            id=s.id, title=s.title, model=s.model, provider=s.provider,
+            system_prompt=s.system_prompt,
+            agent_config_id=s.agent_config_id,
+            asset_ids=[a.id for a in s.attached_assets],
+            created_at=s.created_at, updated_at=s.updated_at,
+        )
+        for s in sessions
+    ]
 
 
 @router.get("/sessions/{session_id}", response_model=ChatSessionResponse)
@@ -129,14 +202,22 @@ async def get_session(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(ChatSession).where(
+        select(ChatSession)
+        .options(selectinload(ChatSession.attached_assets))
+        .where(
             ChatSession.id == session_id, ChatSession.user_id == user_id
         )
     )
     session = result.scalar_one_or_none()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    return session
+    return ChatSessionResponse(
+        id=session.id, title=session.title, model=session.model,
+        provider=session.provider, system_prompt=session.system_prompt,
+        agent_config_id=session.agent_config_id,
+        asset_ids=[a.id for a in session.attached_assets],
+        created_at=session.created_at, updated_at=session.updated_at,
+    )
 
 
 @router.patch("/sessions/{session_id}", response_model=ChatSessionResponse)
@@ -162,6 +243,19 @@ async def update_session(
         session.provider = data.provider
     if data.system_prompt is not None:
         session.system_prompt = data.system_prompt
+    if data.agent_config_id is not None:
+        agent_result = await db.execute(
+            select(AgentConfig).where(
+                AgentConfig.id == data.agent_config_id,
+                AgentConfig.user_id == user_id,
+            )
+        )
+        agent = agent_result.scalar_one_or_none()
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent config not found")
+        session.agent_config_id = agent.id
+        session.model = agent.model
+        session.provider = agent.provider
     session.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(session)
@@ -185,6 +279,24 @@ async def delete_session(
     await db.delete(session)
     await db.commit()
     return {"ok": True}
+
+
+@router.delete("/sessions")
+async def delete_all_sessions(
+    user_id: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete every chat session owned by the current user in a single transaction.
+
+    Used by the frontend "Clear all conversations" action. Returns the number of
+    sessions that were deleted so the UI can give an accurate success message.
+    """
+    result = await db.execute(
+        delete(ChatSession).where(ChatSession.user_id == user_id)
+    )
+    deleted = result.rowcount or 0
+    await db.commit()
+    return {"deleted": deleted}
 
 
 @router.get(
@@ -250,15 +362,20 @@ async def stream_chat(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    # Load session + agent + assets in one go
     result = await db.execute(
         select(ChatSession)
+        .options(
+            selectinload(ChatSession.attached_assets),
+            selectinload(ChatSession.agent_config).selectinload(AgentConfig.skills),
+        )
         .where(ChatSession.id == session_id, ChatSession.user_id == user_id)
-        .options(selectinload(ChatSession.messages))
     )
     session = result.scalar_one_or_none()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    # Persist user message first (unchanged)
     user_msg = ChatMessage(
         id=uuid.uuid4(),
         session_id=session_id,
@@ -269,29 +386,41 @@ async def stream_chat(
     db.add(user_msg)
     await db.flush()
 
-    history_result = await db.execute(
+    # Build the message array
+    history = await db.execute(
         select(ChatMessage)
         .where(ChatMessage.session_id == session_id)
         .order_by(ChatMessage.timestamp)
     )
-    messages = []
+    messages: list[dict] = []
     if session.system_prompt:
         messages.append({"role": "system", "content": session.system_prompt})
-    for m in history_result.scalars().all():
+
+    # D6: inject attached assets as a system message prefix per-request
+    if session.attached_assets:
+        asset_ctx = _build_asset_context(session.attached_assets)
+        if asset_ctx:
+            messages.append({"role": "system", "content": asset_ctx})
+
+    for m in history.scalars().all():
         messages.append({"role": m.role, "content": m.content})
 
     session.updated_at = datetime.now(timezone.utc)
     await db.commit()
 
-    provider = session.provider
-    model = session.model
-
     async def event_stream():
         full_response = ""
         try:
-            async for chunk in _stream_completion(messages, model, provider):
-                full_response += chunk
-                yield f"data: {json.dumps({'type': 'token', 'content': chunk})}\n\n"
+            if session.agent_config is not None:
+                # D4: ONE agent per chat, dispatched through the registry
+                async for chunk in _stream_via_agent(session, messages, data.content):
+                    full_response += chunk
+                    yield f"data: {json.dumps({'type': 'token', 'content': chunk})}\n\n"
+            else:
+                # D7 fallback: legacy session without agent -> generic LLM call
+                async for chunk in _stream_completion(messages, session.model, session.provider):
+                    full_response += chunk
+                    yield f"data: {json.dumps({'type': 'token', 'content': chunk})}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
             return
@@ -309,6 +438,76 @@ async def stream_chat(
         yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+def _build_asset_context(assets: list[Paper]) -> str:
+    """Format attached assets for the LLM. Truncates per-asset to keep token budget sane."""
+    parts: list[str] = [
+        "The user has attached the following documents for context."
+        " Use them when relevant, but do not fabricate details not present in the documents.\n"
+    ]
+    for i, a in enumerate(assets, start=1):
+        abstract = (a.abstract or "").strip()
+        if len(abstract) > 1500:
+            abstract = abstract[:1500] + "..."
+        parts.append(
+            f"[{i}] {a.title}"
+            + (f" -- {', '.join((a.authors or [])[:3])}" if a.authors else "")
+            + (f" ({a.year})" if a.year else "")
+            + (f"\n    {abstract}" if abstract else "")
+        )
+    return "\n".join(parts)
+
+
+async def _stream_via_agent(
+    session: ChatSession, messages: list[dict], user_text: str
+):
+    """Dispatch through the agent registry. Yields raw text chunks."""
+    from app.agents.factory import create_agent
+    from app.tools import get_tools_by_names
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    agent_cfg = session.agent_config
+    skill_tools: list[str] = list(agent_cfg.tools or [])
+    skill_prompts: list[str] = []
+    for sk in agent_cfg.skills:
+        if sk.prompt_template:
+            skill_prompts.append(sk.prompt_template)
+        if sk.builtin_tools:
+            skill_tools.extend(sk.builtin_tools)
+
+    system_prompt = agent_cfg.system_prompt
+    if skill_prompts:
+        system_prompt = "\n\n".join(filter(None, [system_prompt] + skill_prompts))
+
+    resolved_tools = get_tools_by_names(skill_tools) if skill_tools else []
+
+    agent = create_agent(
+        agent_type=agent_cfg.role.value,
+        model=agent_cfg.model,
+        provider=agent_cfg.provider,
+        strategy=agent_cfg.strategy.value if hasattr(agent_cfg.strategy, "value") else agent_cfg.strategy,
+        system_prompt=system_prompt,
+        tools=resolved_tools,
+        temperature=agent_cfg.temperature,
+        max_tokens=agent_cfg.max_tokens,
+        variant=agent_cfg.variant.value if hasattr(agent_cfg.variant, "value") else agent_cfg.variant,
+    )
+
+    lc_messages = []
+    for m in messages:
+        if m["role"] == "system":
+            lc_messages.append(SystemMessage(content=m["content"]))
+        elif m["role"] == "user":
+            lc_messages.append(HumanMessage(content=m["content"]))
+        # assistant/tool messages in history are ignored for v1; agent builds its own
+
+    result = await agent.run(messages=lc_messages, context={}, thread_id=str(session.id))
+    output = result.get("output", "")
+    # Yield in small chunks to mimic streaming UX (agents don't stream by default)
+    chunk_size = 32
+    for i in range(0, len(output), chunk_size):
+        yield output[i : i + chunk_size]
 
 
 @router.post("/sessions/{session_id}/fork", response_model=ChatSessionResponse)
@@ -355,6 +554,7 @@ async def fork_session(
         model=original.model,
         provider=original.provider,
         system_prompt=original.system_prompt,
+        agent_config_id=original.agent_config_id,
     )
     db.add(new_session)
     await db.flush()
@@ -375,9 +575,30 @@ async def fork_session(
         )
         db.add(new_msg)
 
+    # Copy attached assets from original session
+    if original.attached_assets:
+        for asset in original.attached_assets:
+            await db.execute(
+                chat_session_assets_table.insert().values(
+                    chat_session_id=new_session.id,
+                    asset_id=asset.id,
+                )
+            )
     await db.commit()
-    await db.refresh(new_session)
-    return new_session
+    # Re-load with attached_assets so the response includes asset_ids
+    result = await db.execute(
+        select(ChatSession)
+        .options(selectinload(ChatSession.attached_assets))
+        .where(ChatSession.id == new_session.id)
+    )
+    loaded = result.scalar_one()
+    return ChatSessionResponse(
+        id=loaded.id, title=loaded.title, model=loaded.model,
+        provider=loaded.provider, system_prompt=loaded.system_prompt,
+        agent_config_id=loaded.agent_config_id,
+        asset_ids=[a.id for a in loaded.attached_assets],
+        created_at=loaded.created_at, updated_at=loaded.updated_at,
+    )
 
 
 @router.post(

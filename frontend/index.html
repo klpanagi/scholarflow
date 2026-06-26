@@ -4,7 +4,41 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="preconnect" href="http://localhost:8000" crossorigin />
     <title>ScholarFlow</title>
+    <script>
+      // FOUC prevention: apply data-theme before React mounts.
+      // Must run synchronously — no defer/async.
+      (function () {
+        try {
+          var THEMES = [
+            "dark-navy",
+            "light",
+            "nord",
+            "dracula",
+            "ocean",
+            "forest",
+            "sunset",
+            "rose",
+          ];
+          var DEFAULT = "dark-navy";
+          var stored = localStorage.getItem("scholarflow-theme");
+          var theme;
+          if (stored && THEMES.indexOf(stored) !== -1) {
+            theme = stored;
+          } else if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+            theme = "dark-navy";
+          } else if (window.matchMedia("(prefers-color-scheme: light)").matches) {
+            theme = "light";
+          } else {
+            theme = DEFAULT;
+          }
+          document.documentElement.setAttribute("data-theme", theme);
+        } catch (_) {
+          document.documentElement.setAttribute("data-theme", "dark-navy");
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

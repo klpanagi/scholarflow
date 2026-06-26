@@ -3,8 +3,8 @@ from app.agents.search_agent import SearchAgent
 from app.agents.writing_agent import WritingAgent
 from app.agents.recommendation_agent import RecommendationAgent
 from app.agents.review_agent import ReviewAgent
-from app.agents.review_writer_agent import ReviewWriterAgent
 from app.agents.review_pipeline import DeepReviewAgent
+from app.agents.factory import AGENT_REGISTRY
 
 __all__ = [
     "BaseAgent",
@@ -12,6 +12,6 @@ __all__ = [
     "WritingAgent",
     "RecommendationAgent",
     "ReviewAgent",
-    "ReviewWriterAgent",
     "DeepReviewAgent",
+    "AGENT_REGISTRY",
 ]

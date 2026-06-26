@@ -1,30 +1,47 @@
+import { useMemo } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Link } from "react-router-dom"
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  BarChart,
+  Bar,
+  Legend,
+} from "recharts"
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAuthStore } from "@/stores/auth"
-import { HealthIndicator } from "@/components/HealthStatus"
 import { api } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import {
   FileText,
-  Search,
+  Workflow,
   MessageSquare,
+  Library,
+  Search,
   Upload,
-  Tag,
   Sparkles,
   ArrowRight,
-  Calendar,
   Clock,
-  Workflow,
-  ChevronRight,
-  Library,
   Activity,
+  TrendingUp,
+  PieChartIcon,
+  BarChart3,
 } from "lucide-react"
 
-// ----- Types -----
+// ========================================================================
+// Types
+// ========================================================================
 
 interface DashboardStats {
   assets_count: number
@@ -99,7 +116,32 @@ interface ActivityItem {
   description?: string
 }
 
-// ----- Helpers -----
+// ========================================================================
+// Constants
+// ========================================================================
+
+const CHART_COLORS = {
+  gold: "#d4a574",
+  goldLight: "#eec85e",
+  goldDark: "#b8864a",
+  amber: "#f59e0b",
+  emerald: "#10b981",
+  navy: "#475569",
+  rose: "#f43f5e",
+  navyLight: "#64748b",
+}
+
+const PIE_COLORS = [
+  CHART_COLORS.gold,
+  CHART_COLORS.emerald,
+  CHART_COLORS.amber,
+  CHART_COLORS.rose,
+  CHART_COLORS.navy,
+]
+
+// ========================================================================
+// Helpers
+// ========================================================================
 
 function getGreeting(): string {
   const hour = new Date().getHours()
@@ -130,7 +172,41 @@ function todayFormatted(): string {
   })
 }
 
-// ----- Component -----
+// ========================================================================
+// Custom Chart Tooltips
+// ========================================================================
+
+function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ name?: string; value?: number; color?: string }>; label?: string | number }) {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="rounded-lg border border-primary/20 bg-card/90 px-4 py-3 shadow-xl backdrop-blur-xl">
+      <p className="mb-1 text-xs font-medium text-muted-foreground">{label}</p>
+      {payload.map((entry, idx) => (
+        <p key={idx} className="text-sm font-semibold" style={{ color: entry.color }}>
+          {entry.name ?? "Value"}: {entry.value}
+        </p>
+      ))}
+    </div>
+  )
+}
+
+function PieTooltip({ active, payload }: { active?: boolean; payload?: Array<{ name?: string; value?: number; color?: string }> }) {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="rounded-lg border border-primary/20 bg-card/90 px-4 py-3 shadow-xl backdrop-blur-xl">
+      <p className="mb-1 text-xs font-medium text-muted-foreground">Papers</p>
+      {payload.map((entry, idx) => (
+        <p key={idx} className="text-sm font-semibold" style={{ color: entry.color }}>
+          {entry.name ?? "Value"}: {entry.value}
+        </p>
+      ))}
+    </div>
+  )
+}
+
+// ========================================================================
+// Main Component
+// ========================================================================
 
 export default function DashboardPage() {
   const { user } = useAuthStore()
@@ -145,384 +221,524 @@ export default function DashboardPage() {
     retry: 1,
   })
 
-  // Quick action definitions
-  const quickActions = [
-    {
-      icon: Search,
-      title: "Search Assets",
-      description: "AI-powered asset discovery",
-      href: "/assets?tab=search",
-      color: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
-    },
-    {
-      icon: Upload,
-      title: "Upload Asset",
-      description: "Upload & analyze research",
-      href: "/assets?tab=upload",
-      color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-    },
-    {
-      icon: Sparkles,
-      title: "AI Agents",
-      description: "Run specialized agents",
-      href: "/cult",
-      color: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-    },
-    {
-      icon: MessageSquare,
-      title: "New Conversation",
-      description: "Start a research chat",
-      href: "/workspaces/new",
-      color: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
-    },
-  ]
+  // ----- Derived chart data -----
 
-  // KPI card definitions
-  const kpiCards = [
+  const activityData = useMemo(() => {
+    return stats?.monthly_activity?.slice(-7) ?? []
+  }, [stats])
+
+  const statusDistribution = useMemo(() => {
+    if (!stats?.recent_executions?.length) {
+      return [
+        { name: "Completed", value: 0 },
+        { name: "Running", value: 0 },
+        { name: "Failed", value: 0 },
+        { name: "Pending", value: 0 },
+      ]
+    }
+    const counts: Record<string, number> = {}
+    stats.recent_executions.forEach((exec) => {
+      const status = exec.status.toLowerCase()
+      counts[status] = (counts[status] || 0) + 1
+    })
+    return Object.entries(counts).map(([name, value]) => ({
+      name: name.charAt(0).toUpperCase() + name.slice(1),
+      value,
+    }))
+  }, [stats])
+
+  const workflowBarData = useMemo(() => {
+    return stats?.monthly_activity?.slice(-8) ?? []
+  }, [stats])
+
+  // ----- Activity feed -----
+
+  const activityItems: ActivityItem[] = useMemo(() => {
+    const recentAssets = stats?.recent_assets ?? []
+    const recentSessions = stats?.recent_sessions ?? []
+    const recentConversations = stats?.recent_ws_conversations ?? []
+    const recentExecutions = stats?.recent_executions ?? []
+
+    const items: ActivityItem[] = [
+      ...recentAssets.map((a) => ({
+        id: `asset-${a.id}`,
+        type: "asset" as const,
+        title: a.title,
+        timestamp: a.created_at,
+        description: a.doc_type,
+      })),
+      ...recentSessions.map((s) => ({
+        id: `session-${s.id}`,
+        type: "conversation" as const,
+        title: s.title || "Untitled chat",
+        timestamp: s.updated_at,
+        description: "Chat session",
+      })),
+      ...recentConversations.map((c) => ({
+        id: `conv-${c.id}`,
+        type: "conversation" as const,
+        title: c.title || "Untitled conversation",
+        timestamp: c.updated_at,
+        description: "Workspace conversation",
+      })),
+      ...recentExecutions.map((e) => ({
+        id: `exec-${e.id}`,
+        type: "execution" as const,
+        title: `Workflow execution (${e.status})`,
+        timestamp: e.created_at,
+        description: `Status: ${e.status}`,
+      })),
+    ]
+    return items
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      .slice(0, 8)
+  }, [stats])
+
+  // ----- Metrics -----
+
+  const metrics = [
     {
-      label: "Assets",
-      key: "assets_count" as const,
+      label: "Papers",
+      value: stats?.assets_count ?? 0,
       icon: FileText,
-      color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
       href: "/assets",
-    },
-    {
-      label: "Conversations",
-      key: "conversations_count" as const,
-      icon: MessageSquare,
-      color: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
-      href: "/workspaces",
+      suffix: "total papers",
     },
     {
       label: "Workflows",
-      key: "agents_count" as const,
+      value: stats?.workflow_executions_count ?? 0,
       icon: Workflow,
-      color: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
       href: "/workflows",
+      suffix: `active / ${stats?.agents_count ?? 0} total`,
     },
     {
-      label: "Workspaces",
-      key: "workspaces_count" as const,
-      icon: Library,
-      color: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
+      label: "Reviews",
+      value: stats?.conversations_count ?? 0,
+      icon: MessageSquare,
       href: "/workspaces",
+      suffix: "completed reviews",
+    },
+    {
+      label: "Citations",
+      value: stats?.workspaces_count ?? 0,
+      icon: Library,
+      href: "/workspaces",
+      suffix: "tracked citations",
     },
   ]
 
-  // Build activity feed from all data sources
-  const recentAssets = stats?.recent_assets ?? []
-  const recentSessions = stats?.recent_sessions ?? []
-  const recentConversations = stats?.recent_ws_conversations ?? []
-  const recentExecutions = stats?.recent_executions ?? []
+  // ----- Quick actions -----
 
-  const activityItems: ActivityItem[] = [
-    ...recentAssets.map((a) => ({
-      id: `asset-${a.id}`,
-      type: "asset" as const,
-      title: a.title,
-      timestamp: a.created_at,
-      description: a.doc_type,
-    })),
-    ...recentSessions.map((s) => ({
-      id: `session-${s.id}`,
-      type: "conversation" as const,
-      title: s.title || "Untitled chat",
-      timestamp: s.updated_at,
-      description: "Chat session",
-    })),
-    ...recentConversations.map((c) => ({
-      id: `conv-${c.id}`,
-      type: "conversation" as const,
-      title: c.title || "Untitled conversation",
-      timestamp: c.updated_at,
-      description: "Workspace conversation",
-    })),
-    ...recentExecutions.map((e) => ({
-      id: `exec-${e.id}`,
-      type: "execution" as const,
-      title: `Workflow execution (${e.status})`,
-      timestamp: e.created_at,
-      description: `Status: ${e.status}`,
-    })),
+  const quickActions = [
+    {
+      icon: Search,
+      label: "New Search",
+      description: "AI-powered literature search",
+      href: "/assets?action=search",
+      variant: "default" as const,
+    },
+    {
+      icon: Workflow,
+      label: "New Workflow",
+      description: "Create analysis workflow",
+      href: "/workflows?action=new",
+      variant: "default" as const,
+    },
+    {
+      icon: Upload,
+      label: "Upload Paper",
+      description: "Add paper to your library",
+      href: "/assets?action=upload",
+      variant: "secondary" as const,
+    },
+    {
+      icon: Library,
+      label: "View All",
+      description: "Browse your research assets",
+      href: "/assets",
+      variant: "secondary" as const,
+    },
   ]
-    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-    .slice(0, 8)
+
+  // ========================================================================
+  // Loading State
+  // ========================================================================
+
+  if (statsLoading) {
+    return (
+      <div className="space-y-6 animate-in fade-in duration-500">
+        <div className="rounded-xl border border-border bg-card p-8">
+          <Skeleton className="mb-2 h-9 w-72" />
+          <Skeleton className="mb-6 h-4 w-48" />
+          <div className="mt-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="rounded-lg border border-border bg-card/80 p-5">
+                <Skeleton className="mb-3 h-4 w-16" />
+                <Skeleton className="mb-1 h-9 w-20" />
+                <Skeleton className="h-3 w-24" />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="rounded-lg border border-border bg-card p-6">
+              <Skeleton className="mb-4 h-5 w-32" />
+              <Skeleton className="mb-2 h-48 w-full rounded-lg" />
+            </div>
+          ))}
+        </div>
+
+        <div className="rounded-lg border border-border bg-card p-6">
+          <Skeleton className="mb-4 h-5 w-36" />
+          <div className="space-y-3">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="flex items-center gap-3">
+                <Skeleton className="h-8 w-8 shrink-0 rounded-full" />
+                <div className="flex-1">
+                  <Skeleton className="mb-1 h-4 w-48" />
+                  <Skeleton className="h-3 w-32" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ========================================================================
+  // Rendered Content
+  // ========================================================================
 
   return (
-    <div className="container mx-auto px-4 py-8 space-y-8">
-      {/* ----- Hero Banner ----- */}
-      <section className="relative overflow-hidden rounded-xl bg-gradient-to-br from-primary/10 via-background to-primary/5 border p-8">
+    <div className="space-y-8 animate-in fade-in duration-500">
+      {/* ================================================================= */}
+      {/* Hero Section — Greeting + Metric Cards                            */}
+      {/* ================================================================= */}
+      <section className="relative overflow-hidden rounded-xl border border-primary/10 bg-gradient-to-br from-background via-card to-background p-8">
         <div
           aria-hidden="true"
-          className="absolute top-0 right-0 w-72 h-72 bg-primary/5 rounded-full -translate-y-1/2 translate-x-1/3 blur-3xl pointer-events-none"
+          className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-primary/5 blur-3xl"
         />
         <div
           aria-hidden="true"
-          className="absolute bottom-0 left-0 w-56 h-56 bg-amber-500/5 rounded-full translate-y-1/2 -translate-x-1/3 blur-3xl pointer-events-none"
+          className="pointer-events-none absolute -bottom-20 -left-20 h-48 w-48 rounded-full bg-primary/5 blur-3xl"
         />
-        <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="space-y-2">
-            <h1 className="text-3xl font-bold tracking-tight">
-              {getGreeting()}, {user?.name?.split(" ")[0] || "Researcher"}
-              <span className="text-muted-foreground">.</span>
-            </h1>
-            <p className="text-muted-foreground flex items-center gap-2 text-sm">
-              <Calendar className="h-4 w-4" />
-              {todayFormatted()}
-            </p>
-            <p className="text-sm text-muted-foreground/80">
-              {stats
-                ? `${stats.assets_count} assets across ${stats.workspaces_count} workspaces`
-                : "Your academic research hub"}
-            </p>
-          </div>
-          <Button size="lg" className="gap-2 shadow-sm shrink-0" asChild>
-            <Link to="/assets?tab=search">
-              <Sparkles className="h-5 w-5" />
-              Start Research
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-          </Button>
-        </div>
-      </section>
 
-      {/* ----- KPI Stats Row ----- */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {statsLoading
-          ? [1, 2, 3, 4].map((i) => (
-              <Card key={i}>
-                <CardContent className="pt-6">
-                  <div className="flex items-start justify-between mb-3">
-                    <Skeleton className="h-4 w-16" />
-                    <Skeleton className="h-8 w-8 rounded-lg" />
-                  </div>
-                  <Skeleton className="h-8 w-20 mb-1" />
-                  <Skeleton className="h-3 w-24" />
-                </CardContent>
-              </Card>
-            ))
-          : kpiCards.map((card) => {
-              const Icon = card.icon
-              const value = stats?.[card.key] ?? 0
-              return (
-                <Link key={card.key} to={card.href} className="group">
-                  <Card className="transition-all duration-200 group-hover:shadow-md group-hover:-translate-y-0.5">
-                    <CardContent className="pt-6">
-                      <div className="flex items-start justify-between mb-3">
-                        <span className="text-sm font-medium text-muted-foreground">
-                          {card.label}
-                        </span>
-                        <div className={cn("p-2 rounded-lg", card.color)}>
-                          <Icon className="h-4 w-4" />
-                        </div>
-                      </div>
-                      <div className="text-3xl font-bold tracking-tight">{value}</div>
-                      <p className="text-xs text-muted-foreground mt-1">Total {card.label.toLowerCase()}</p>
-                    </CardContent>
-                  </Card>
-                </Link>
-              )
-            })}
-      </div>
-
-      {/* ----- Two-Column Layout ----- */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left: Recent Assets */}
-        <div className="lg:col-span-7 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold flex items-center gap-2">
-              <FileText className="h-5 w-5 text-muted-foreground" />
-              Recent Assets
-            </h2>
-            <Button variant="ghost" size="sm" asChild>
-              <Link to="/assets" className="gap-1">
-                View all <ChevronRight className="h-4 w-4" />
+        <div className="relative">
+          <div className="mb-8 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h1 className="font-display text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+                {getGreeting()}, {user?.name?.split(" ")[0] || "Researcher"}
+                <span className="text-primary">.</span>
+              </h1>
+              <div className="mt-2 h-0.5 w-16 rounded-full bg-primary/60" />
+              <p className="mt-3 text-sm text-muted-foreground">
+                Here&apos;s your research overview &mdash; {todayFormatted()}
+              </p>
+            </div>
+            <Button
+              size="lg"
+              className="gap-2 border-primary/30 bg-primary/10 text-primary shadow-sm backdrop-blur-sm hover:bg-primary/20 hover:text-primary"
+              asChild
+            >
+              <Link to="/assets?action=search">
+                <Sparkles className="h-5 w-5" />
+                Start Research
+                <ArrowRight className="h-4 w-4" />
               </Link>
             </Button>
           </div>
 
-          {statsLoading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {[1, 2, 3, 4].map((i) => (
-                <Card key={i}>
-                  <CardContent className="pt-4">
-                    <Skeleton className="h-4 w-16 mb-2" />
-                    <Skeleton className="h-5 w-full mb-2" />
-                    <Skeleton className="h-4 w-3/4 mb-2" />
-                    <div className="flex gap-2 mt-2">
-                      <Skeleton className="h-5 w-16" />
-                      <Skeleton className="h-5 w-20" />
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          ) : recentAssets.length === 0 ? (
-            <Card>
-              <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-                <div className="p-4 rounded-full bg-primary/5 mb-4">
-                  <FileText className="h-8 w-8 text-muted-foreground" />
-                </div>
-                <h3 className="font-medium mb-1">No assets yet</h3>
-                <p className="text-sm text-muted-foreground mb-4 max-w-xs">
-                  Upload your first research asset to get started with AI-powered analysis
-                </p>
-                <Button variant="outline" size="sm" asChild>
-                  <Link to="/assets?tab=upload">
-                    <Upload className="h-4 w-4 mr-2" />
-                    Upload Asset
-                  </Link>
-                </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {recentAssets.map((asset) => (
-                <Link key={asset.id} to="/assets" className="group">
-                  <Card className="h-full transition-all duration-200 group-hover:shadow-md group-hover:-translate-y-0.5">
-                    <CardContent className="pt-4 flex flex-col h-full">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                          {asset.doc_type}
-                        </Badge>
-                        {asset.year && (
-                          <span className="text-[10px] text-muted-foreground">{asset.year}</span>
-                        )}
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            {metrics.map((metric) => {
+              const MetricIcon = metric.icon
+              return (
+                <Link key={metric.label} to={metric.href} className="group">
+                  <div className="rounded-lg border border-border bg-card/40 p-5 backdrop-blur-sm transition-all duration-300 group-hover:border-primary/30 group-hover:bg-card/60 group-hover:shadow-lg group-hover:shadow-primary/5">
+                    <div className="mb-3 flex items-center justify-between">
+                      <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                        {metric.label}
+                      </span>
+                      <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 text-primary">
+                        <MetricIcon className="h-4 w-4" />
                       </div>
-                      <h3 className="font-medium text-sm leading-snug line-clamp-2 mb-1 flex-1">
-                        {asset.title}
-                      </h3>
-                      {asset.authors && asset.authors.length > 0 && (
-                        <p className="text-xs text-muted-foreground line-clamp-1 mb-2">
-                          {asset.authors.join(", ")}
-                        </p>
-                      )}
-                      {(asset.analysis?.field_of_study || asset.analysis?.subfield) && (
-                        <div className="flex flex-wrap gap-1 mb-1.5">
-                          {asset.analysis?.field_of_study && (
-                            <Badge variant="default" className="text-[10px] px-1.5 py-0">
-                              {asset.analysis.field_of_study}
-                            </Badge>
-                          )}
-                          {asset.analysis?.subfield && (
-                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                              {asset.analysis.subfield}
-                            </Badge>
-                          )}
-                        </div>
-                      )}
-                      {asset.tags && asset.tags.length > 0 && (
-                        <div className="flex flex-wrap gap-1">
-                          {asset.tags.slice(0, 2).map((tag, i) => (
-                            <Badge
-                              key={i}
-                              variant="outline"
-                              className="text-[10px] px-1.5 py-0 flex items-center gap-0.5"
-                            >
-                              <Tag className="h-2.5 w-2.5" />
-                              {tag}
-                            </Badge>
-                          ))}
-                          {asset.tags.length > 2 && (
-                            <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                              +{asset.tags.length - 2}
-                            </Badge>
-                          )}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
+                    </div>
+                    <div className="font-display text-3xl font-semibold text-primary">
+                      {metric.value}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">{metric.suffix}</p>
+                  </div>
                 </Link>
-              ))}
-            </div>
-          )}
+              )
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* ================================================================= */}
+      {/* Quick Actions Row                                                */}
+      {/* ================================================================= */}
+      <section>
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          {quickActions.map((action) => {
+            const ActionIcon = action.icon
+            return (
+              <Link key={action.label} to={action.href}>
+                <Button
+                  variant={action.variant}
+                  className={cn(
+                    "h-auto w-full flex-col items-start gap-2 p-5 text-left",
+                    action.variant === "default"
+                      ? "border-primary/20 bg-primary/10 text-primary hover:bg-primary/20"
+                      : "border-border bg-card/40 text-foreground hover:bg-muted",
+                  )}
+                >
+                  <div className="flex w-full items-center justify-between">
+                    <ActionIcon className="h-5 w-5 shrink-0" />
+                    <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                  </div>
+                  <div>
+                    <span className="block text-sm font-semibold">{action.label}</span>
+                    <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                      {action.description}
+                    </span>
+                  </div>
+                </Button>
+              </Link>
+            )
+          })}
+        </div>
+      </section>
+
+      {/* ================================================================= */}
+      {/* Charts Section                                                   */}
+      {/* ================================================================= */}
+      <section>
+        <div className="mb-4 flex items-center gap-2">
+          <Activity className="h-5 w-5 text-primary" />
+          <h2 className="font-display text-xl font-semibold text-foreground">Analytics</h2>
+          <div className="ml-2 h-px flex-1 bg-gradient-to-r from-primary/20 to-transparent" />
         </div>
 
-        {/* Right: Health + Quick Actions */}
-        <div className="lg:col-span-5 space-y-6">
-          <HealthIndicator variant="compact" />
-
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-amber-500" />
-                Quick Actions
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+          <Card className="border-border bg-card/30 backdrop-blur-sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <TrendingUp className="h-4 w-4 text-primary" />
+                Activity Over Time
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-1">
-              {quickActions.map((action) => {
-                const ActionIcon = action.icon
-                return (
-                  <Link
-                    key={action.title}
-                    to={action.href}
-                    className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors group"
-                  >
-                    <div className={cn("p-2 rounded-lg shrink-0", action.color)}>
-                      <ActionIcon className="h-4 w-4" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium">{action.title}</p>
-                      <p className="text-xs text-muted-foreground">{action.description}</p>
-                    </div>
-                    <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
-                  </Link>
-                )
-              })}
+            <CardContent>
+              {activityData.length > 0 ? (
+                <div className="h-56">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={activityData} margin={{ top: 5, right: 5, bottom: 5, left: -10 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" strokeOpacity={0.5} />
+                      <XAxis
+                        dataKey="label"
+                        tick={{ fill: "#94a3b8", fontSize: 11 }}
+                        axisLine={{ stroke: "#334155" }}
+                        tickLine={false}
+                      />
+                      <YAxis
+                        tick={{ fill: "#94a3b8", fontSize: 11 }}
+                        axisLine={false}
+                        tickLine={false}
+                        allowDecimals={false}
+                      />
+                      <Tooltip content={<ChartTooltip />} />
+                      <Line
+                        type="monotone"
+                        dataKey="count"
+                        stroke={CHART_COLORS.gold}
+                        strokeWidth={2}
+                        dot={{ fill: CHART_COLORS.gold, strokeWidth: 2, r: 3 }}
+                        activeDot={{ fill: CHART_COLORS.goldLight, strokeWidth: 2, r: 5 }}
+                        fillOpacity={0.15}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="flex h-56 flex-col items-center justify-center text-muted-foreground">
+                  <TrendingUp className="mb-2 h-8 w-8" />
+                  <p className="text-xs">No activity data yet</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="border-border bg-card/30 backdrop-blur-sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <PieChartIcon className="h-4 w-4 text-primary" />
+                Workflow Status
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {statusDistribution.some((d) => d.value > 0) ? (
+                <div className="h-56">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={statusDistribution}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={45}
+                        outerRadius={80}
+                        paddingAngle={3}
+                        dataKey="value"
+                        stroke="none"
+                      >
+                        {statusDistribution.map((entry, idx) => (
+                          <Cell
+                            key={entry.name}
+                            fill={PIE_COLORS[idx % PIE_COLORS.length]}
+                          />
+                        ))}
+                      </Pie>
+                      <Tooltip content={<PieTooltip />} />
+                      <Legend
+                        wrapperStyle={{ fontSize: 11, color: "#94a3b8" }}
+                        iconType="circle"
+                        iconSize={8}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="flex h-56 flex-col items-center justify-center text-muted-foreground">
+                  <PieChartIcon className="mb-2 h-8 w-8" />
+                  <p className="text-xs">No execution data yet</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="border-border bg-card/30 backdrop-blur-sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <BarChart3 className="h-4 w-4 text-primary" />
+                Workflows per Period
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {workflowBarData.length > 0 ? (
+                <div className="h-56">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={workflowBarData} margin={{ top: 5, right: 5, bottom: 5, left: -10 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" strokeOpacity={0.5} />
+                      <XAxis
+                        dataKey="label"
+                        tick={{ fill: "#94a3b8", fontSize: 11 }}
+                        axisLine={{ stroke: "#334155" }}
+                        tickLine={false}
+                      />
+                      <YAxis
+                        tick={{ fill: "#94a3b8", fontSize: 11 }}
+                        axisLine={false}
+                        tickLine={false}
+                        allowDecimals={false}
+                      />
+                      <Tooltip content={<ChartTooltip />} />
+                      <Bar
+                        dataKey="count"
+                        fill={CHART_COLORS.gold}
+                        radius={[4, 4, 0, 0]}
+                        maxBarSize={40}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="flex h-56 flex-col items-center justify-center text-muted-foreground">
+                  <BarChart3 className="mb-2 h-8 w-8" />
+                  <p className="text-xs">No workflow data yet</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
-      </div>
+      </section>
 
-      {/* ----- Recent Activity ----- */}
+      {/* ================================================================= */}
+      {/* Recent Activity Timeline                                         */}
+      {/* ================================================================= */}
       {activityItems.length > 0 && (
-        <section className="space-y-4">
-          <h2 className="text-lg font-semibold flex items-center gap-2">
-            <Activity className="h-5 w-5 text-muted-foreground" />
-            Recent Activity
-          </h2>
-          <Card>
-            <CardContent className="pt-4">
-              {activityItems.map((item, idx) => (
-                <div key={item.id}>
-                  <div className="flex items-start gap-3 py-3">
+        <section>
+          <div className="mb-4 flex items-center gap-2">
+            <Activity className="h-5 w-5 text-primary" />
+            <h2 className="font-display text-xl font-semibold text-foreground">Recent Activity</h2>
+            <div className="ml-2 h-px flex-1 bg-gradient-to-r from-primary/20 to-transparent" />
+          </div>
+
+          <div className="rounded-xl border border-border bg-card/30 px-6 py-5 backdrop-blur-sm">
+            <div className="relative">
+              <div
+                aria-hidden="true"
+                className="absolute left-[17px] top-2 h-[calc(100%-16px)] w-px bg-gradient-to-b from-primary/30 via-accent/30 to-transparent"
+              />
+
+              <div className="space-y-0">
+                {activityItems.map((item) => (
+                  <div key={item.id} className="relative flex items-start gap-4 py-3">
                     <div
                       className={cn(
-                        "p-1.5 rounded-full mt-0.5 shrink-0",
+                        "relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border",
                         item.type === "asset"
-                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
                           : item.type === "execution"
-                            ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                            : "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                            ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
+                            : "border-primary/30 bg-primary/10 text-primary",
                       )}
                     >
                       {item.type === "asset" ? (
-                        <FileText className="h-3.5 w-3.5" />
+                        <FileText className="h-4 w-4" />
                       ) : item.type === "execution" ? (
-                        <Workflow className="h-3.5 w-3.5" />
+                        <Workflow className="h-4 w-4" />
                       ) : (
-                        <MessageSquare className="h-3.5 w-3.5" />
+                        <MessageSquare className="h-4 w-4" />
                       )}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{item.title}</p>
-                      <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-foreground">
+                        {item.title}
+                      </p>
+                      <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
                         <Clock className="h-3 w-3 shrink-0" />
-                        {item.description ?? item.type}
-                        <span aria-hidden="true" className="mx-1">
-                          &middot;
-                        </span>
-                        {formatRelativeTime(item.timestamp)}
+                        <span>{item.description ?? item.type}</span>
+                        <span aria-hidden="true">&middot;</span>
+                        <span>{formatRelativeTime(item.timestamp)}</span>
                       </p>
                     </div>
                   </div>
-                  {idx < activityItems.length - 1 && (
-                    <div className="h-px bg-border ml-9" />
-                  )}
-                </div>
-              ))}
-            </CardContent>
-          </Card>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {activityItems.length === 0 && !statsLoading && (
+        <section>
+          <div className="mb-4 flex items-center gap-2">
+            <Activity className="h-5 w-5 text-primary" />
+            <h2 className="font-display text-xl font-semibold text-foreground">Recent Activity</h2>
+            <div className="ml-2 h-px flex-1 bg-gradient-to-r from-primary/20 to-transparent" />
+          </div>
+          <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card/30 px-6 py-16 backdrop-blur-sm">
+            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
+              <Activity className="h-6 w-6 text-primary" />
+            </div>
+            <h3 className="mb-1 text-base font-medium text-foreground">No activity yet</h3>
+            <p className="max-w-xs text-center text-sm text-muted-foreground">
+              Start by searching for papers or creating a workflow. Your recent activity will appear here.
+            </p>
+          </div>
         </section>
       )}
     </div>

@@ -268,16 +268,18 @@ class MessageCreate(BaseModel):
 
 class ChatSessionCreate(BaseModel):
     title: Optional[str] = "New Chat"
-    model: str = "opencode-1"
-    provider: str = "opencode"
+    model: str = "opencode-1"               # retained for backward compat; copied from agent
+    provider: str = "opencode"              # retained for backward compat
     system_prompt: Optional[str] = None
-
+    agent_config_id: UUID                                    # REQUIRED
+    asset_ids: list[UUID] = []                              # OPTIONAL
 
 class ChatSessionUpdate(BaseModel):
     title: Optional[str] = None
     model: Optional[str] = None
     provider: Optional[str] = None
     system_prompt: Optional[str] = None
+    agent_config_id: Optional[UUID] = None
 
 
 class ChatSessionResponse(BaseModel):
@@ -286,9 +288,30 @@ class ChatSessionResponse(BaseModel):
     model: str
     provider: str
     system_prompt: Optional[str]
+    agent_config_id: Optional[UUID]                         # nullable for legacy rows
+    asset_ids: list[UUID] = []                              # convenience for client
     created_at: datetime
     updated_at: datetime
 
+    class Config:
+        from_attributes = True
+
+
+class AgentConfigSummary(BaseModel):
+    """Lightweight agent config for the chat agent picker."""
+    id: UUID
+    name: str
+    role: str
+    provider: str
+    model: str
+    is_default: bool
+    variant: Optional[str] = None
+
+
+class ChatSessionAgentInfo(BaseModel):
+    """Agent config + attached assets returned by the stream call."""
+    agent: AgentConfigSummary
+    assets: list["PaperResponse"]
     class Config:
         from_attributes = True
 

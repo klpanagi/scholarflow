@@ -587,6 +587,7 @@ class SearchAgent(BaseAgent):
         "- Consider synonyms and related concepts\n"
         "- Prioritize recent publications unless told otherwise\n"
         "- Provide context about why papers are relevant\n\n"
+
         "Always cite sources with title, authors, year, and venue when available."
     )
 

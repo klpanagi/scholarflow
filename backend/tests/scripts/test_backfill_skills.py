@@ -106,7 +106,7 @@ async def test_backfill_creates_missing_skills_for_existing_users(
         AgentConfig(
             user_id=user_b.id,
             name="Review Writer",
-            role=AgentRole.REVIEW_WRITER,
+            role=AgentRole.WRITER,
             provider="opencode",
             model="gpt-4o",
             temperature=0.7,
@@ -205,7 +205,7 @@ async def test_backfill_handles_user_with_full_state(db_session, test_user, db_e
         "Proposal Writer": AgentRole.WRITER,
         "Proposal Reviewer": AgentRole.REVIEWER,
         "Project Manager": AgentRole.MANAGER,
-        "Review Writer": AgentRole.REVIEW_WRITER,
+        "Review Writer": AgentRole.WRITER,
     }
     for name, role in config_map.items():
         db_session.add(

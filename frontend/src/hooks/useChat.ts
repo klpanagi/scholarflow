@@ -2,31 +2,40 @@ import { useState, useCallback, useRef } from 'react'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
 
-export interface ChatSession {
-  id: string
-  title: string | null
-  model: string
-  provider: string
-  system_prompt: string | null
-  created_at: string
-  updated_at: string
-}
-
-export interface ChatMessage {
-  id: string
-  session_id: string
-  role: 'user' | 'assistant' | 'system'
-  content: string
-  file_key?: string | null
-  file_name?: string | null
-  parent_message_id?: string | null
-  extra_metadata?: Record<string, unknown> | null
-  timestamp: string
-}
+// Re-export types from the canonical types module so existing consumers
+// that import from this file keep working without changes.
+export type { ChatSession, ChatMessage, CreateSessionParams } from '../types/chat'
+import type { ChatSession, ChatMessage, CreateSessionParams } from '../types/chat'
 
 export interface AvailableModel {
   id: string
   provider: string
+}
+
+/**
+ * Internal implementation that accepts the new `CreateSessionParams` object.
+ */
+async function createSessionImpl(
+  params: CreateSessionParams,
+  setSessions: React.Dispatch<React.SetStateAction<ChatSession[]>>,
+  setCurrentSession: React.Dispatch<React.SetStateAction<ChatSession | null>>,
+  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
+): Promise<ChatSession> {
+  try {
+    const { data } = await api.post<ChatSession>('/chat/sessions', {
+      title: params.title || null,
+      agent_config_id: params.agentConfigId,
+      asset_ids: params.assetIds ?? [],
+      system_prompt: params.systemPrompt || null,
+    })
+    setSessions((prev) => [data, ...prev])
+    setCurrentSession(data)
+    setMessages([])
+    return data
+  } catch (err) {
+    console.error('Failed to create session:', err)
+    throw err
+  }
 }
 
 export function useChat() {
@@ -47,36 +56,93 @@ export function useChat() {
     }
   }, [])
 
-  const createSession = useCallback(async (model: string, provider: string, title?: string, systemPrompt?: string) => {
+  /**
+   * Create a new chat session.
+   *
+   * **Preferred (Phase 3+)**: pass a `CreateSessionParams` object.
+   *
+   * ```ts
+   * createSession({ agentConfigId: '...', title: 'My Chat', assetIds: [...] })
+   * ```
+   *
+   * @deprecated The legacy positional-arg form
+   *   `createSession(model, provider, title?, systemPrompt?)` is still accepted
+   *   for backward compatibility but will be removed in **Phase 4**.
+   *   The call site in `ChatPage.tsx:handleCreateSession` MUST be updated in
+   *   Phase 4 to use the new object signature.
+   */
+  const createSession = useCallback(
+    (
+      paramsOrModel: CreateSessionParams | string,
+      provider?: string,
+      title?: string,
+      systemPrompt?: string,
+    ): Promise<ChatSession> => {
+      if (typeof paramsOrModel === 'string') {
+        // ---- Legacy positional-arg form ----
+        if (import.meta.env.DEV) {
+          console.warn(
+            '[useChat.createSession] Positional args are deprecated. ' +
+              'Use createSession({ agentConfigId, ... }) instead. ' +
+              'This form will be removed in Phase 4.',
+          )
+        }
+        return createSessionImpl(
+          {
+            agentConfigId: '',
+            model: paramsOrModel,
+            provider: provider ?? 'opencode',
+            title,
+            systemPrompt,
+          },
+          setSessions,
+          setCurrentSession,
+          setMessages,
+        )
+      }
+
+      // ---- New object form (Phase 3+) ----
+      return createSessionImpl(
+        paramsOrModel,
+        setSessions,
+        setCurrentSession,
+        setMessages,
+      )
+    },
+    [],
+  )
+
+  const deleteSession = useCallback(
+    async (sessionId: string): Promise<boolean> => {
+      try {
+        await api.delete(`/chat/sessions/${sessionId}`)
+        setSessions((prev) => prev.filter((s) => s.id !== sessionId))
+        if (currentSession?.id === sessionId) {
+          setCurrentSession(null)
+          setMessages([])
+        }
+        return true
+      } catch (err) {
+        console.error('Failed to delete session:', err)
+        return false
+      }
+    },
+    [currentSession],
+  )
+
+  const clearAllSessions = useCallback(async (): Promise<number> => {
     try {
-      const { data } = await api.post<ChatSession>('/chat/sessions', {
-        title: title || null,
-        model,
-        provider,
-        system_prompt: systemPrompt || null,
-      })
-      setSessions((prev) => [data, ...prev])
-      setCurrentSession(data)
+      const { data } = await api.delete<{ deleted: number }>('/chat/sessions')
+      const deleted = data?.deleted ?? 0
+      setSessions([])
+      setCurrentSession(null)
       setMessages([])
-      return data
+      return deleted
     } catch (err) {
-      console.error('Failed to create session:', err)
-      throw err
+      console.error('Failed to clear all sessions:', err)
+      return -1
     }
   }, [])
-
-  const deleteSession = useCallback(async (sessionId: string) => {
-    try {
-      await api.delete(`/chat/sessions/${sessionId}`)
-      setSessions((prev) => prev.filter((s) => s.id !== sessionId))
-      if (currentSession?.id === sessionId) {
-        setCurrentSession(null)
-        setMessages([])
-      }
-    } catch (err) {
-      console.error('Failed to delete session:', err)
-    }
-  }, [currentSession])
 
   const selectSession = useCallback(async (session: ChatSession) => {
     try {
@@ -94,11 +160,11 @@ export function useChat() {
       const { data } = await api.get('/chat/models')
       const models: AvailableModel[] = []
       if (data && typeof data === 'object') {
-        for (const [provider, providerModels] of Object.entries(data)) {
+        for (const [prov, providerModels] of Object.entries(data)) {
           if (Array.isArray(providerModels)) {
             for (const model of providerModels) {
               const modelId = typeof model === 'string' ? model : (model as { id?: string })?.id || String(model)
-              models.push({ id: modelId, provider })
+              models.push({ id: modelId, provider: prov })
             }
           }
         }
@@ -167,7 +233,9 @@ export function useChat() {
                 fullContent += parsed.content
                 setStreamingContent(fullContent)
               }
-            } catch {}
+            } catch {
+              // Skip unparseable SSE lines
+            }
           }
         }
       }
@@ -215,6 +283,27 @@ export function useChat() {
     }
   }, [currentSession])
 
+  const updateSession = useCallback(async (
+    sessionId: string,
+    data: { agentConfigId?: string; title?: string; systemPrompt?: string },
+  ): Promise<ChatSession | null> => {
+    try {
+      const payload: Record<string, unknown> = {}
+      if (data.agentConfigId !== undefined) payload.agent_config_id = data.agentConfigId
+      if (data.title !== undefined) payload.title = data.title
+      if (data.systemPrompt !== undefined) payload.system_prompt = data.systemPrompt
+      const { data: updated } = await api.patch<ChatSession>(`/chat/sessions/${sessionId}`, payload)
+      setSessions((prev) => prev.map((s) => (s.id === sessionId ? updated : s)))
+      if (currentSession?.id === sessionId) {
+        setCurrentSession(updated)
+      }
+      return updated
+    } catch (err) {
+      console.error('Failed to update session:', err)
+      return null
+    }
+  }, [currentSession])
+
   const uploadFile = useCallback(async (file: File) => {
     if (!currentSession) return
     const formData = new FormData()
@@ -240,11 +329,13 @@ export function useChat() {
     fetchSessions,
     createSession,
     deleteSession,
+    clearAllSessions,
     selectSession,
     fetchModels,
     sendMessage,
     stopStreaming,
     forkSession,
+    updateSession,
     uploadFile,
   }
 }

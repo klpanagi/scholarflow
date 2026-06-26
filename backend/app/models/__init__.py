@@ -23,7 +23,6 @@ class AgentRole(str, enum.Enum):
     MANAGER = "manager"
     DEBATER = "debater"
     DEEP_REVIEWER = "deep_reviewer"
-    REVIEW_WRITER = "review_writer"
 
 
 class Strategy(str, enum.Enum):
@@ -226,6 +225,13 @@ agent_skills_table = Table(
 
 AgentConfig.skills = relationship("Skill", secondary=agent_skills_table, lazy="selectin")
 
+chat_session_assets_table = Table(
+    "chat_session_assets",
+    Base.metadata,
+    Column("chat_session_id", UUID(as_uuid=True), ForeignKey("chat_sessions.id", ondelete="CASCADE"), primary_key=True),
+    Column("asset_id", UUID(as_uuid=True), ForeignKey("assets.id", ondelete="CASCADE"), primary_key=True),
+    Column("attached_at", DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False),
+)
 
 class ChatSession(Base):
     __tablename__ = "chat_sessions"
@@ -238,16 +244,38 @@ class ChatSession(Base):
     system_prompt = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    agent_config_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("agent_configs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     user = relationship("User")
-    messages = relationship("ChatMessage", back_populates="session", order_by="ChatMessage.timestamp")
+    messages = relationship(
+        "ChatMessage",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="ChatMessage.timestamp",
+    )
+    agent_config = relationship("AgentConfig", lazy="joined")
+    attached_assets = relationship(
+        "Paper",
+        secondary="chat_session_assets",
+        lazy="selectin",
+        order_by="Paper.created_at.desc()",
+    )
 
 
 class ChatMessage(Base):
     __tablename__ = "chat_messages"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    session_id = Column(UUID(as_uuid=True), ForeignKey("chat_sessions.id"), nullable=False)
+    session_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("chat_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     role = Column(String(50), nullable=False)
     content = Column(Text, nullable=False)
     file_key = Column(String(500), nullable=True)
