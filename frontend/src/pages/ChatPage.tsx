@@ -21,6 +21,11 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -33,13 +38,14 @@ import {
   FileText,
   Beaker,
   GraduationCap,
-  Search,
-  ChevronDown,
   Square,
   Bot,
   GitFork,
+  ChevronDown,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { AgentPicker } from '@/components/chat/AgentPicker'
+import { AssetPicker } from '@/components/chat/AssetPicker'
 import type { ChatListMessage } from '@/components/chat/MessageList'
 
 /* ────────────────────────────────────────────── */
@@ -84,16 +90,15 @@ export default function ChatPage() {
     messages,
     isStreaming,
     streamingContent,
-    availableModels,
     fetchSessions,
     createSession,
     deleteSession,
     clearAllSessions,
     selectSession,
-    fetchModels,
     sendMessage,
     stopStreaming,
     forkSession,
+    updateSession,
     uploadFile,
   } = useChat()
 
@@ -103,38 +108,18 @@ export default function ChatPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [newSessionOpen, setNewSessionOpen] = useState(false)
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
-  const [showModelPicker, setShowModelPicker] = useState(false)
+  const [showAgentPicker, setShowAgentPicker] = useState(false)
 
   /* ── New session form ── */
-  const [selectedProvider, setSelectedProvider] = useState('')
-  const [selectedModel, setSelectedModel] = useState('')
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
+  const [selectedAssets, setSelectedAssets] = useState<string[]>([])
   const [newTitle, setNewTitle] = useState('')
   const [systemPrompt, setSystemPrompt] = useState('')
-
-  /* ── Model picker search ── */
-  const [modelSearchQuery, setModelSearchQuery] = useState('')
 
   /* ── Effects ── */
   useEffect(() => {
     fetchSessions()
-    fetchModels()
-  }, [fetchSessions, fetchModels])
-
-  /* ── Derived data ── */
-  const providers = useMemo(
-    () => [...new Set(availableModels.map((m) => m.provider))],
-    [availableModels],
-  )
-
-  const filteredModels = useMemo(
-    () =>
-      availableModels.filter(
-        (m) =>
-          m.provider === selectedProvider &&
-          m.id.toLowerCase().includes(modelSearchQuery.toLowerCase()),
-      ),
-    [availableModels, selectedProvider, modelSearchQuery],
-  )
+  }, [fetchSessions])
 
   /* ── Map messages → ChatListMessage ── */
   const chatMessages = useMemo<ChatListMessage[]>(() => {
@@ -165,37 +150,37 @@ export default function ChatPage() {
   /* ── Handlers ── */
 
   const openNewSession = useCallback(() => {
-    setSelectedProvider('')
-    setSelectedModel('')
+    setSelectedAgentId(null)
+    setSelectedAssets([])
     setNewTitle('')
     setSystemPrompt('')
     setNewSessionOpen(true)
   }, [])
 
   const handleCreateSession = useCallback(async () => {
-    if (!selectedProvider || !selectedModel) {
+    if (!selectedAgentId) {
       toast({
-        title: 'Select a model',
-        description: 'Choose a provider and model first.',
+        title: 'Select an agent',
+        description: 'Choose an agent for this conversation.',
       })
       return
     }
     try {
-      await createSession(
-        selectedModel,
-        selectedProvider,
-        newTitle || undefined,
-        systemPrompt || undefined,
-      )
+      await createSession({
+        agentConfigId: selectedAgentId,
+        assetIds: selectedAssets.length > 0 ? selectedAssets : undefined,
+        title: newTitle || undefined,
+        systemPrompt: systemPrompt || undefined,
+      })
       setNewSessionOpen(false)
       setNewTitle('')
       setSystemPrompt('')
-      setSelectedProvider('')
-      setSelectedModel('')
+      setSelectedAgentId(null)
+      setSelectedAssets([])
     } catch {
       toast({ title: 'Error', description: 'Failed to create session.' })
     }
-  }, [selectedProvider, selectedModel, newTitle, systemPrompt, createSession, toast])
+  }, [selectedAgentId, selectedAssets, newTitle, systemPrompt, createSession, toast])
 
   const handleSelectSession = useCallback(
     (session: (typeof sessions)[number]) => {
@@ -240,6 +225,17 @@ export default function ChatPage() {
       description: `${deleted} conversation${deleted === 1 ? '' : 's'} deleted.`,
     })
   }, [sessions, clearAllSessions, toast])
+
+  const handleAgentSwitch = useCallback(async (agentId: string) => {
+    if (!currentSession) return
+    const updated = await updateSession(currentSession.id, { agentConfigId: agentId })
+    if (updated) {
+      toast({ title: 'Agent switched', description: `Now using ${updated.model} (${updated.provider}).` })
+    } else {
+      toast({ title: 'Error', description: 'Failed to switch agent.', variant: 'destructive' })
+    }
+    setShowAgentPicker(false)
+  }, [currentSession, updateSession, toast])
 
   const handleSend = useCallback(
     async (content: string, files?: File[]) => {
@@ -470,7 +466,7 @@ export default function ChatPage() {
         </Badge>
       </div>
 
-      <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1">
         <Button
           variant="ghost"
           size="sm"
@@ -481,71 +477,27 @@ export default function ChatPage() {
           <GitFork aria-hidden="true" className="h-3.5 w-3.5" />
           <span className="hidden sm:inline">Fork</span>
         </Button>
-        <div className="relative">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowModelPicker(!showModelPicker)}
-            className="text-xs gap-1 text-muted-foreground/50 hover:text-foreground h-8"
+        <Popover open={showAgentPicker} onOpenChange={setShowAgentPicker}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs gap-1 text-muted-foreground/50 hover:text-foreground h-8"
+            >
+              Switch <ChevronDown aria-hidden="true" className="h-3 w-3" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            sideOffset={4}
+            className="w-80 p-2"
           >
-            Switch <ChevronDown aria-hidden="true" className="h-3 w-3" />
-          </Button>
-          {showModelPicker && (
-            <div className="absolute right-0 top-full mt-1 w-72 bg-popover border rounded-xl shadow-lg z-50 p-2 animate-in fade-in zoom-in-95">
-              <div className="relative mb-2">
-                <Search aria-hidden="true" className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground/40" />
-                <Input
-                  placeholder="Search models..."
-                  value={modelSearchQuery}
-                  onChange={(e) => setModelSearchQuery(e.target.value)}
-                  className="pl-8 h-9 text-sm"
-                  aria-label="Search models"
-                />
-              </div>
-              <div className="max-h-60 overflow-y-auto space-y-0.5">
-                {providers.length === 0 && (
-                  <p className="text-xs text-muted-foreground/40 px-2 py-4 text-center">
-                    No models available
-                  </p>
-                )}
-                {providers.map((provider) => {
-                  const providerModels = availableModels.filter(
-                    (m) =>
-                      m.provider === provider &&
-                      (modelSearchQuery === '' ||
-                        m.id.toLowerCase().includes(modelSearchQuery.toLowerCase())),
-                  )
-                  if (providerModels.length === 0) return null
-                  return (
-                    <div key={provider}>
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/40 px-2 py-1.5">
-                        {provider}
-                      </p>
-                      {providerModels.map((m) => (
-                        <button
-                          key={m.id}
-                          onClick={() => {
-                            // Model switch is a display hint — the actual model
-                            // change would require a new session. For now, notify.
-                            toast({
-                              title: 'Model info',
-                              description: `Switch to "${m.id}" by starting a new session.`,
-                            })
-                            setShowModelPicker(false)
-                            setModelSearchQuery('')
-                          }}
-                          className="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-accent transition-colors"
-                        >
-                          <span className="font-medium">{m.id}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-        </div>
+            <AgentPicker
+              value={currentSession?.agent_config_id ?? null}
+              onChange={handleAgentSwitch}
+            />
+          </PopoverContent>
+        </Popover>
       </div>
     </div>
   )
@@ -651,59 +603,19 @@ export default function ChatPage() {
           <DialogHeader>
             <DialogTitle>New Conversation</DialogTitle>
             <DialogDescription>
-              Choose a model and configure your session.
+              Choose an agent and configure your session.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            {/* Provider select */}
+            {/* Agent picker */}
             <div className="space-y-1.5">
-              <label htmlFor="new-session-provider" className="text-xs font-medium text-muted-foreground/60">
-                Provider
+              <label className="text-xs font-medium text-muted-foreground/60">
+                Agent
               </label>
-              <select
-                id="new-session-provider"
-                value={selectedProvider}
-                onChange={(e) => {
-                  setSelectedProvider(e.target.value)
-                  setSelectedModel('')
-                }}
-                className={cn(
-                  'w-full rounded-lg border bg-background px-3 py-2 text-sm',
-                  'focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50',
-                )}
-              >
-                <option value="">Select a provider...</option>
-                {providers.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Model select */}
-            <div className="space-y-1.5">
-              <label htmlFor="new-session-model" className="text-xs font-medium text-muted-foreground/60">
-                Model
-              </label>
-              <select
-                id="new-session-model"
-                value={selectedModel}
-                onChange={(e) => setSelectedModel(e.target.value)}
-                disabled={!selectedProvider}
-                className={cn(
-                  'w-full rounded-lg border bg-background px-3 py-2 text-sm',
-                  'focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50',
-                  'disabled:opacity-40 disabled:cursor-not-allowed',
-                )}
-              >
-                <option value="">Select a model...</option>
-                {filteredModels.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.id}
-                  </option>
-                ))}
-              </select>
+              <AgentPicker
+                value={selectedAgentId}
+                onChange={setSelectedAgentId}
+              />
             </div>
 
             {/* Title */}
@@ -735,6 +647,19 @@ export default function ChatPage() {
                 className="min-h-[60px] text-sm resize-none"
               />
             </div>
+
+            {/* Assets */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground/60">
+                Attach assets{' '}
+                <span className="text-muted-foreground/30">(optional)</span>
+              </label>
+              <AssetPicker
+                value={selectedAssets}
+                onChange={setSelectedAssets}
+                max={5}
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button
@@ -745,7 +670,7 @@ export default function ChatPage() {
             </Button>
             <Button
               onClick={handleCreateSession}
-              disabled={!selectedProvider || !selectedModel}
+              disabled={!selectedAgentId}
               className="bg-primary text-primary-foreground hover:bg-primary/90"
             >
               Start Conversation

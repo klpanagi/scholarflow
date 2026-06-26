@@ -283,6 +283,27 @@ export function useChat() {
     }
   }, [currentSession])
 
+  const updateSession = useCallback(async (
+    sessionId: string,
+    data: { agentConfigId?: string; title?: string; systemPrompt?: string },
+  ): Promise<ChatSession | null> => {
+    try {
+      const payload: Record<string, unknown> = {}
+      if (data.agentConfigId !== undefined) payload.agent_config_id = data.agentConfigId
+      if (data.title !== undefined) payload.title = data.title
+      if (data.systemPrompt !== undefined) payload.system_prompt = data.systemPrompt
+      const { data: updated } = await api.patch<ChatSession>(`/chat/sessions/${sessionId}`, payload)
+      setSessions((prev) => prev.map((s) => (s.id === sessionId ? updated : s)))
+      if (currentSession?.id === sessionId) {
+        setCurrentSession(updated)
+      }
+      return updated
+    } catch (err) {
+      console.error('Failed to update session:', err)
+      return null
+    }
+  }, [currentSession])
+
   const uploadFile = useCallback(async (file: File) => {
     if (!currentSession) return
     const formData = new FormData()
@@ -314,6 +335,7 @@ export function useChat() {
     sendMessage,
     stopStreaming,
     forkSession,
+    updateSession,
     uploadFile,
   }
 }

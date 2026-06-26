@@ -243,6 +243,19 @@ async def update_session(
         session.provider = data.provider
     if data.system_prompt is not None:
         session.system_prompt = data.system_prompt
+    if data.agent_config_id is not None:
+        agent_result = await db.execute(
+            select(AgentConfig).where(
+                AgentConfig.id == data.agent_config_id,
+                AgentConfig.user_id == user_id,
+            )
+        )
+        agent = agent_result.scalar_one_or_none()
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent config not found")
+        session.agent_config_id = agent.id
+        session.model = agent.model
+        session.provider = agent.provider
     session.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(session)

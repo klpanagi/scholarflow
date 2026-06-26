@@ -279,6 +279,7 @@ class ChatSessionUpdate(BaseModel):
     model: Optional[str] = None
     provider: Optional[str] = None
     system_prompt: Optional[str] = None
+    agent_config_id: Optional[UUID] = None
 
 
 class ChatSessionResponse(BaseModel):
