@@ -6,6 +6,7 @@ describe('StatusBadge', () => {
   const statuses: StatusType[] = [
     'pending', 'running', 'completed', 'failed', 'cancelled',
     'queued', 'paused', 'error', 'success', 'warning', 'info',
+    'default',
   ]
 
   it.each(statuses)('renders %s status with correct label', (status) => {
@@ -43,5 +44,11 @@ describe('StatusBadge', () => {
     const { container } = render(<StatusBadge status="running" />)
     const svg = container.querySelector('svg')
     expect(svg?.getAttribute('class')).toContain('animate-spin')
+  })
+
+  it('does not spin the default status icon (regression: static flag should not animate)', () => {
+    const { container } = render(<StatusBadge status="default" />)
+    const svg = container.querySelector('svg')
+    expect(svg?.getAttribute('class')).not.toContain('animate-spin')
   })
 })

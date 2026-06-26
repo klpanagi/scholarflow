@@ -172,7 +172,7 @@ function AgentCard({
           </div>
         </div>
         <StatusBadge
-          status={config.is_default ? "running" : "completed"}
+          status={config.is_default ? "default" : "completed"}
           label={config.is_default ? "Default" : "Active"}
         />
       </div>

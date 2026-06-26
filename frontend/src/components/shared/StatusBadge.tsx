@@ -11,6 +11,7 @@ import {
   AlertCircle,
   AlertTriangle,
   Info,
+  Star,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useReducedMotion } from '@/lib/motion'
@@ -29,6 +30,7 @@ export type StatusType =
   | 'success'
   | 'warning'
   | 'info'
+  | 'default'
 
 export interface StatusBadgeProps {
   /** The status to display */
@@ -116,6 +118,12 @@ const statusConfigMap: Record<StatusType, StatusConfig> = {
     color: 'text-navy-400 dark:text-navy-300',
     bg: 'bg-navy-500/10',
     border: 'border-navy-500/20',
+  },
+  default: {
+    icon: Star,
+    color: 'text-gold-500',
+    bg: 'bg-gold-500/10',
+    border: 'border-gold-500/20',
   },
 }
 
