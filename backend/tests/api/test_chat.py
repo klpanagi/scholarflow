@@ -468,3 +468,172 @@ class TestForkSession:
         forked = fork_resp.json()
         assert forked["model"] == "gpt-4o"
         assert forked["provider"] == "opencode"
+
+
+# ===========================================================================
+# Tests: DELETE /chat/sessions/{id} and DELETE /chat/sessions
+# ===========================================================================
+
+class TestDeleteSession:
+    @pytest.mark.asyncio
+    async def test_delete_session_with_messages_cascades(
+        self, client, db_session, test_user
+    ):
+        """Regression: deleting a session that has messages must cascade the
+        messages (was failing with ForeignKeyViolation before the cascade fix)."""
+        from sqlalchemy import select, text
+        from app.models import ChatMessage, ChatSession
+
+        agent = await _make_agent_config(db_session, test_user.id)
+        create_resp = await client.post(
+            "/api/chat/sessions",
+            json={"agent_config_id": str(agent.id), "title": "To Be Deleted"},
+            headers=_auth_for(test_user.id),
+        )
+        assert create_resp.status_code == 200
+        session_id = create_resp.json()["id"]
+
+        # Seed two messages directly so we don't depend on the streaming pipeline
+        await _make_chat_message(db_session, session_id, role="user", content="hi")
+        await _make_chat_message(db_session, session_id, role="assistant", content="hello")
+
+        # Sanity: two messages exist for this session
+        result = await db_session.execute(
+            select(ChatMessage).where(ChatMessage.session_id == session_id)
+        )
+        assert len(result.scalars().all()) == 2
+
+        # Now delete — must succeed (200) thanks to ON DELETE CASCADE
+        delete_resp = await client.delete(
+            f"/api/chat/sessions/{session_id}",
+            headers=_auth_for(test_user.id),
+        )
+        assert delete_resp.status_code == 200
+        assert delete_resp.json() == {"ok": True}
+
+        # Session is gone
+        result = await db_session.execute(
+            select(ChatSession).where(ChatSession.id == session_id)
+        )
+        assert result.scalar_one_or_none() is None
+
+        # Messages cascaded — assert directly via raw SQL to bypass session cache
+        rows = await db_session.execute(
+            text("SELECT count(*) FROM chat_messages WHERE session_id = :sid"),
+            {"sid": session_id},
+        )
+        assert rows.scalar() == 0
+
+    @pytest.mark.asyncio
+    async def test_delete_nonexistent_session_returns_404(self, client, test_user):
+        """Deleting a non-existent session returns 404."""
+        response = await client.delete(
+            f"/api/chat/sessions/{uuid.uuid4()}",
+            headers=_auth_for(test_user.id),
+        )
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_delete_other_users_session_returns_404(
+        self, client, db_session, test_user
+    ):
+        """Cannot delete a session belonging to another user."""
+        other = await _make_user(db_session, email="other-del@example.com", name="Other")
+        other_agent = await _make_agent_config(db_session, other.id, name="Other Agent")
+        create_resp = await client.post(
+            "/api/chat/sessions",
+            json={"agent_config_id": str(other_agent.id), "title": "Other's"},
+            headers=_auth_for(other.id),
+        )
+        session_id = create_resp.json()["id"]
+
+        response = await client.delete(
+            f"/api/chat/sessions/{session_id}",
+            headers=_auth_for(test_user.id),
+        )
+        assert response.status_code == 404
+
+
+class TestClearAllSessions:
+    @pytest.mark.asyncio
+    async def test_clear_all_deletes_every_user_session(
+        self, client, db_session, test_user
+    ):
+        """DELETE /chat/sessions removes all sessions (and their messages) for
+        the current user and returns the deletion count."""
+        from sqlalchemy import select, text
+        from app.models import ChatSession
+
+        agent = await _make_agent_config(db_session, test_user.id)
+        for i in range(3):
+            create_resp = await client.post(
+                "/api/chat/sessions",
+                json={"agent_config_id": str(agent.id), "title": f"S{i}"},
+                headers=_auth_for(test_user.id),
+            )
+            assert create_resp.status_code == 200
+            sid = create_resp.json()["id"]
+            await _make_chat_message(db_session, sid, content="x")
+
+        response = await client.delete(
+            "/api/chat/sessions",
+            headers=_auth_for(test_user.id),
+        )
+        assert response.status_code == 200
+        assert response.json() == {"deleted": 3}
+
+        result = await db_session.execute(
+            select(ChatSession).where(ChatSession.user_id == test_user.id)
+        )
+        assert result.scalars().all() == []
+
+        # All messages cascaded too
+        rows = await db_session.execute(
+            text(
+                "SELECT count(*) FROM chat_messages m "
+                "JOIN chat_sessions s ON s.id = m.session_id "
+                "WHERE s.user_id = :uid"
+            ),
+            {"uid": test_user.id},
+        )
+        assert rows.scalar() == 0
+
+    @pytest.mark.asyncio
+    async def test_clear_all_with_no_sessions_returns_zero(self, client, test_user):
+        """Clearing when the user has no sessions returns ``{"deleted": 0}``."""
+        response = await client.delete(
+            "/api/chat/sessions",
+            headers=_auth_for(test_user.id),
+        )
+        assert response.status_code == 200
+        assert response.json() == {"deleted": 0}
+
+    @pytest.mark.asyncio
+    async def test_clear_all_does_not_touch_other_users_sessions(
+        self, client, db_session, test_user
+    ):
+        """``DELETE /chat/sessions`` only affects the calling user's sessions."""
+        other = await _make_user(db_session, email="keep@example.com", name="Keeper")
+        other_agent = await _make_agent_config(db_session, other.id, name="Other Agent")
+        create_resp = await client.post(
+            "/api/chat/sessions",
+            json={"agent_config_id": str(other_agent.id), "title": "Keep me"},
+            headers=_auth_for(other.id),
+        )
+        other_sid = create_resp.json()["id"]
+
+        response = await client.delete(
+            "/api/chat/sessions",
+            headers=_auth_for(test_user.id),
+        )
+        assert response.status_code == 200
+        assert response.json() == {"deleted": 0}
+
+        # Other user's session still exists
+        list_resp = await client.get(
+            "/api/chat/sessions",
+            headers=_auth_for(other.id),
+        )
+        assert list_resp.status_code == 200
+        ids = [s["id"] for s in list_resp.json()]
+        assert other_sid in ids

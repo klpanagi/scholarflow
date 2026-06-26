@@ -252,7 +252,12 @@ class ChatSession(Base):
     )
 
     user = relationship("User")
-    messages = relationship("ChatMessage", back_populates="session", order_by="ChatMessage.timestamp")
+    messages = relationship(
+        "ChatMessage",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="ChatMessage.timestamp",
+    )
     agent_config = relationship("AgentConfig", lazy="joined")
     attached_assets = relationship(
         "Paper",
@@ -266,7 +271,11 @@ class ChatMessage(Base):
     __tablename__ = "chat_messages"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    session_id = Column(UUID(as_uuid=True), ForeignKey("chat_sessions.id"), nullable=False)
+    session_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("chat_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     role = Column(String(50), nullable=False)
     content = Column(Text, nullable=False)
     file_key = Column(String(500), nullable=True)

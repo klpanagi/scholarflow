@@ -6,7 +6,7 @@ from io import BytesIO
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select, desc
+from sqlalchemy import delete, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -266,6 +266,24 @@ async def delete_session(
     await db.delete(session)
     await db.commit()
     return {"ok": True}
+
+
+@router.delete("/sessions")
+async def delete_all_sessions(
+    user_id: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete every chat session owned by the current user in a single transaction.
+
+    Used by the frontend "Clear all conversations" action. Returns the number of
+    sessions that were deleted so the UI can give an accurate success message.
+    """
+    result = await db.execute(
+        delete(ChatSession).where(ChatSession.user_id == user_id)
+    )
+    deleted = result.rowcount or 0
+    await db.commit()
+    return {"deleted": deleted}
 
 
 @router.get(
