@@ -1,0 +1,13 @@
+{
+  "active_plan": "/home/klpanagi/Development/scholarflow/.matrixx/plans/learning-page.md",
+  "started_at": "2026-06-26T09:42:51.675Z",
+  "completed_at": "2026-06-26T13:30:00.000Z",
+  "session_ids": [
+    "ses_0fcb077f6ffeZ53hq5UpeZFcHT"
+  ],
+  "plan_name": "learning-page",
+  "agent": "architect",
+  "status": "completed",
+  "tasks_completed": 44,
+  "tasks_total": 44
+}
