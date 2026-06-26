@@ -117,7 +117,7 @@ export const WORKFLOWS: Workflow[] = [
       {
         id: "paper-review-writer",
         agent: "Review Writer",
-        role: "review_writer",
+        role: "writer",
         description: "Produce BOTH the Response to Authors (public peer review) and Response to Editor (confidential AE note) in a single self-critiqued pass with built-in quality review.",
         icon: <PenLine className="h-5 w-5" />,
         color: "bg-emerald-500",

@@ -7,7 +7,7 @@ After the GROBID integration split, ``_SKILL_SEEDS`` in
 * ``paper-review``          — workflow-integrated evaluation (unchanged)
 * ``paper-review-analyze``  — analyze stage: SearchAgent + ReviewAgent
                               (new, B.5 — extract_citations bound)
-* ``paper-review-write``    — write stage: DebateAgent + ReviewWriterAgent
+* ``paper-review-write``    — write stage: DebateAgent + WritingAgent
                               (new, B.6 — extract_citations NOT bound)
 
 These tests are pure unit checks against the seed file: no DB, no mocks,
@@ -27,7 +27,7 @@ _SKILLS_BY_NAME: dict[str, dict] = {s["name"]: s for s in _SKILL_SEEDS}
 _EXPECTED_BUILTIN_TOOLS: dict[str, list[str]] = {
     # B.5 — analyze stage: GROBID bound for SearchAgent + ReviewAgent
     "paper-review-analyze": ["extract_citations"],
-    # B.6 — write stage: no GROBID binding for DebateAgent + ReviewWriterAgent
+    # B.6 — write stage: no GROBID binding for DebateAgent + WritingAgent
     "paper-review-write": [],
     # Guard — original workflow-integrated skill remains empty
     "paper-review": [],
@@ -124,7 +124,7 @@ def test_paper_review_analyze_includes_extract_citations() -> None:
 def test_paper_review_write_excludes_extract_citations() -> None:
     """B.6: ``paper-review-write`` MUST NOT include ``extract_citations``.
 
-    Bound to the DebateAgent and ReviewWriterAgent stages. These work
+    Bound to the DebateAgent and WritingAgent stages. These work
     on textual review output and have no use for structured bibliography
     extraction, so the GROBID tool is intentionally absent.
     """

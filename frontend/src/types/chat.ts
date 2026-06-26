@@ -17,7 +17,6 @@ export type AgentRole =
   | 'manager'
   | 'debater'
   | 'deep_reviewer'
-  | 'review_writer'
 
 /** Human-readable labels for each agent role. */
 export const ROLE_LABELS: Record<AgentRole, string> = {
@@ -29,7 +28,6 @@ export const ROLE_LABELS: Record<AgentRole, string> = {
   recommender: 'Recommender',
   manager: 'Manager',
   revision: 'Revision',
-  review_writer: 'Review Writer',
 }
 
 // ---------------------------------------------------------------------------

@@ -87,7 +87,6 @@ const ROLES = [
   { value: "recommender", label: "Recommender" },
   { value: "manager", label: "Manager" },
   { value: "revision", label: "Revision" },
-  { value: "review_writer", label: "Review Writer" },
 ]
 
 const STRATEGIES = [
@@ -111,7 +110,7 @@ const TAB_ROLE_MAP: Record<TabValue, string[]> = {
   all: [],
   search: ["researcher"],
   review: ["reviewer", "deep_reviewer"],
-  writing: ["writer", "review_writer", "revision"],
+  writing: ["writer", "revision"],
   recommendation: ["recommender"],
 }
 
@@ -124,7 +123,6 @@ const ROLE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   recommender: Sparkles,
   manager: UserCog,
   revision: Wand2,
-  review_writer: FileText,
 }
 
 function getRoleIcon(role: string): React.ComponentType<{ className?: string }> {

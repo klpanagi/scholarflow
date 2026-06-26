@@ -3,7 +3,7 @@
 When an existing user (>= 1 config) calls ``list_agent_configs``, the route
 iterates ``_DEFAULT_AGENT_CONFIGS`` and creates bare defaults for any roles
 missing from the user's current config set.  This file verifies that the three
-new roles added in Task 1 — ``review_writer``, ``debater``, ``deep_reviewer``
+new roles added in Task 1 — ``writer``, ``debater``, ``deep_reviewer``
 — are created on the next call when the user only has a ``researcher`` config.
 """
 
@@ -39,7 +39,7 @@ async def test_diff_seed_creates_three_new_defaults_for_existing_user(
 
     Assertions:
         1. 7 configs total (1 existing + 6 missing defaults created).
-        2. The 3 new roles (REVIEW_WRITER, DEBATER, DEEP_REVIEWER) are present.
+        2. The 3 new roles (WRITER, DEBATER, DEEP_REVIEWER) are present.
         3. The 3 new configs have ``is_default=True`` and the expected names.
         4. The original researcher config was not modified.
     """
@@ -70,14 +70,14 @@ async def test_diff_seed_creates_three_new_defaults_for_existing_user(
 
     # --- Assert: the 3 new roles are correct --------------------------------
     all_roles = {c.role for c in configs}
-    assert AgentRole.REVIEW_WRITER in all_roles, "REVIEW_WRITER missing"
+    assert AgentRole.WRITER in all_roles, "WRITER missing"
     assert AgentRole.DEBATER in all_roles, "DEBATER missing"
     assert AgentRole.DEEP_REVIEWER in all_roles, "DEEP_REVIEWER missing"
 
     # --- Assert: new configs have correct names + is_default -----------------
     configs_by_role = {c.role: c for c in configs}
 
-    rw = configs_by_role[AgentRole.REVIEW_WRITER]
+    rw = configs_by_role[AgentRole.WRITER]
     assert rw.name == "Default Review Writer"
     assert rw.is_default is True
 

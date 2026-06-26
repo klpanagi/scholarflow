@@ -168,7 +168,7 @@ WORKFLOW_DEFINITIONS = {
             },
             {
                 "id": "paper-review-writer",
-                "role": AgentRole.REVIEW_WRITER.value,
+                "role": AgentRole.WRITER.value,
                 "task_template": (
                     "You are the Paper Review Writer. Transform the prior peer review stages below "
                     "into TWO polished, editorial-manager-ready documents in a single response: "
@@ -620,13 +620,19 @@ def _sanitize_output(text: str) -> str:
     return text.strip()
 
 
-def _validate_paper_review_writer_output(output: str) -> tuple[bool, list[str]]:
-    """Check that a paper-review-writer output contains both required sections.
+def _validate_dual_section_output(
+    output: str,
+    required_sections: list[str] | None = None,
+) -> tuple[bool, list[str]]:
+    """Check that *output* contains all *required_sections*.
 
-    Returns (is_valid, missing_sections) where missing_sections lists the
-    section headings not found (case-insensitive substring match).
+    Returns ``(is_valid, missing_sections)`` where *missing_sections* lists
+    the section headings not found (case-insensitive substring match).
+    When *required_sections* is ``None``, defaults to the paper-review-writer
+    pair for backward compatibility.
     """
-    required_sections = ["## Response to Authors", "## Response to Editor"]
+    if required_sections is None:
+        required_sections = ["## Response to Authors", "## Response to Editor"]
     lower_output = output.lower()
     missing = [s for s in required_sections if s.lower() not in lower_output]
     return len(missing) == 0, missing
@@ -757,7 +763,7 @@ async def _run_stage(
             # --- Section-delimiter validation for paper-review-writer ---
             if stage_def.get("id") == "paper-review-writer":
                 output_text = result.get("output", "") or ""
-                is_valid, missing = _validate_paper_review_writer_output(output_text)
+                is_valid, missing = _validate_dual_section_output(output_text)
                 if not is_valid:
                     # Retry once with a reminder
                     reminder = (
@@ -777,7 +783,7 @@ async def _run_stage(
                         )
                         retry_output = retry_result.get("output", "") or ""
                         result = retry_result  # use retry result going forward
-                        is_valid2, missing2 = _validate_paper_review_writer_output(retry_output)
+                        is_valid2, missing2 = _validate_dual_section_output(retry_output)
                         if not is_valid2:
                             metadata["validation_warning"] = (
                                 f"missing section(s) after retry: {', '.join(missing2)}"
@@ -941,7 +947,9 @@ async def _ensure_review_writer_config(db: AsyncSession, user_id: str) -> None:
     result = await db.execute(
         select(AgentConfig).where(
             AgentConfig.user_id == user_id_uuid,
-            AgentConfig.role == AgentRole.REVIEW_WRITER,
+            AgentConfig.role == AgentRole.WRITER,
+            AgentConfig.name == "Review Writer",
+            AgentConfig.name == "Review Writer",
         )
     )
     if result.scalar_one_or_none():
