@@ -102,7 +102,6 @@ const OUTER_NODES: RoleNodeDef[] = [
   { key: 'recommender', label: 'recommender', angle: 90, icon: 'Sparkles' },
   { key: 'revision', label: 'revision', angle: 135, icon: 'RefreshCw' },
   { key: 'debater', label: 'debater', angle: 180, icon: 'Swords' },
-  { key: 'review_writer', label: 'review_writer', angle: 225, icon: 'FileSignature' },
 ]
 
 /** Tiny SVG icon shapes for each role */

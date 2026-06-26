@@ -305,18 +305,18 @@ const CULT_BLOCKS: ContentBlock[] = [
 // Content — section 3: Agent Roles
 // -----------------------------------------------------------------------------
 //
-// The 9 specialised roles + the 3 debater variants. This is the largest
+// The 8 specialised roles + the 3 debater variants. This is the largest
 // section because users need enough context to pick the right role per task.
 const ROLES_BLOCKS: ContentBlock[] = [
   {
     type: 'text',
     content:
-      'ScholarFlow ships with nine specialised agent roles. Each role maps to a concrete class in the backend registry, which means the name you see in the UI corresponds to a single, versioned implementation rather than a free-form prompt. Picking the right role is the first step in getting a useful answer: the same question phrased as “find me related work” and “review my methodology” is handled by entirely different agents with different tools, prompts, and output schemas. The roles are deliberately orthogonal to each other — they overlap where collaboration makes sense, and they diverge where a single answer would be misleading.',
+      'ScholarFlow ships with eight specialised agent roles. Each role maps to a concrete class in the backend registry, which means the name you see in the UI corresponds to a single, versioned implementation rather than a free-form prompt. Picking the right role is the first step in getting a useful answer: the same question phrased as “find me related work” and “review my methodology” is handled by entirely different agents with different tools, prompts, and output schemas. The roles are deliberately orthogonal to each other — they overlap where collaboration makes sense, and they diverge where a single answer would be misleading.',
   },
   {
     type: 'text',
     content:
-      'Roles are not user personas. They are capability bundles — a system prompt, a default strategy, a tool whitelist, and an output schema. When you assign a role to a task, you are saying “use this combination of capabilities, and reject the rest”. This is why the same LLM provider can power all nine roles without any per-role fine-tuning. The capabilities are constraints, not skills: a reviewer will not be tempted to fabricate a citation, because its tool whitelist does not include the search tool, and its output schema does not have a field for one.',
+      'Roles are not user personas. They are capability bundles — a system prompt, a default strategy, a tool whitelist, and an output schema. When you assign a role to a task, you are saying “use this combination of capabilities, and reject the rest”. This is why the same LLM provider can power all eight roles without any per-role fine-tuning. The capabilities are constraints, not skills: a reviewer will not be tempted to fabricate a citation, because its tool whitelist does not include the search tool, and its output schema does not have a field for one.',
   },
   {
     type: 'text',
@@ -374,18 +374,12 @@ const ROLES_BLOCKS: ContentBlock[] = [
           'Runs adversarial debates between pro and con positions on a paper claim. Three variants are available (see callout).',
         icon: 'Swords',
       },
-      {
-        label: 'review_writer',
-        description:
-          'Synthesises raw review notes, debate outcomes, and Scholar findings into a polished, editorial-ready Response to Authors and Response to Editor.',
-        icon: 'FileSignature',
-      },
     ],
   },
   {
     type: 'text',
     content:
-      'The roles compose naturally. A typical paper review flow starts with a researcher gathering related work, hands the result to a deep_reviewer for the seven-stage analysis, then to a debater (DEEP variant) for the adversarial stress test, and finally to a review_writer for the editorial synthesis. None of the intermediate stages need to know about the others — each role receives its inputs and emits its outputs in a stable schema, and the workflow engine stitches them together. This is why a failure in any one stage can be retried in isolation, and why a future role can be slotted into the same flow without disturbing the others.',
+      'The roles compose naturally. A typical paper review flow starts with a researcher gathering related work, hands the result to a deep_reviewer for the seven-stage analysis, then to a debater (DEEP variant) for the adversarial stress test, and finally to a writer configuration bound to the response-to-author and response-to-editor skills for the editorial synthesis. None of the intermediate stages need to know about the others — each role receives its inputs and emits its outputs in a stable schema, and the workflow engine stitches them together. This is why a failure in any one stage can be retried in isolation, and why a future role can be slotted into the same flow without disturbing the others.',
   },
   {
     type: 'diagram',
@@ -403,7 +397,7 @@ const ROLES_BLOCKS: ContentBlock[] = [
   {
     type: 'text',
     content:
-      'Role composition patterns are worth memorising because they cover most realistic research workflows. The first pattern is the search-then-review chain: RESEARCHER gathers related work and passes the structured results to REVIEWER or DEEP_REVIEWER, which can cite the related work by paper id without ever re-searching. The second pattern is the debate-then-revise chain: DEBATER (DEEP variant) stress-tests a manuscript, REVISION produces a diff against the original, and REVIEW_WRITER drafts a Response to Authors that addresses each debated point. The third pattern is the recommend-then-explain chain: RECOMMENDER proposes a venue, and a WRITER configuration bound to the eu-horizon or response-to-editor skill produces a one-paragraph justification that the user can paste into a cover letter. All three patterns compose without modification because every role’s output schema is a strict subset of every other role’s input schema.',
+      'Role composition patterns are worth memorising because they cover most realistic research workflows. The first pattern is the search-then-review chain: RESEARCHER gathers related work and passes the structured results to REVIEWER or DEEP_REVIEWER, which can cite the related work by paper id without ever re-searching. The second pattern is the debate-then-revise chain: DEBATER (DEEP variant) stress-tests a manuscript, REVISION produces a diff against the original, and a WRITER configuration bound to the response-to-author and response-to-editor skills drafts a Response to Authors that addresses each debated point. The third pattern is the recommend-then-explain chain: RECOMMENDER proposes a venue, and a WRITER configuration bound to the eu-horizon or response-to-editor skill produces a one-paragraph justification that the user can paste into a cover letter. All three patterns compose without modification because every role’s output schema is a strict subset of every other role’s input schema.',
   },
   {
     type: 'text',
@@ -418,7 +412,7 @@ const ROLES_BLOCKS: ContentBlock[] = [
   {
     type: 'text',
     content:
-      'A useful exercise is to read this section with the workflow detail view open and trace a real review from start to finish. You will see the RESEARCHER emit a search event, the DEEP_REVIEWER emit seven stage events in sequence, the DEBATER emit the four stages of its variant, and the REVIEW_WRITER emit the final synthesis. Each event is timestamped, has a stable id, and carries the full payload. If you can read the timeline and predict which role emitted which event, you understand the role system. If you can read the timeline and predict which strategy shaped the agent’s reasoning, you understand the strategy system. The two are orthogonal: roles describe what was done, strategies describe how it was done.',
+      'A useful exercise is to read this section with the workflow detail view open and trace a real review from start to finish. You will see the RESEARCHER emit a search event, the DEEP_REVIEWER emit seven stage events in sequence, the DEBATER emit the four stages of its variant, and a WRITER emit the final synthesis of the Response to Authors and Response to Editor. Each event is timestamped, has a stable id, and carries the full payload. If you can read the timeline and predict which role emitted which event, you understand the role system. If you can read the timeline and predict which strategy shaped the agent’s reasoning, you understand the strategy system. The two are orthogonal: roles describe what was done, strategies describe how it was done.',
   },
 ]
 
@@ -572,7 +566,7 @@ const SKILLS_BLOCKS: ContentBlock[] = [
       {
         label: 'paper-review-write',
         description:
-          'Writing stages of a paper-review workflow — used by DebateAgent and ReviewWriterAgent for synthesising text-based review output.',
+          'Writing stages of a paper-review workflow — used by DebateAgent and WritingAgent for synthesising text-based review output.',
         icon: 'FilePen',
       },
       {
@@ -666,7 +660,7 @@ const CONFIGS_BLOCKS: ContentBlock[] = [
       {
         label: 'Review Writer',
         description:
-          'REVIEW_WRITER role, DIRECT strategy. Synthesises raw review notes into Response to Authors and Response to Editor. Skills: response-to-author, response-to-editor.',
+          'WRITER role, DIRECT strategy. Synthesises raw review notes into Response to Authors and Response to Editor. Skills: response-to-author, response-to-editor.',
         icon: 'FileSignature',
       },
       {
@@ -714,7 +708,7 @@ const CONFIGS_BLOCKS: ContentBlock[] = [
       {
         label: 'Default Review Writer',
         description:
-          'REVIEW_WRITER role, DIRECT strategy. General-purpose synthesis of review notes and Scholar findings.',
+          'WRITER role, DIRECT strategy. General-purpose synthesis of review notes and Scholar findings.',
         icon: 'FileSignature',
       },
       {
@@ -782,7 +776,7 @@ export const learningSections = [
     slug: 'roles',
     title: 'Agent Roles',
     description:
-      'The 9 specialized agent roles that power ScholarFlow’s automated research.',
+      'The 8 specialized agent roles that power ScholarFlow’s automated research.',
     icon: 'Users' as LucideIconName,
     difficulty: 'Intermediate' as Difficulty,
     readingMinutes: computeReadingMinutes('roles', WORD_COUNTS.roles),

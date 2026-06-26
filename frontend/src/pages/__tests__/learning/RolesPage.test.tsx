@@ -28,7 +28,7 @@ describe('RolesPage (learning detail)', () => {
     expect(titles.length).toBeGreaterThanOrEqual(1)
   })
 
-  it('renders 9 role names', () => {
+  it('renders 8 role names', () => {
     renderWithProviders(<RolesPage />)
     // Each role name appears in both the list grid and the SVG diagram,
     // so getAllByText should find at least one instance
@@ -41,7 +41,6 @@ describe('RolesPage (learning detail)', () => {
       'revision',
       'manager',
       'debater',
-      'review_writer',
     ]
     for (const role of roles) {
       const elements = screen.getAllByText(role)
