@@ -2,6 +2,7 @@ import {
   BookOpen,
   Bot,
   GitBranch,
+  GraduationCap,
   HardDrive,
   LayoutDashboard,
   MessageSquare,
@@ -38,6 +39,7 @@ export function Sidebar() {
           label="Overview"
           gradient="bg-gradient-to-r from-[hsl(var(--color-accent-primary)_/_10%)] to-transparent"
         >
+          <SidebarNavItem to="/learning" label="Learning" icon={GraduationCap} end />
           <SidebarNavItem to="/dashboard" label="Dashboard" icon={LayoutDashboard} end />
         </SidebarNavGroup>
 

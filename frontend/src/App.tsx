@@ -29,6 +29,15 @@ const WorkflowsPage = lazy(() => import('./pages/WorkflowsPage'))
 const RevisionPage = lazy(() => import('./pages/RevisionPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 
+// Learning pages — loaded on /learning/* navigation
+const LearningPage = lazy(() => import('@/pages/LearningPage'))
+const AssetsLearningPage = lazy(() => import('@/pages/learning/AssetsPage'))
+const CultLearningPage = lazy(() => import('@/pages/learning/CultPage'))
+const RolesLearningPage = lazy(() => import('@/pages/learning/RolesPage'))
+const StrategiesLearningPage = lazy(() => import('@/pages/learning/StrategiesPage'))
+const SkillsLearningPage = lazy(() => import('@/pages/learning/SkillsPage'))
+const ConfigsLearningPage = lazy(() => import('@/pages/learning/ConfigsPage'))
+
 // Suspense fallback shown while a lazy chunk is being fetched.
 // Keeps the visual layout stable so CLS does not spike on route change.
 function PageLoading() {
@@ -57,6 +66,13 @@ export default function App() {
             <Route path="skills" element={<ProtectedRoute><SkillsPage /></ProtectedRoute>} />
             <Route path="chat" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
           </Route>
+          <Route path="/learning" element={<ProtectedRoute><LearningPage /></ProtectedRoute>} />
+          <Route path="/learning/assets" element={<ProtectedRoute><AssetsLearningPage /></ProtectedRoute>} />
+          <Route path="/learning/cult" element={<ProtectedRoute><CultLearningPage /></ProtectedRoute>} />
+          <Route path="/learning/roles" element={<ProtectedRoute><RolesLearningPage /></ProtectedRoute>} />
+          <Route path="/learning/strategies" element={<ProtectedRoute><StrategiesLearningPage /></ProtectedRoute>} />
+          <Route path="/learning/skills" element={<ProtectedRoute><SkillsLearningPage /></ProtectedRoute>} />
+          <Route path="/learning/configs" element={<ProtectedRoute><ConfigsLearningPage /></ProtectedRoute>} />
           <Route path="workflows" element={<ProtectedRoute><WorkflowsPage /></ProtectedRoute>} />
           <Route path="revisions/:id" element={<ProtectedRoute><RevisionPage /></ProtectedRoute>} />
           <Route path="workspaces/:id" element={<ProtectedRoute><WorkspacePage /></ProtectedRoute>} />
