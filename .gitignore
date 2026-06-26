@@ -57,3 +57,4 @@ redis_data/
 .playwright-mcp/
 *.png
 API_KEYS.md
+.matrixx/
