@@ -88,6 +88,7 @@ const ROLES = [
   { value: "manager", label: "Manager" },
   { value: "revision", label: "Revision" },
   { value: "chat", label: "Chat" },
+  { value: "analyzer", label: "Analyzer" },
 ]
 
 const STRATEGIES = [

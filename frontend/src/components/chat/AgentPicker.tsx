@@ -54,6 +54,7 @@ const ROLE_ORDER: AgentRole[] = [
   'recommender',
   'manager',
   'revision',
+  'analyzer',
 ]
 
 // ---------------------------------------------------------------------------
