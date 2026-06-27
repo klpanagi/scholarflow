@@ -100,7 +100,6 @@ class DeepReviewAgent(BaseAgent):
 
     async def _intake(self, state: AgentState) -> AgentState:
         paper_content = state["context"].get("paper_content", "")
-        from_context = bool(paper_content)
 
         if not paper_content:
             for msg in state["messages"]:
@@ -141,11 +140,10 @@ class DeepReviewAgent(BaseAgent):
 
         state["context"]["paper_content"] = paper_content
 
-        if from_context:
-            paper_fitted = paper_content
-        else:
-            budgets = budget_for_stages()
-            paper_fitted = fit_to_budget(paper_content, budgets["paper_content"], label="intake")
+        model_name = getattr(self.llm, "model_name", None)
+        output_tokens = getattr(self.llm, "max_tokens", 4096)
+        budgets = budget_for_stages(model=model_name, output_tokens=output_tokens)
+        paper_fitted = fit_to_budget(paper_content, budgets["paper_content"], label="intake")
 
         pdf_bytes = state["context"].get("pdf_bytes")
 

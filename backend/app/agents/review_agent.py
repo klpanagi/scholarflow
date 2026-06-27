@@ -13,6 +13,7 @@ from langchain_core.messages import HumanMessage
 from langgraph.graph import StateGraph, END
 
 from app.agents.base import BaseAgent, AgentState
+from app.utils.context_budget import budget_for_stages, fit_to_budget
 
 if TYPE_CHECKING:
     from app.agents.dossier import ResearchDossier
@@ -89,7 +90,16 @@ class ReviewAgent(BaseAgent):
             messages = state["messages"]
             user_msg = messages[-1].content if messages else ""
 
-            content_preview = user_msg[:10000]
+            # Use full paper_content from context if available (extracted from chunks),
+            # otherwise fall back to the message content. Apply budget-aware truncation
+            # instead of a hard character cap.
+            paper_content = state["context"].get("paper_content", "")
+            content = paper_content if paper_content else user_msg
+
+            model_name = getattr(self.llm, "model_name", None)
+            output_tokens = getattr(self.llm, "max_tokens", 4096)
+            budgets = budget_for_stages(model=model_name, output_tokens=output_tokens)
+            content_preview = fit_to_budget(content, budgets["paper_content"], label="review")
 
             dossier = state["context"].get("research_dossier")
             dossier_context = ""

@@ -31,6 +31,17 @@ MODEL_CONTEXT_WINDOWS = {
     "anthropic/claude-sonnet-4": 200_000,
     "anthropic/claude-3.5-sonnet": 200_000,
     "anthropic/claude-3-haiku": 200_000,
+    # DeepSeek
+    "deepseek/deepseek-chat-v3-0324:free": 128_000,
+    "deepseek/deepseek-r1:free": 128_000,
+    # Mistral
+    "mistralai/mistral-large": 128_000,
+    # Meta
+    "meta-llama/llama-3.1-405b": 131_072,
+    # Qwen
+    "qwen/qwen-2.5-72b": 128_000,
+    # Cohere
+    "cohere/command-r-plus": 128_000,
 }
 
 # We never use more than this fraction of the context window for content
@@ -59,10 +70,18 @@ def get_context_budget(model: str | None = None, output_tokens: int = 4096) -> i
     Returns:
         Max tokens available for content (system prompt + input combined)
     """
-    if model and model in MODEL_CONTEXT_WINDOWS:
-        window = MODEL_CONTEXT_WINDOWS[model]
-    else:
-        # Conservative default for unknown models
+    window = None
+    if model:
+        if model in MODEL_CONTEXT_WINDOWS:
+            window = MODEL_CONTEXT_WINDOWS[model]
+        else:
+            for known_model, ctx in MODEL_CONTEXT_WINDOWS.items():
+                if model.startswith(known_model):
+                    window = ctx
+                    logger.debug(f"Prefix-matched model '{model}' -> '{known_model}' ({ctx} tokens)")
+                    break
+
+    if window is None:
         window = 128_000
         logger.debug(f"Unknown model '{model}', using default context window of {window}")
 
