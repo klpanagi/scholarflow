@@ -327,12 +327,10 @@ async def _run_stage(
     for s in config.skills:
         if s.prompt_template:
             skill_prompts.append(s.prompt_template)
-    skill_tools = []
-    for s in config.skills:
-        skill_tools.extend(s.builtin_tools or [])
+    skill_tools = config.get_tool_names()
 
     from app.tools import get_tools_by_names
-    resolved_tools = get_tools_by_names(list(set(skill_tools)))
+    resolved_tools = get_tools_by_names(skill_tools)
 
     system_prompt = config.system_prompt or ""
     if skill_prompts:

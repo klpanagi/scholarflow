@@ -468,13 +468,11 @@ async def _stream_via_agent(
     from langchain_core.messages import HumanMessage, SystemMessage
 
     agent_cfg = session.agent_config
-    skill_tools: list[str] = list(agent_cfg.tools or [])
+    skill_tools = agent_cfg.get_tool_names()
     skill_prompts: list[str] = []
     for sk in agent_cfg.skills:
         if sk.prompt_template:
             skill_prompts.append(sk.prompt_template)
-        if sk.builtin_tools:
-            skill_tools.extend(sk.builtin_tools)
 
     system_prompt = agent_cfg.system_prompt
     if skill_prompts:

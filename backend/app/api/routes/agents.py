@@ -166,13 +166,10 @@ async def run_agent(
             system_prompt = config.system_prompt
             temperature = config.temperature
             max_tokens = config.max_tokens
-            if config.tools:
-                skill_tools.extend(config.tools)
+            skill_tools = config.get_tool_names()
             for skill in config.skills:
                 if skill.prompt_template:
                     skill_prompts.append(skill.prompt_template)
-                if skill.builtin_tools:
-                    skill_tools.extend(skill.builtin_tools)
 
     if skill_prompts:
         combined_prompt = "\n\n".join(filter(None, [system_prompt] + skill_prompts))
