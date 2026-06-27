@@ -128,7 +128,7 @@ class TestPaperReviewWorkflowVariantDispatch:
             patch("app.api.routes.workflows.calculate_cost", return_value=0.0),
             patch("app.api.routes.workflows.model_supports_pdf", return_value=False),
             patch("app.api.routes.workflows.evaluate_rubric", new_callable=AsyncMock, return_value=None),
-            patch("app.api.routes.workflows._build_stage_context", side_effect=lambda orig, _find: orig),
+            patch("app.api.routes.workflows._build_stage_context", side_effect=lambda orig, _find, **kw: orig),
             patch("asyncio.sleep", new_callable=AsyncMock),
         ):
             from app.api.routes.workflows import _run_workflow_background

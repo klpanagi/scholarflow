@@ -182,7 +182,7 @@ def _patch_workflow_deps(
         ),
         patch(
             "app.api.routes.workflows._build_stage_context",
-            side_effect=lambda orig, _find: orig,
+            side_effect=lambda orig, _find, **kw: orig,
         ),
         patch("asyncio.sleep", new_callable=AsyncMock),
     ]

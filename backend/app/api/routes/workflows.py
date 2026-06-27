@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import re
 import time
 from dataclasses import dataclass
@@ -516,6 +517,30 @@ async def _fetch_paper_content(db: AsyncSession, user_id: str, paper_id: UUID) -
     if not paper:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper not found")
 
+    POLL_INTERVAL = 1.0
+    POLL_TIMEOUT = int(os.environ.get("PAPER_PROCESSING_TIMEOUT", "60"))
+    elapsed = 0.0
+    while paper.processing_status in ("pending", "processing") and elapsed < POLL_TIMEOUT:
+        await asyncio.sleep(POLL_INTERVAL)
+        elapsed += POLL_INTERVAL
+        result = await db.execute(
+            select(Paper).where(Paper.id == paper_id, Paper.owner_id == user_id)
+        )
+        paper = result.scalar_one_or_none()
+        if not paper:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper not found")
+
+    if paper.processing_status == "failed":
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Paper processing failed. Cannot perform review.",
+        )
+    if paper.processing_status in ("pending", "processing"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Paper still processing after timeout ({POLL_TIMEOUT}s). Try again shortly.",
+        )
+
     parts = []
     if paper.title:
         parts.append(f"Title: {paper.title}")
@@ -546,6 +571,20 @@ async def _fetch_paper_content(db: AsyncSession, user_id: str, paper_id: UUID) -
     if chunks:
         full_text = "\n\n".join(c.text for c in chunks)
         parts.append(f"Full Text:\n{full_text}")
+    elif paper.minio_key:
+        # Graceful fallback: re-extract text from PDF for papers without chunks
+        # (e.g. uploaded before chunking was implemented)
+        logger.warning(f"No chunks for paper {paper_id}, extracting from PDF on-the-fly")
+        try:
+            from app.services.minio_service import minio_service
+            from app.services.pdf_service import pdf_service
+
+            pdf_bytes = await minio_service.download_file(paper.minio_key)
+            extracted = await pdf_service.extract_text(pdf_bytes)
+            if extracted and extracted.full_text:
+                parts.append(f"Full Text:\n{extracted.full_text}")
+        except Exception as e:
+            logger.warning(f"Failed to extract text from PDF for paper {paper_id}: {e}")
 
     text = "\n\n".join(parts)
 
@@ -560,15 +599,47 @@ async def _fetch_paper_content(db: AsyncSession, user_id: str, paper_id: UUID) -
     return PaperContent(text=text, pdf_bytes=pdf_bytes)
 
 
-def _build_stage_context(original_input: str, prior_findings: list[dict]) -> str:
+def _extract_metadata(full_input: str) -> str:
+    """Extract metadata (title, authors, abstract, keywords) from full paper input.
+
+    The full input format is:
+        Title: ...
+        Authors: ...
+        Abstract: ...
+        Keywords: ...
+        Full Text:
+        ...
+
+    Returns everything before 'Full Text:' if present, otherwise the full input.
+    """
+    marker = "\n\nFull Text:"
+    idx = full_input.find(marker)
+    if idx != -1:
+        return full_input[:idx]
+    return full_input
+
+
+def _build_stage_context(
+    original_input: str,
+    prior_findings: list[dict],
+    model: str | None = None,
+    output_tokens: int = 4096,
+    has_separate_paper_content: bool = False,
+) -> str:
     if not prior_findings:
+        if has_separate_paper_content:
+            return _extract_metadata(original_input)
         return original_input
 
-    budgets = budget_for_stages()
+    budgets = budget_for_stages(model=model, output_tokens=output_tokens)
     paper_budget = budgets["paper_content"]
     prior_budget = budgets["prior_stages"]
 
-    paper_fitted = fit_to_budget(original_input, paper_budget, label="paper")
+    if has_separate_paper_content:
+        # Agent gets full paper via agent_context — keep context lean with metadata only
+        paper_fitted = _extract_metadata(original_input)
+    else:
+        paper_fitted = fit_to_budget(original_input, paper_budget, label="paper")
 
     parts = [f"PAPER / INPUT:\n{paper_fitted}"]
     parts.append("\n--- PRIOR STAGE OUTPUTS ---\n")
@@ -875,7 +946,14 @@ async def _run_workflow_background(
                     execution.stages = stages_copy
                     await db.commit()
 
-                stage_context = _build_stage_context(original_context, prior_findings)
+                stage_config = await _get_user_config_by_id(db, user_id, UUID(config_id_str))
+                stage_context = _build_stage_context(
+                    original_context,
+                    prior_findings,
+                    model=str(stage_config.model) if stage_config else None,
+                    output_tokens=stage_config.max_tokens if stage_config else 4096,
+                    has_separate_paper_content=bool(paper_content),
+                )
 
                 stage_start = time.monotonic()
                 try:
