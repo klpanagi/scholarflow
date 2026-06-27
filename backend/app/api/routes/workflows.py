@@ -266,6 +266,8 @@ async def _get_user_config_by_id(db: AsyncSession, user_id: str, config_id: UUID
 def _sanitize_output(text: str) -> str:
     if not text:
         return text
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    text = re.sub(r"<thinking>.*?</thinking>", "", text, flags=re.DOTALL)
     text = re.sub(r"\n{3,}", "\n\n", text)       # 3+ newlines → paragraph break
     text = "\n".join(line.rstrip() for line in text.split("\n"))
     text = re.sub(r" {5,}", "  ", text)           # collapse excessive spaces (keep ≤4 for code blocks)
@@ -370,6 +372,15 @@ async def _run_stage(
         agent_context["topic_query"] = topic_query
     if paper_content:
         agent_context["paper_content"] = paper_content
+        print(
+            f"[_run_stage] stage={stage_def.get('role', '?')} paper_content={len(paper_content)} chars",
+            flush=True,
+        )
+    else:
+        print(
+            f"[_run_stage] stage={stage_def.get('role', '?')} NO paper_content passed",
+            flush=True,
+        )
     if rubric_standard:
         agent_context["rubric_standard"] = rubric_standard
     if research_dossier:
@@ -448,8 +459,13 @@ async def _run_stage(
             rating = result.get("context", {}).get("rating")
             dossier = result.get("context", {}).get("research_dossier")
 
-            if not rating and rubric_standard and rubric_standard != "none":
-                review_text = result.get("output", "")
+            # Only run rubric evaluation on review stages, not search/debate/writer stages
+            is_review_stage = (
+                stage_def.get("role") == "reviewer"
+                or stage_def.get("id") == "review-paper"
+            )
+            if not rating and rubric_standard and rubric_standard != "none" and is_review_stage:
+                review_text = _sanitize_output(result.get("output", ""))
                 if review_text:
                     try:
                         eval_llm = llm_service.get_llm(
@@ -856,6 +872,11 @@ async def _run_workflow_background(
 
     try:
         async with AsyncSessionLocal() as db:
+            print(
+                f"[_run_workflow_background] paper_content={len(paper_content) if paper_content else 0} chars, "
+                f"include_full_paper effective={paper_content is not None}",
+                flush=True,
+            )
             stage_results = []
             prior_findings = []
             current_dossier = None
