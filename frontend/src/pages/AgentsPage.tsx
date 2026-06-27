@@ -17,6 +17,7 @@ import {
   Sparkles,
   MessageCircle,
   UserCog,
+  BarChart3,
   Plus,
   Save,
   Trash2,
@@ -26,7 +27,6 @@ import {
   Puzzle,
   Activity,
   CheckCircle2,
-  BarChart3,
   Tag,
 } from "lucide-react"
 
@@ -104,6 +104,7 @@ const TABS = [
   { value: "review", label: "Review", icon: FileText },
   { value: "writing", label: "Writing", icon: Wand2 },
   { value: "recommendation", label: "Recommendation", icon: Sparkles },
+  { value: "analysis", label: "Analysis", icon: BarChart3 },
 ] as const
 
 type TabValue = (typeof TABS)[number]["value"]
@@ -114,6 +115,7 @@ const TAB_ROLE_MAP: Record<TabValue, string[]> = {
   review: ["reviewer", "deep_reviewer"],
   writing: ["writer", "revision"],
   recommendation: ["recommender"],
+  analysis: ["analyzer"],
 }
 
 const ROLE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -125,6 +127,7 @@ const ROLE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   recommender: Sparkles,
   manager: UserCog,
   revision: Wand2,
+  analyzer: BarChart3,
 }
 
 function getRoleIcon(role: string): React.ComponentType<{ className?: string }> {
