@@ -94,6 +94,9 @@ async def _process_asset_background(
 
             await db.commit()
 
+            asset.processing_status = "completed"
+            await db.commit()
+
             analysis_data = {}
             if references:
                 analysis_data["references"] = [
@@ -130,6 +133,15 @@ async def _process_asset_background(
 
     except Exception as e:
         logger.error(f"Background processing crashed for asset {asset_id}: {e}")
+        try:
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(select(Paper).where(Paper.id == asset_id))
+                asset = result.scalar_one_or_none()
+                if asset:
+                    asset.processing_status = "failed"
+                    await db.commit()
+        except Exception:
+            logger.error(f"Failed to set failed status for asset {asset_id}")
 
 
 @router.post("/", response_model=PaperResponse, status_code=status.HTTP_201_CREATED)
@@ -162,6 +174,7 @@ async def upload_asset(
         doi=extracted.doi,
         arxiv_id=extracted.arxiv_id,
         tags=[],
+        processing_status="processing",
     )
     db.add(asset)
     await db.commit()
@@ -213,6 +226,7 @@ async def upload_assets_batch(
             doi=extracted.doi,
             arxiv_id=extracted.arxiv_id,
             tags=[],
+            processing_status="processing",
         )
         db.add(asset)
         await db.commit()
