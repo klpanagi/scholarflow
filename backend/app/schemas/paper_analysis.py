@@ -10,7 +10,7 @@ class StrengthWeakness(BaseModel):
 class PaperAnalysis(BaseModel):
     summary: str = Field(..., min_length=50, max_length=1000)
     key_findings: list[str] = Field(..., min_length=1, max_length=10)
-    methodology: str = Field(..., min_length=20, max_length=500)
+    methodology: str = Field(..., min_length=20, max_length=1500)
     contributions: list[str] = Field(..., min_length=1, max_length=10)
     limitations: list[str] = Field(..., min_length=0, max_length=10)
 

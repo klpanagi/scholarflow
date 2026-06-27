@@ -25,7 +25,7 @@ router = APIRouter(prefix="/assets", tags=["assets"])
 async def _get_analyzer_config(db: AsyncSession, owner_id: UUID) -> tuple[str, str]:
     result = await db.execute(
         select(AgentConfig).where(
-            AgentConfig.owner_id == owner_id,
+            AgentConfig.user_id == owner_id,
             AgentConfig.role == AgentRole.ANALYZER,
         ).limit(1)
     )
