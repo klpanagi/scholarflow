@@ -186,6 +186,162 @@ async def _extract_methodology_for_paper(
     )
 
 
+def _parse_llm_json_array(text: str) -> list[dict]:
+    """Recover a JSON array from an LLM response, tolerating code fences and prose.
+
+    Tries in order:
+    1. Strip ```json ... ``` fences and parse the captured block
+    2. Parse the whole text as JSON array
+    3. Find the first [...] block via regex and parse that
+
+    Returns the parsed list, or [] if all attempts fail.
+    """
+    if not text or not isinstance(text, str):
+        return []
+
+    candidates = [text]
+
+    fenced = re.search(
+        r"```(?:json)?\s*(\[.*?\])\s*```", text, re.DOTALL | re.IGNORECASE
+    )
+    if fenced:
+        candidates.append(fenced.group(1))
+
+    for cand in candidates:
+        try:
+            obj = json.loads(cand)
+            if isinstance(obj, list):
+                return obj
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    first_arr = re.search(r"\[.*\]", text, re.DOTALL)
+    if first_arr:
+        try:
+            obj = json.loads(first_arr.group(0))
+            if isinstance(obj, list):
+                return obj
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    return []
+
+
+def _build_methodology_entry(paper: dict, parsed: dict) -> MethodologyEntry:
+    """Build a MethodologyEntry from a parsed JSON object and its paper dict."""
+    paper_id = _resolve_paper_id_for_methodology(paper)
+    title = paper.get("title") or "Untitled"
+    confidence = parsed.get("confidence") or "medium"
+    if confidence not in ("high", "medium", "low"):
+        confidence = "medium"
+
+    return MethodologyEntry(
+        paper_id=paper_id,
+        method_name=parsed.get("method_name") or title,
+        dataset=parsed.get("dataset") or "unknown",
+        metrics=list(parsed.get("metrics") or []),
+        baseline_methods=list(parsed.get("baseline_methods") or []),
+        result=parsed.get("result") or "unknown",
+        confidence=confidence,
+    )
+
+
+def _build_low_confidence_entry(paper: dict) -> MethodologyEntry:
+    """Build a low-confidence MethodologyEntry for papers that fail extraction."""
+    paper_id = _resolve_paper_id_for_methodology(paper)
+    title = paper.get("title") or "Untitled"
+    return MethodologyEntry(
+        paper_id=paper_id,
+        method_name=title,
+        dataset="unknown",
+        metrics=[],
+        baseline_methods=[],
+        result="unknown",
+        confidence="low",
+    )
+
+
+async def _extract_methodology_batch(
+    llm: BaseChatModel,
+    papers: list[dict],
+) -> list[MethodologyEntry]:
+    """Extract methodology rows for multiple papers in a single LLM call.
+
+    Sends all paper titles and abstracts in one prompt and asks for a JSON array
+    of methodology objects. Returns a list of MethodologyEntry (one per paper).
+    Falls back to individual extraction if the batch call fails or returns the
+    wrong number of results.
+    """
+    if not papers:
+        return []
+
+    if len(papers) == 1:
+        return [await _extract_methodology_for_paper(llm, papers[0])]
+
+    paper_blocks = []
+    for i, paper in enumerate(papers):
+        title = paper.get("title") or "Untitled"
+        abstract = (paper.get("abstract") or "").strip()
+        paper_blocks.append(f"[Paper {i + 1}]\nTitle: {title}\nAbstract: {abstract}")
+
+    papers_text = "\n\n".join(paper_blocks)
+
+    prompt = (
+        "You extract structured methodology information from academic paper abstracts.\n\n"
+        f"You are given {len(papers)} papers. For EACH paper, extract the following:\n"
+        "1. method_name: name of the proposed/analysed method as written in the paper\n"
+        "2. dataset: dataset or benchmark on which the result was measured "
+        '(string; use "unknown" if not stated)\n'
+        "3. metrics: list of metric names reported "
+        '(e.g. ["BLEU", "ROUGE-L"]; use [] if none stated)\n'
+        "4. baseline_methods: list of baseline method names the proposed method is "
+        "compared against (use [] if none stated)\n"
+        "5. result: reported main result string "
+        '(e.g. "28.4 BLEU", "91.2% accuracy"; use "unknown" if not stated)\n'
+        '6. confidence: your confidence in this extraction — "high", "medium", or "low"\n\n'
+        f"Papers:\n{papers_text}\n\n"
+        f"Return a JSON array with EXACTLY {len(papers)} objects, one per paper in order.\n"
+        "Each object must have keys: method_name, dataset, metrics, baseline_methods, "
+        "result, confidence.\n"
+        "No commentary, no markdown — ONLY the JSON array.\n\n"
+        "Example output for 2 papers:\n"
+        '[{"method_name": "...", "dataset": "...", "metrics": ["..."], '
+        '"baseline_methods": ["..."], "result": "...", "confidence": "high"}, '
+        '{"method_name": "...", "dataset": "...", "metrics": ["..."], '
+        '"baseline_methods": ["..."], "result": "...", "confidence": "medium"}]'
+    )
+
+    try:
+        response = await llm.ainvoke([HumanMessage(content=prompt)])
+        text = (
+            response.content
+            if isinstance(response.content, str)
+            else str(response.content)
+        )
+    except Exception as e:
+        logger.warning(f"evaluate_methods: batch LLM call failed: {e}; falling back to individual extraction")
+        return [await _extract_methodology_for_paper(llm, p) for p in papers]
+
+    parsed_list = _parse_llm_json_array(text)
+
+    if not parsed_list or len(parsed_list) != len(papers):
+        logger.warning(
+            f"evaluate_methods: batch extraction returned {len(parsed_list) if parsed_list else 0} "
+            f"results for {len(papers)} papers; falling back to individual extraction"
+        )
+        return [await _extract_methodology_for_paper(llm, p) for p in papers]
+
+    results = []
+    for i, (paper, parsed) in enumerate(zip(papers, parsed_list)):
+        if not isinstance(parsed, dict):
+            logger.warning(f"evaluate_methods: non-dict result at index {i}; using low-confidence entry")
+            results.append(_build_low_confidence_entry(paper))
+            continue
+        results.append(_build_methodology_entry(paper, parsed))
+
+    return results
+
+
 async def _expand_queries_with_llm(
     llm: BaseChatModel,
     base_queries: list[str],
@@ -792,24 +948,20 @@ class SearchAgent(BaseAgent):
         ordered = ranked + unranked
         top_papers = ordered[:_METHODS_TOP_N]
 
-        methodology_table: list[MethodologyEntry] = []
-        for paper in top_papers:
-            abstract = (paper.get("abstract") or "").strip()
-            if not abstract:
-                logger.info(
-                    f"evaluate_methods: skipping paper {paper.get('paper_id') or paper.get('title')!r} "
-                    f"(no abstract)"
-                )
-                continue
+        papers_with_abstracts = [
+            p for p in top_papers if (p.get("abstract") or "").strip()
+        ]
+        skipped = len(top_papers) - len(papers_with_abstracts)
+        if skipped:
+            logger.info(f"evaluate_methods: skipping {skipped} papers without abstracts")
 
-            entry = await _extract_methodology_for_paper(self.llm, paper)
-            methodology_table.append(entry)
+        methodology_table = await _extract_methodology_batch(self.llm, papers_with_abstracts)
 
         ctx["methodology_table"] = methodology_table
 
         logger.info(
-            f"evaluate_methods: processed {len(methodology_table)} papers "
-            f"(out of {len(top_papers)} with abstracts, top-{_METHODS_TOP_N} of {len(papers)})"
+            f"evaluate_methods: extracted methodology for {len(methodology_table)} papers "
+            f"(top-{_METHODS_TOP_N} of {len(papers)}, {skipped} skipped — no abstract)"
         )
         return state
 
