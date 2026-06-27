@@ -92,7 +92,7 @@ async def _process_asset_background(
             try:
                 analysis = await asyncio.wait_for(
                     analyze_paper(title=title, abstract=abstract, full_text=full_text, doc_type=doc_type),
-                    timeout=60,
+                    timeout=90,
                 )
                 if analysis:
                     asset.analysis = analysis.model_dump()
@@ -248,7 +248,7 @@ async def analyze_asset(
             analyze_paper(
                 title=asset.title, abstract=asset.abstract,
                 full_text=full_text, doc_type=asset.doc_type,
-            ), timeout=60,
+            ), timeout=90,
         )
         if analysis:
             asset.analysis = analysis.model_dump()

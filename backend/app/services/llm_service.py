@@ -285,6 +285,11 @@ class LLMService:
             openai_api_base=config["base_url"],
             temperature=temperature,
             max_tokens=max_tokens,
+            request_timeout=60,
+            default_headers={
+                "HTTP-Referer": "https://github.com/academic-pal",
+                "X-Title": "AcademicPal",
+            },
         )
 
     async def get_completion(self, *args, **kwargs):
