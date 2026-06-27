@@ -95,6 +95,7 @@ class Paper(Base):
     citations = Column(ARRAY(UUID(as_uuid=True)), default=list)
     tags = Column(ARRAY(String), default=list)
     doc_type = Column(String(50), default="other")
+    processing_status = Column(String(20), default="pending")
     analysis = Column(JSON, nullable=True)
     embedding = Column(ARRAY(Float), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

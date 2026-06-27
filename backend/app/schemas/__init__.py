@@ -87,6 +87,7 @@ class PaperResponse(PaperBase):
     es_doc_id: Optional[str] = None
     citations: list[UUID] = []
     doc_type: str = "other"
+    processing_status: str = "pending"
     analysis: Optional[dict] = None
     created_at: datetime
     updated_at: datetime
