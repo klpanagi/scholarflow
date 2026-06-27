@@ -45,6 +45,7 @@ function groupByRole(configs: AgentConfig[]): Map<AgentRole, AgentConfig[]> {
 
 /** Ordered list of roles to render (roles not in configs are skipped). */
 const ROLE_ORDER: AgentRole[] = [
+  'chat',
   'researcher',
   'writer',
   'reviewer',
