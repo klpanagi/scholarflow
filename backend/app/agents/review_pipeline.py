@@ -363,6 +363,7 @@ Scoring rules:
 - Each criterion score must be 1-100
 - Use the anchors above as calibration guides
 - confidence: high = full document text available + clear evidence; medium = partial content or ambiguous evidence; low = missing content or insufficient data
+- If the review cites specific code, architecture names, or references not grounded in the provided analyses, penalize Technical Soundness and note the hallucination risk in scoring_notes
 """
 
     def _parse_rating_json(self, text: str) -> dict | None:
@@ -510,6 +511,13 @@ Actionable, numbered improvement suggestions.
 One of: Accept, Minor Revision, Major Revision, Reject. Include a 1-2 sentence justification.
 
 Do NOT include any JSON or score tables in this output. Focus on the qualitative review text.
+
+CRITICAL RULES:
+- Base your review ONLY on the analyses provided below. Do not introduce new information.
+- Do NOT cite specific code, architecture names, class names, table/figure/section numbers,
+  or reference-list entries that are not present in the analyses.
+- If an analysis is incomplete or missing, note the limitation. Do NOT fabricate details.
+- Separate observation from inference. Use hedging language for inferences.
 
 Analyses:
 {analyses}"""

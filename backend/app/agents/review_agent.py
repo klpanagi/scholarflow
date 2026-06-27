@@ -94,12 +94,22 @@ class ReviewAgent(BaseAgent):
             # otherwise fall back to the message content. Apply budget-aware truncation
             # instead of a hard character cap.
             paper_content = state["context"].get("paper_content", "")
+            print(
+                f"[ReviewAgent] paper_content length={len(paper_content) if paper_content else 0} chars, "
+                f"user_msg length={len(user_msg) if user_msg else 0} chars",
+                flush=True,
+            )
             content = paper_content if paper_content else user_msg
 
             model_name = getattr(self.llm, "model_name", None)
             output_tokens = getattr(self.llm, "max_tokens", 4096)
             budgets = budget_for_stages(model=model_name, output_tokens=output_tokens)
             content_preview = fit_to_budget(content, budgets["paper_content"], label="review")
+            print(
+                f"[ReviewAgent] content_preview length={len(content_preview)} chars, "
+                f"budget={budgets['paper_content']} tokens",
+                flush=True,
+            )
 
             dossier = state["context"].get("research_dossier")
             dossier_context = ""
@@ -141,7 +151,14 @@ class ReviewAgent(BaseAgent):
                 "## Detailed Assessment\n[Section-by-section analysis covering methodology, "
                 "novelty/significance, clarity, and reproducibility/completeness]\n\n"
                 "## Recommendations for Authors\n[Specific, actionable improvement suggestions]\n\n"
-                "## Decision\n[Accept / Minor Revision / Major Revision / Reject with justification]"
+                "## Decision\n[Accept / Minor Revision / Major Revision / Reject with justification]\n\n"
+                "CRITICAL RULES:\n"
+                "- Base your review ONLY on the content provided in the analysis above.\n"
+                "- Do NOT cite specific code, architecture names, class names, table/figure/section numbers,\n"
+                "  or reference-list entries that are not present in the provided text.\n"
+                "- If the content is insufficient to evaluate a criterion, state what you can assess\n"
+                "  and explicitly note the limitation. Do NOT fabricate details to fill gaps.\n"
+                "- Separate observation from inference. Use hedging language for inferences."
             )
 
             response = await self._run_strategy(

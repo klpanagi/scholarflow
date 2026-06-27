@@ -66,6 +66,7 @@ Scoring rules:
 - Each criterion score must be 1-100
 - Use the anchors above as calibration guides
 - confidence: high = full review with clear evidence; medium = partial or ambiguous evidence; low = insufficient data
+- If the review appears to cite specific code, architecture names, or references not grounded in the paper content, penalize Technical Soundness and note the hallucination risk in scoring_notes
 """
 
 
