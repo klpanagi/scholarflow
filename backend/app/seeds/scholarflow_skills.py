@@ -892,6 +892,16 @@ Your review MUST follow this structure:
 - Be fair — evaluate the paper on its own merits and goals
 - Be thorough — check all 7 criteria even if some appear well-addressed
 - Watch for common pitfalls: novelty claims without comparison, incomplete evaluation, unclear RQs, missing threat analysis
+
+## Critical: Evidence-Based Reviewing
+
+Your review MUST be grounded exclusively in the content provided. Follow these rules strictly:
+
+1. **Do NOT fabricate details.** Never cite specific code, architecture names, class names, function names, table numbers, figure numbers, section numbers, line numbers, or reference-list entries that are not present in the provided text. If you cannot verify a detail from the text, do not state it as fact.
+2. **Do NOT hallucinate citations.** Never invent reference numbers, author names, or publication years. If you mention related work, use only references explicitly present in the paper's bibliography.
+3. **Acknowledge content limitations.** If the provided text is truncated or incomplete, state what you can assess and explicitly note what you cannot. For example: "Based on the abstract, the paper appears to address X, but the full methodology section was not available for detailed evaluation."
+4. **Score conservatively when information is missing.** If you cannot evaluate a criterion because the relevant content is absent, assign a lower score and explain why — do not assume the paper addresses something you cannot verify.
+5. **Separate observation from inference.** Clearly distinguish between what the paper explicitly states and what you infer. Use hedging language ("appears to," "suggests," "if the paper indeed...") for inferences.
 """,
     },
 ]
@@ -1004,6 +1014,15 @@ _AGENT_SEEDS = [
         "strategy": Strategy.CRITIQUE,
         "system_prompt": "You are an expert academic paper reviewer following the ISSEL methodology. You evaluate papers against 7 criteria: problem interest, clarity, innovation, SoTA discussion, methodology, evaluation, and conclusions. You produce structured reviews with a 0-100 score.",
         "skill_names": ["issel-paper-review"],
+    },
+    {
+        "name": "Default Analyzer",
+        "role": AgentRole.ANALYZER,
+        "provider": "openrouter",
+        "model": "google/gemma-4-31b-it:free",
+        "strategy": Strategy.DIRECT,
+        "system_prompt": "You are an academic paper analyzer. You produce structured assessments of academic documents including summary, key findings, methodology, contributions, limitations, strengths, weaknesses, and quality scores.",
+        "skill_names": [],
     },
 ]
 
