@@ -5,7 +5,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.models import User, AgentConfig, AgentRole, Strategy, Skill
+from app.models import User, AgentConfig, AgentRole, Strategy, Skill, agent_skills_table
 from app.schemas import (
     AgentRunRequest,
     AgentRunResponse,
@@ -16,7 +16,7 @@ from app.schemas import (
 )
 from app.agents.factory import create_agent, list_agents
 from app.tools import get_tools_by_names
-from app.seeds.scholarflow_skills import seed_scholarflow
+from app.seeds.scholarflow_skills import seed_scholarflow, _AGENT_SEEDS, _SKILL_SEEDS
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -317,6 +317,101 @@ async def list_agent_configs(
         for c in created:
             await db.refresh(c)
         configs = configs + created
+
+    # Also check _AGENT_SEEDS for newly added seed configs (post-first-login)
+    # This handles the case where new seeds are added via code deploy
+    # while users already have existing configs.
+    existing_config_names = {c.name for c in configs}
+    missing_seed_configs = [a for a in _AGENT_SEEDS if a["name"] not in existing_config_names]
+
+    if missing_seed_configs:
+        # Get existing skills for this user
+        existing_skill_result = await db.execute(
+            select(Skill.name).where(Skill.user_id == current_user.id)
+        )
+        existing_skill_names = {row[0] for row in existing_skill_result.fetchall()}
+
+        # Build seed skill lookup
+        seed_skills_by_name = {s["name"]: s for s in _SKILL_SEEDS}
+        created_skills: dict[str, Skill] = {}
+
+        # Create any missing skills referenced by missing seed configs
+        for agent_def in missing_seed_configs:
+            for skill_name in agent_def["skill_names"]:
+                if skill_name in existing_skill_names or skill_name in created_skills:
+                    continue
+                skill_def = seed_skills_by_name.get(skill_name)
+                if not skill_def:
+                    continue
+                skill = Skill(
+                    user_id=current_user.id,
+                    name=skill_def["name"],
+                    description=skill_def["description"],
+                    prompt_template=skill_def["prompt_template"],
+                    builtin_tools=skill_def["builtin_tools"],
+                    custom_tools=[],
+                    tags=skill_def["tags"],
+                    is_public=skill_def["is_public"],
+                )
+                db.add(skill)
+                created_skills[skill_name] = skill
+
+        if created_skills:
+            await db.flush()
+
+        # Fetch pre-existing skills referenced by seed configs
+        all_needed_skill_names = set()
+        for agent_def in missing_seed_configs:
+            all_needed_skill_names.update(agent_def["skill_names"])
+        if all_needed_skill_names:
+            existing_needed = await db.execute(
+                select(Skill).where(
+                    Skill.user_id == current_user.id,
+                    Skill.name.in_(list(all_needed_skill_names)),
+                )
+            )
+            for skill in existing_needed.scalars().all():
+                if skill.name not in created_skills:
+                    created_skills[str(skill.name)] = skill
+
+        # Create missing seed agent configs
+        seed_configs_created = []
+        for agent_def in missing_seed_configs:
+            config = AgentConfig(
+                user_id=current_user.id,
+                name=agent_def["name"],
+                role=agent_def["role"],
+                provider=agent_def["provider"],
+                model=agent_def["model"],
+                strategy=agent_def["strategy"],
+                variant=agent_def.get("variant"),
+                system_prompt=agent_def["system_prompt"],
+                temperature=0.7,
+                max_tokens=4096,
+                tools=[],
+                is_default=False,
+            )
+            db.add(config)
+            await db.flush()
+
+            # Associate skills via raw table
+            for skill_name in agent_def["skill_names"]:
+                skill = created_skills.get(skill_name)
+                if skill:
+                    await db.execute(
+                        agent_skills_table.insert().values(
+                            agent_config_id=config.id,
+                            skill_id=skill.id,
+                        )
+                    )
+
+            seed_configs_created.append(config)
+
+        if seed_configs_created:
+            await db.commit()
+            for c in seed_configs_created:
+                await db.refresh(c)
+            configs = configs + seed_configs_created
 
     return configs
 
