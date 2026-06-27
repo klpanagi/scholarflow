@@ -25,8 +25,12 @@ TOOL_REGISTRY: dict[str, object] = {
 
 
 def get_tools_by_names(tool_names: list[str]) -> list[object]:
+    seen: set[str] = set()
     tools = []
     for name in tool_names:
+        if name in seen:
+            continue
+        seen.add(name)
         tool_fn = TOOL_REGISTRY.get(name)
         if tool_fn:
             tools.append(tool_fn)

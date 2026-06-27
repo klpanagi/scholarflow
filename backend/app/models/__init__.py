@@ -23,6 +23,7 @@ class AgentRole(str, enum.Enum):
     MANAGER = "manager"
     DEBATER = "debater"
     DEEP_REVIEWER = "deep_reviewer"
+    CHAT = "chat"
 
 
 class Strategy(str, enum.Enum):
@@ -224,6 +225,25 @@ agent_skills_table = Table(
 
 
 AgentConfig.skills = relationship("Skill", secondary=agent_skills_table, lazy="selectin")
+
+
+def _agent_config_get_tool_names(self) -> list[str]:
+    """Return deduplicated tool names from direct tools + all assigned skills."""
+    seen: set[str] = set()
+    result: list[str] = []
+    for name in (self.tools or []):
+        if name not in seen:
+            seen.add(name)
+            result.append(name)
+    for skill in (self.skills or []):
+        for name in (skill.builtin_tools or []):
+            if name not in seen:
+                seen.add(name)
+                result.append(name)
+    return result
+
+
+AgentConfig.get_tool_names = _agent_config_get_tool_names  # type: ignore[attr-defined]
 
 chat_session_assets_table = Table(
     "chat_session_assets",
