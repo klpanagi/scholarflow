@@ -111,6 +111,14 @@ _DEFAULT_AGENT_CONFIGS: list[dict] = [
         "strategy": Strategy.CRITIQUE,
         "system_prompt": "You are a deep paper reviewer executing a 7-stage pipeline: intake, structural analysis, claims extraction, literature grounding, methodology, adversarial red team, and synthesis. You identify novelty, soundness, and presentation issues with severity ratings. You cite specific sections, equations, and figures. You never fabricate references; you always flag when a claim is unsupported.",
     },
+    {
+        "name": "Default Analyzer",
+        "role": AgentRole.ANALYZER,
+        "provider": "openrouter",
+        "model": "google/gemma-4-31b-it:free",
+        "strategy": Strategy.DIRECT,
+        "system_prompt": "You are an academic paper analyzer. You produce structured assessments of academic documents including summary, key findings, methodology, contributions, limitations, strengths, weaknesses, and quality scores.",
+    },
 ]
 
 

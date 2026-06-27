@@ -9,8 +9,8 @@ from app.utils.context_budget import get_context_budget, fit_to_budget
 
 logger = logging.getLogger(__name__)
 
-LLM_MODEL = "google/gemma-4-31b-it:free"
-LLM_PROVIDER = "openrouter"
+DEFAULT_LLM_MODEL = "google/gemma-4-31b-it:free"
+DEFAULT_LLM_PROVIDER = "openrouter"
 
 
 def _extract_json(text: str) -> str:
@@ -22,10 +22,16 @@ def _extract_json(text: str) -> str:
     return text
 
 
-async def _invoke_llm(prompt: str, temperature: float = 0.7, max_tokens: int = 4000) -> str:
+async def _invoke_llm(
+    prompt: str,
+    model: str = DEFAULT_LLM_MODEL,
+    provider: str = DEFAULT_LLM_PROVIDER,
+    temperature: float = 0.7,
+    max_tokens: int = 4000,
+) -> str:
     llm = llm_service.get_llm(
-        model=LLM_MODEL,
-        provider=LLM_PROVIDER,
+        model=model,
+        provider=provider,
         temperature=temperature,
         max_tokens=max_tokens,
     )
@@ -103,8 +109,10 @@ async def analyze_paper(
     abstract: str | None,
     full_text: str,
     doc_type: str = "other",
+    model: str = DEFAULT_LLM_MODEL,
+    provider: str = DEFAULT_LLM_PROVIDER,
 ) -> PaperAnalysis | None:
-    budget = get_context_budget(LLM_MODEL, output_tokens=4000)
+    budget = get_context_budget(model, output_tokens=4000)
     prompt_reserve = 2000
     content_budget = max(budget - prompt_reserve, 2000)
     content = fit_to_budget(full_text or "", content_budget, label="analysis")
@@ -117,7 +125,9 @@ async def analyze_paper(
     )
 
     try:
-        response_text = await _invoke_llm(prompt, temperature=0.3, max_tokens=4000)
+        response_text = await _invoke_llm(
+            prompt, model=model, provider=provider, temperature=0.3, max_tokens=4000,
+        )
         raw = json.loads(_extract_json(response_text))
 
         raw.setdefault("doc_type", doc_type)

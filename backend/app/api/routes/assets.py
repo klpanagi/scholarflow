@@ -10,7 +10,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.database import get_db, AsyncSessionLocal
 from app.core.security import get_current_user
-from app.models import User, Paper, PaperChunk
+from app.models import User, Paper, PaperChunk, AgentConfig, AgentRole
 from app.schemas import PaperCreate, PaperResponse, PaperListResponse
 from app.services.minio_service import minio_service
 from app.services.pdf_service import pdf_service
@@ -20,6 +20,19 @@ from app.services.analysis_service import analyze_paper
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/assets", tags=["assets"])
+
+
+async def _get_analyzer_config(db: AsyncSession, owner_id: UUID) -> tuple[str, str]:
+    result = await db.execute(
+        select(AgentConfig).where(
+            AgentConfig.owner_id == owner_id,
+            AgentConfig.role == AgentRole.ANALYZER,
+        ).limit(1)
+    )
+    config = result.scalar_one_or_none()
+    if config:
+        return config.model, config.provider
+    return "google/gemma-4-31b-it:free", "openrouter"
 
 
 async def _get_user(user_id: str, db: AsyncSession) -> User:
@@ -90,8 +103,12 @@ async def _process_asset_background(
                 ]
 
             try:
+                model, provider = await _get_analyzer_config(db, owner_id)
                 analysis = await asyncio.wait_for(
-                    analyze_paper(title=title, abstract=abstract, full_text=full_text, doc_type=doc_type),
+                    analyze_paper(
+                        title=title, abstract=abstract, full_text=full_text,
+                        doc_type=doc_type, model=model, provider=provider,
+                    ),
                     timeout=90,
                 )
                 if analysis:
@@ -244,10 +261,12 @@ async def analyze_asset(
     full_text = extracted.full_text
 
     try:
+        model, provider = await _get_analyzer_config(db, current_user.id)
         analysis = await asyncio.wait_for(
             analyze_paper(
                 title=asset.title, abstract=asset.abstract,
                 full_text=full_text, doc_type=asset.doc_type,
+                model=model, provider=provider,
             ), timeout=90,
         )
         if analysis:

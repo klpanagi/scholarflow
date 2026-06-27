@@ -24,6 +24,7 @@ class AgentRole(str, enum.Enum):
     DEBATER = "debater"
     DEEP_REVIEWER = "deep_reviewer"
     CHAT = "chat"
+    ANALYZER = "analyzer"
 
 
 class Strategy(str, enum.Enum):
