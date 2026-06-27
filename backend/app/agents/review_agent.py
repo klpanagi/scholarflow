@@ -140,10 +140,23 @@ class ReviewAgent(BaseAgent):
 
         async def respond(state: AgentState) -> AgentState:
             analysis = state["context"].get("analysis", "")
+
+            # Build a clean message list: keep only system messages from the
+            # original conversation.  The original HumanMessage carries only
+            # metadata (title, authors, abstract) because the workflow uses
+            # has_separate_paper_content=True — the full paper was processed by
+            # the analyze node and is available in `analysis`.  Including the
+            # metadata-only HumanMessage causes the LLM to believe it received
+            # insufficient input and produce a crippled review.
+            from langchain_core.messages import BaseMessage, SystemMessage
+
             original_messages = state["messages"]
+            system_messages: list[BaseMessage] = [
+                m for m in original_messages if isinstance(m, SystemMessage)
+            ]
 
             review_prompt = (
-                f"Based on your analysis:\n{analysis}\n\n"
+                f"Based on your thorough analysis of the full paper text:\n\n{analysis}\n\n"
                 "Now produce a complete, structured review following this format:\n\n"
                 "## Summary\n[Brief overview of the document and its contribution]\n\n"
                 "## Strengths\n[3-5 numbered points with evidence]\n\n"
@@ -162,7 +175,7 @@ class ReviewAgent(BaseAgent):
             )
 
             response = await self._run_strategy(
-                original_messages + [HumanMessage(content=review_prompt)],
+                system_messages + [HumanMessage(content=review_prompt)],
             )
             state["output"] = response.content
 
