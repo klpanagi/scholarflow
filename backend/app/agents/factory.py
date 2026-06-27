@@ -3,8 +3,10 @@ from typing import Any, Optional, Union
 from langchain_core.language_models import BaseChatModel  # noqa: F401  (kept for type-hint parity)
 
 from app.agents.base import BaseAgent
+from app.agents.chat_agent import ChatAgent
 from app.agents.debate_agent import DebateAgent
 from app.agents.deep_debate_agent import DeepDebateAgent
+from app.agents.manager_agent import ManagerAgent
 from app.agents.recommendation_agent import RecommendationAgent
 from app.agents.review_agent import ReviewAgent
 from app.agents.review_pipeline import DeepReviewAgent
@@ -27,13 +29,14 @@ AGENT_REGISTRY: dict[str, Union[type[BaseAgent], dict[str, type[BaseAgent]]]] = 
     AgentRole.REVIEWER.value: ReviewAgent,
     AgentRole.RECOMMENDER.value: RecommendationAgent,
     AgentRole.REVISION.value: RevisionAgent,
-    AgentRole.MANAGER.value: WritingAgent,
+    AgentRole.MANAGER.value: ManagerAgent,
     AgentRole.DEBATER.value: {
         "simple": SimpleDebateAgent,
         "standard": DebateAgent,
         "deep": DeepDebateAgent,
     },
     AgentRole.DEEP_REVIEWER.value: DeepReviewAgent,
+    AgentRole.CHAT.value: ChatAgent,
 }
 
 
