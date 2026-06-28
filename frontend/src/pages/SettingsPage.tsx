@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { api } from '../lib/api'
+import { api, exportSkillsAndAgents, importSkillsAndAgents } from '../lib/api'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
@@ -33,6 +33,9 @@ import {
   Bell,
   Shield,
   ExternalLink,
+  Download,
+  Upload,
+  FileJson,
 } from 'lucide-react'
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -85,7 +88,7 @@ type PasswordForm = z.infer<typeof passwordSchema>
 // Constants
 // ────────────────────────────────────────────────────────────────────────────
 
-type TabId = 'profile' | 'api-keys' | 'preferences' | 'billing'
+type TabId = 'profile' | 'api-keys' | 'preferences' | 'billing' | 'import-export'
 
 interface TabDef {
   id: TabId
@@ -98,6 +101,7 @@ const TABS: TabDef[] = [
   { id: 'api-keys', label: 'API Keys', icon: Key },
   { id: 'preferences', label: 'Preferences', icon: Settings2 },
   { id: 'billing', label: 'Billing', icon: CreditCard },
+  { id: 'import-export', label: 'Import/Export', icon: Download },
 ]
 
 const PROVIDER_DISPLAY: Record<string, { name: string; color: string }> = {
@@ -1094,6 +1098,142 @@ function BillingSection() {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// Import / Export Section
+// ────────────────────────────────────────────────────────────────────────────
+
+function ImportExportSection() {
+  const { toast } = useToast()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [isExporting, setIsExporting] = useState(false)
+  const [isImporting, setIsImporting] = useState(false)
+
+  const handleExport = async () => {
+    setIsExporting(true)
+    try {
+      const bundle = await exportSkillsAndAgents()
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `academic-pal-export-${new Date().toISOString().split('T')[0]}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      toast({ title: 'Export complete' })
+    } catch (error: any) {
+      toast({
+        title: 'Export failed',
+        description: error.response?.data?.detail || error.message || 'Unknown error',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setIsImporting(true)
+    try {
+      const text = await file.text()
+      JSON.parse(text)
+
+      if (fileInputRef.current) fileInputRef.current.value = ''
+
+      const preview = await importSkillsAndAgents(file)
+      // TODO: Open preview modal (Task 10)
+      toast({
+        title: 'Import preview ready',
+        description: `Found ${preview.conflicts.length} conflict(s). Preview modal coming soon.`,
+      })
+    } catch (error: any) {
+      if (error instanceof SyntaxError) {
+        toast({
+          title: 'Invalid JSON file',
+          description: 'The selected file is not valid JSON.',
+          variant: 'destructive',
+        })
+      } else {
+        toast({
+          title: 'Import failed',
+          description: error.response?.data?.detail || error.message || 'Unknown error',
+          variant: 'destructive',
+        })
+      }
+    } finally {
+      setIsImporting(false)
+    }
+  }
+
+  return (
+    <Card className="border-border/50 bg-card/60 backdrop-blur-xl">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <FileJson aria-hidden="true" className="h-4 w-4 text-primary" />
+          Import / Export
+        </CardTitle>
+        <CardDescription>
+          Export your skills and agents as a JSON bundle, or import from a previously exported file.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {/* Export */}
+        <div>
+          <h4 className="mb-2 text-sm font-medium text-foreground">Export All Skills &amp; Agents</h4>
+          <p className="mb-3 text-sm text-muted-foreground">
+            Download a JSON file containing all your custom skills and agent configurations.
+          </p>
+          <Button onClick={handleExport} disabled={isExporting} variant="outline" className="gap-2">
+            {isExporting ? (
+              <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download aria-hidden="true" className="h-4 w-4" />
+            )}
+            {isExporting ? 'Exporting...' : 'Export'}
+          </Button>
+        </div>
+
+        {/* Divider */}
+        <div className="border-t border-border/50" />
+
+        {/* Import */}
+        <div>
+          <h4 className="mb-2 text-sm font-medium text-foreground">Import Skills &amp; Agents</h4>
+          <p className="mb-3 text-sm text-muted-foreground">
+            Select a previously exported JSON file to import skills and agent configurations.
+          </p>
+          <div className="flex items-center gap-3">
+            <Button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isImporting}
+              variant="outline"
+              className="gap-2"
+            >
+              {isImporting ? (
+                <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+              ) : (
+                <Upload aria-hidden="true" className="h-4 w-4" />
+              )}
+              {isImporting ? 'Analyzing...' : 'Select File'}
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json"
+              onChange={handleFileSelect}
+              className="hidden"
+            />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Main Settings Page
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -1152,6 +1292,19 @@ export function SettingsPage() {
             className="focus:outline-none"
           >
             <BillingSection />
+          </div>
+        )
+      case 'import-export':
+        return (
+          <div
+            key="import-export"
+            id="settings-panel-import-export"
+            role="tabpanel"
+            aria-labelledby="settings-tab-import-export"
+            tabIndex={0}
+            className="focus:outline-none"
+          >
+            <ImportExportSection />
           </div>
         )
     }
