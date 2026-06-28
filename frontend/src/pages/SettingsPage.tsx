@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { api, exportSkillsAndAgents, importSkillsAndAgents } from '../lib/api'
+import type { ImportPreviewPayload, ImportResultPayload } from '../types/chat'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
@@ -11,6 +12,7 @@ import { Switch } from '../components/ui/switch'
 import { Select } from '../components/ui/select'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { Badge } from '../components/ui/badge'
+import ImportPreviewModal from '../components/ImportPreviewModal'
 import { PageHeader } from '../components/shared/PageHeader'
 import { ModalShell } from '../components/shared/ModalShell'
 import { ConfirmDialog } from '../components/shared/ConfirmDialog'
@@ -1106,6 +1108,7 @@ function ImportExportSection() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isExporting, setIsExporting] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
+  const [importPreview, setImportPreview] = useState<ImportPreviewPayload | null>(null)
 
   const handleExport = async () => {
     setIsExporting(true)
@@ -1144,11 +1147,7 @@ function ImportExportSection() {
       if (fileInputRef.current) fileInputRef.current.value = ''
 
       const preview = await importSkillsAndAgents(file)
-      // TODO: Open preview modal (Task 10)
-      toast({
-        title: 'Import preview ready',
-        description: `Found ${preview.conflicts.length} conflict(s). Preview modal coming soon.`,
-      })
+      setImportPreview(preview)
     } catch (error: any) {
       if (error instanceof SyntaxError) {
         toast({
@@ -1169,6 +1168,7 @@ function ImportExportSection() {
   }
 
   return (
+    <>
     <Card className="border-border/50 bg-card/60 backdrop-blur-xl">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
@@ -1230,6 +1230,21 @@ function ImportExportSection() {
         </div>
       </CardContent>
     </Card>
+
+    {importPreview && (
+      <ImportPreviewModal
+        preview={importPreview}
+        onClose={() => setImportPreview(null)}
+        onComplete={(result: ImportResultPayload) => {
+          setImportPreview(null)
+          toast({
+            title: 'Import complete',
+            description: `${result.skills_created} skills, ${result.agent_configs_created} agents created.`,
+          })
+        }}
+      />
+    )}
+    </>
   )
 }
 
