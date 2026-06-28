@@ -13,6 +13,7 @@ from __future__ import annotations
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 
 from app.core.database import get_db
 from app.core.security import create_access_token
@@ -487,7 +488,7 @@ class TestImportStaging:
     async def test_import_staging_invalid_json(
         self, client, db_session, test_user
     ):
-        """Non-dict, non-JSON body → 400."""
+        """Non-dict, non-JSON body → 422 (FastAPI RequestValidationError)."""
         response = await client.post(
             "/api/import",
             content="not json",
@@ -496,15 +497,15 @@ class TestImportStaging:
                 **_auth_for(test_user.id),
             },
         )
-        assert response.status_code == 400
+        assert response.status_code == 422
 
     @pytest.mark.asyncio
     async def test_import_staging_missing_required_fields(
         self, client, db_session, test_user
     ):
-        """Bundle missing 'version' field → 422."""
+        """Bundle missing 'exported_at' field → 422."""
         bundle = self._valid_bundle()
-        del bundle["version"]
+        del bundle["exported_at"]
         response = await client.post(
             "/api/import",
             json=bundle,
@@ -546,4 +547,349 @@ class TestImportStaging:
         """POST without auth header returns 401."""
         bundle = self._valid_bundle()
         response = await client.post("/api/import", json=bundle)
+        assert response.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Tests — Import Confirm
+# ---------------------------------------------------------------------------
+
+
+class TestImportConfirm:
+    """Tests for the POST /api/import/confirm endpoint.
+
+    Each test first stages a bundle via POST /api/import, then confirms it
+    via POST /api/import/confirm with the appropriate decisions.
+    """
+
+    def _valid_bundle(self, skill_name: str = "imported-skill") -> dict:
+        """Return a minimal but valid ExportBundle payload."""
+        return {
+            "version": 1,
+            "format": "academic-pal-skills-agents-v1",
+            "exported_at": "2025-01-15T10:30:00",
+            "skills": [
+                {
+                    "name": skill_name,
+                    "description": "An imported skill",
+                    "is_public": False,
+                    "builtin_tools": [],
+                    "custom_tools": [],
+                    "tags": [],
+                }
+            ],
+            "agent_configs": [
+                {
+                    "name": "Imported Agent",
+                    "role": "researcher",
+                    "provider": "opencode",
+                    "model": "gpt-4o",
+                    "tools": [],
+                    "system_prompt": "Imported system prompt",
+                    "skill_names": [skill_name],
+                }
+            ],
+        }
+
+    async def _stage_bundle(
+        self, client, user_id, bundle: dict
+    ) -> tuple[str, list[dict]]:
+        """POST a bundle to /api/import and return (staging_token, conflicts)."""
+        response = await client.post(
+            "/api/import",
+            json=bundle,
+            headers=_auth_for(user_id),
+        )
+        assert response.status_code == 200
+        body = response.json()
+        return body["staging_token"], body.get("conflicts", [])
+
+    @pytest.mark.asyncio
+    async def test_confirm_creates_new_items(self, client, db_session, test_user):
+        """Confirm with no conflicts (all new) creates records."""
+        bundle = self._valid_bundle(skill_name="brand-new-skill")
+        token, _ = await self._stage_bundle(client, test_user.id, bundle)
+
+        response = await client.post(
+            "/api/import/confirm",
+            json={"staging_token": token, "decisions": []},
+            headers=_auth_for(test_user.id),
+        )
+        assert response.status_code == 201
+        body = response.json()
+        assert body["skills_created"] == 1
+        assert body["skills_updated"] == 0
+        assert body["skills_skipped"] == 0
+        assert body["agent_configs_created"] == 1
+        assert body["agent_configs_updated"] == 0
+        assert body["agent_configs_skipped"] == 0
+
+        # Verify records exist in DB
+        skill_result = await db_session.execute(
+            select(Skill).where(
+                Skill.user_id == test_user.id, Skill.name == "brand-new-skill"
+            )
+        )
+        assert skill_result.scalar_one_or_none() is not None
+
+        agent_result = await db_session.execute(
+            select(AgentConfig).where(
+                AgentConfig.user_id == test_user.id,
+                AgentConfig.name == "Imported Agent",
+            )
+        )
+        assert agent_result.scalar_one_or_none() is not None
+
+    @pytest.mark.asyncio
+    async def test_confirm_overwrite_updates_in_place(
+        self, client, db_session, test_user
+    ):
+        """Overwrite decision updates existing skill, preserving its ID."""
+        existing = await _make_skill(
+            db_session,
+            test_user.id,
+            name="existing-skill",
+            description="Original description",
+        )
+        original_id = existing.id
+
+        bundle = self._valid_bundle(skill_name="existing-skill")
+        # Change description so there's a difference
+        bundle["skills"][0]["description"] = "Updated description"
+
+        token, conflicts = await self._stage_bundle(client, test_user.id, bundle)
+        conflict_id = conflicts[0]["conflict_id"]
+
+        response = await client.post(
+            "/api/import/confirm",
+            json={
+                "staging_token": token,
+                "decisions": [
+                    {"conflict_id": conflict_id, "action": "overwrite"}
+                ],
+            },
+            headers=_auth_for(test_user.id),
+        )
+        assert response.status_code == 201
+        body = response.json()
+        assert body["skills_created"] == 0
+        assert body["skills_updated"] == 1
+        assert body["skills_skipped"] == 0
+
+        # ID must be preserved
+        await db_session.refresh(existing)
+        assert existing.id == original_id
+        assert existing.description == "Updated description"
+
+    @pytest.mark.asyncio
+    async def test_confirm_skip_keeps_original(self, client, db_session, test_user):
+        """Skip decision leaves existing record unchanged."""
+        existing = await _make_skill(
+            db_session,
+            test_user.id,
+            name="skip-skill",
+            description="Original description",
+        )
+
+        bundle = self._valid_bundle(skill_name="skip-skill")
+        bundle["skills"][0]["description"] = "Updated description"
+
+        token, conflicts = await self._stage_bundle(client, test_user.id, bundle)
+        conflict_id = conflicts[0]["conflict_id"]
+
+        response = await client.post(
+            "/api/import/confirm",
+            json={
+                "staging_token": token,
+                "decisions": [
+                    {"conflict_id": conflict_id, "action": "skip"}
+                ],
+            },
+            headers=_auth_for(test_user.id),
+        )
+        assert response.status_code == 201
+        body = response.json()
+        assert body["skills_created"] == 0
+        assert body["skills_updated"] == 0
+        assert body["skills_skipped"] == 1
+
+        await db_session.refresh(existing)
+        assert existing.description == "Original description"
+
+    @pytest.mark.asyncio
+    async def test_confirm_mixed_decisions(self, client, db_session, test_user):
+        """Multiple items with mixed skip/overwrite produce correct counts."""
+        # Pre-create one skill and one agent
+        existing_skill = await _make_skill(
+            db_session,
+            test_user.id,
+            name="existing-skill",
+            description="Original",
+        )
+        existing_agent = await _make_agent(
+            db_session,
+            test_user.id,
+            name="Existing Agent",
+            role="researcher",
+        )
+
+        bundle = self._valid_bundle(skill_name="existing-skill")
+        bundle["skills"] = [
+            {
+                "name": "existing-skill",
+                "description": "Updated desc",
+                "is_public": False,
+                "builtin_tools": [],
+                "custom_tools": [],
+                "tags": [],
+            },
+            {
+                "name": "new-skill",
+                "description": "Brand new",
+                "is_public": False,
+                "builtin_tools": [],
+                "custom_tools": [],
+                "tags": [],
+            },
+        ]
+        bundle["agent_configs"] = [
+            {
+                "name": "Existing Agent",
+                "role": "researcher",
+                "provider": "opencode",
+                "model": "gpt-4o",
+                "tools": [],
+                "system_prompt": "Updated prompt",
+                "skill_names": [],
+            },
+            {
+                "name": "New Agent",
+                "role": "writer",
+                "provider": "opencode",
+                "model": "gpt-4o",
+                "tools": [],
+                "system_prompt": "Fresh agent",
+                "skill_names": [],
+            },
+        ]
+
+        token, conflicts = await self._stage_bundle(client, test_user.id, bundle)
+
+        # Build decisions: overwrite existing-skill, skip Existing Agent
+        decisions = []
+        for c in conflicts:
+            if c["name"] == "existing-skill":
+                decisions.append(
+                    {"conflict_id": c["conflict_id"], "action": "overwrite"}
+                )
+            elif c["name"] == "Existing Agent":
+                decisions.append(
+                    {"conflict_id": c["conflict_id"], "action": "skip"}
+                )
+
+        response = await client.post(
+            "/api/import/confirm",
+            json={"staging_token": token, "decisions": decisions},
+            headers=_auth_for(test_user.id),
+        )
+        assert response.status_code == 201
+        body = response.json()
+        assert body["skills_created"] == 1  # new-skill
+        assert body["skills_updated"] == 1  # existing-skill (overwrite)
+        assert body["skills_skipped"] == 0
+        assert body["agent_configs_created"] == 1  # New Agent
+        assert body["agent_configs_updated"] == 0
+        assert body["agent_configs_skipped"] == 1  # Existing Agent (skip)
+
+        # Verify overwrite took effect
+        await db_session.refresh(existing_skill)
+        assert existing_skill.description == "Updated desc"
+
+        # Verify skip did not modify
+        await db_session.refresh(existing_agent)
+        assert existing_agent.system_prompt == "Test system prompt"
+
+    @pytest.mark.asyncio
+    async def test_confirm_invalid_token(self, client, db_session, test_user):
+        """Made-up token returns 404."""
+        response = await client.post(
+            "/api/import/confirm",
+            json={
+                "staging_token": "non-existent-token",
+                "decisions": [],
+            },
+            headers=_auth_for(test_user.id),
+        )
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_confirm_double_confirm(self, client, db_session, test_user):
+        """Confirming twice with the same token returns 409."""
+        bundle = self._valid_bundle(skill_name="double-confirm-skill")
+        token, _ = await self._stage_bundle(client, test_user.id, bundle)
+
+        # First confirm should succeed
+        resp1 = await client.post(
+            "/api/import/confirm",
+            json={"staging_token": token, "decisions": []},
+            headers=_auth_for(test_user.id),
+        )
+        assert resp1.status_code == 201
+
+        # Second confirm with same token should fail
+        resp2 = await client.post(
+            "/api/import/confirm",
+            json={"staging_token": token, "decisions": []},
+            headers=_auth_for(test_user.id),
+        )
+        assert resp2.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_confirm_creates_m2m_links(self, client, db_session, test_user):
+        """Confirm creates agent_skills links for referenced skills."""
+        bundle = self._valid_bundle(skill_name="linked-skill")
+        token, _ = await self._stage_bundle(client, test_user.id, bundle)
+
+        response = await client.post(
+            "/api/import/confirm",
+            json={"staging_token": token, "decisions": []},
+            headers=_auth_for(test_user.id),
+        )
+        assert response.status_code == 201
+        body = response.json()
+        assert body["agent_skills_links_created"] >= 1
+
+        # Verify the M2M link exists
+        skill = await db_session.execute(
+            select(Skill).where(
+                Skill.user_id == test_user.id, Skill.name == "linked-skill"
+            )
+        )
+        skill = skill.scalar_one_or_none()
+        assert skill is not None
+
+        agent = await db_session.execute(
+            select(AgentConfig).where(
+                AgentConfig.user_id == test_user.id,
+                AgentConfig.name == "Imported Agent",
+            )
+        )
+        agent = agent.scalar_one_or_none()
+        assert agent is not None
+
+        link_result = await db_session.execute(
+            select(agent_skills_table).where(
+                agent_skills_table.c.agent_config_id == agent.id,
+                agent_skills_table.c.skill_id == skill.id,
+            )
+        )
+        assert link_result.first() is not None
+
+    @pytest.mark.asyncio
+    async def test_confirm_requires_auth(self, client, db_session, test_user):
+        """POST /api/import/confirm without auth returns 401."""
+        response = await client.post(
+            "/api/import/confirm",
+            json={"staging_token": "whatever", "decisions": []},
+        )
         assert response.status_code == 401
