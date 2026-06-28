@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 from uuid import UUID
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
@@ -469,3 +469,74 @@ from .workflow_event import ExecutionEvent, WorkflowEventResponse, WorkflowSnaps
 class WorkflowExecutionSnapshotResponse(BaseModel):
     events: list[ExecutionEvent]
     execution: WorkflowExecutionResponse
+
+
+class SkillExport(BaseModel):
+    name: str
+    description: Optional[str] = None
+    prompt_template: Optional[str] = None
+    builtin_tools: list[str] = []
+    custom_tools: list[CustomToolDefinition] = []
+    input_schema: Optional[dict] = None
+    output_schema: Optional[dict] = None
+    tags: list[str] = []
+    is_public: bool = False
+
+
+class AgentConfigExport(BaseModel):
+    name: str
+    role: str
+    provider: str = "opencode"
+    model: str = "gpt-4o"
+    temperature: float = Field(0.7, ge=0.0, le=2.0)
+    max_tokens: int = Field(4096, ge=1, le=128000)
+    strategy: str = "direct"
+    tools: list[str] = []
+    system_prompt: Optional[str] = None
+    is_default: bool = False
+    variant: Optional[str] = None
+    skill_names: list[str] = []
+
+
+class ExportBundle(BaseModel):
+    version: int = 1
+    format: str = "academic-pal-skills-agents-v1"
+    exported_at: str
+    skills: list[SkillExport] = []
+    agent_configs: list[AgentConfigExport] = []
+
+
+class ImportConflict(BaseModel):
+    conflict_id: str
+    type: Literal["skill", "agent_config"]
+    name: str
+    existing: dict = {}
+    incoming: dict = {}
+    differences: list[str] = []
+
+
+class ImportPreview(BaseModel):
+    staging_token: str
+    summary: dict = {}
+    conflicts: list[ImportConflict] = []
+
+
+class ImportDecision(BaseModel):
+    conflict_id: str
+    action: Literal["skip", "overwrite"]
+
+
+class ImportConfirmRequest(BaseModel):
+    staging_token: str
+    decisions: list[ImportDecision] = []
+
+
+class ImportResult(BaseModel):
+    skills_created: int = 0
+    skills_updated: int = 0
+    skills_skipped: int = 0
+    agent_configs_created: int = 0
+    agent_configs_updated: int = 0
+    agent_configs_skipped: int = 0
+    agent_skills_links_created: int = 0
+    errors: list[str] = []
