@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Select } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/hooks/use-toast"
-import { api } from "@/lib/api"
+import { api, exportSkillsAndAgents } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import {
   Bot,
@@ -28,6 +28,7 @@ import {
   Activity,
   CheckCircle2,
   Tag,
+  Download,
 } from "lucide-react"
 
 import PageHeader from "@/components/shared/PageHeader"
@@ -253,6 +254,7 @@ export default function AgentsPage() {
   const [runResult, setRunResult] = useState<AgentResult | null>(null)
   const [activeTab, setActiveTab] = useState<TabValue>("all")
   const [modalOpen, setModalOpen] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
 
   const [form, setForm] = useState({
     name: "",
@@ -538,6 +540,31 @@ export default function AgentsPage() {
     setForm((prev) => ({ ...prev, [field]: value }))
   }
 
+  const handleExport = async () => {
+    setIsExporting(true)
+    try {
+      const bundle = await exportSkillsAndAgents()
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `academic-pal-export-${new Date().toISOString().split("T")[0]}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      toast({ title: "Export complete", description: "Your skills and agents have been exported." })
+    } catch (error: any) {
+      toast({
+        title: "Export failed",
+        description: error.response?.data?.detail || error.message || "Unknown error",
+        variant: "destructive",
+      })
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   // ========================================================================
   // Loading state
   // ========================================================================
@@ -610,13 +637,25 @@ export default function AgentsPage() {
         title="Agent Intelligence"
         description="Configure, manage, and test your AI research agents \u2014 from literature search and peer review to academic writing."
         actions={
-          <Button
-            onClick={handleNew}
-            className="gap-2 border-primary/30 bg-primary/10 text-primary shadow-sm backdrop-blur-sm hover:bg-primary/20 hover:text-primary"
-          >
-            <Plus className="h-4 w-4" />
-            New Agent
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExport}
+              disabled={isExporting}
+              className="gap-2"
+            >
+              <Download className={cn("h-4 w-4", isExporting && "animate-spin")} />
+              {isExporting ? "Exporting..." : "Export"}
+            </Button>
+            <Button
+              onClick={handleNew}
+              className="gap-2 border-primary/30 bg-primary/10 text-primary shadow-sm backdrop-blur-sm hover:bg-primary/20 hover:text-primary"
+            >
+              <Plus className="h-4 w-4" />
+              New Agent
+            </Button>
+          </div>
         }
       />
 

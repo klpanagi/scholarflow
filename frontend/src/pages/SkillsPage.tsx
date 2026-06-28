@@ -19,6 +19,7 @@ import {
   Play,
   Eye,
   SlidersHorizontal,
+  Download,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -27,7 +28,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Select } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
-import { api } from "@/lib/api"
+import { api, exportSkillsAndAgents } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { PageHeader } from "@/components/shared/PageHeader"
 import { ModalShell } from "@/components/shared/ModalShell"
@@ -111,6 +112,9 @@ function pickColor(index: number): string {
 export default function SkillsPage() {
   const { toast } = useToast()
   const queryClient = useQueryClient()
+
+  // ----- Export state -----
+  const [isExporting, setIsExporting] = useState(false)
 
   // ----- Modal state -----
   const [detailSkill, setDetailSkill] = useState<Skill | null>(null)
@@ -357,6 +361,31 @@ export default function SkillsPage() {
     setForm((prev) => ({ ...prev, [field]: value }))
   }
 
+  const handleExport = async () => {
+    setIsExporting(true)
+    try {
+      const bundle = await exportSkillsAndAgents()
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `academic-pal-export-${new Date().toISOString().split("T")[0]}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      toast({ title: "Export complete", description: "Your skills and agents have been exported." })
+    } catch (error: any) {
+      toast({
+        title: "Export failed",
+        description: error.response?.data?.detail || error.message || "Unknown error",
+        variant: "destructive",
+      })
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   // ========================================================================
   // Stats config
   // ========================================================================
@@ -421,10 +450,22 @@ export default function SkillsPage() {
         title="Scholar Skills"
         description="Manage and organize your agent skills — reusable prompt templates with tool bindings"
         actions={
-          <Button onClick={openCreateModal} className="gap-2">
-            <Plus className="h-4 w-4" />
-            New Skill
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExport}
+              disabled={isExporting}
+              className="gap-2"
+            >
+              <Download className={cn("h-4 w-4", isExporting && "animate-spin")} />
+              {isExporting ? "Exporting..." : "Export"}
+            </Button>
+            <Button onClick={openCreateModal} className="gap-2">
+              <Plus className="h-4 w-4" />
+              New Skill
+            </Button>
+          </div>
         }
       />
 
