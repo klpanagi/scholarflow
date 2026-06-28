@@ -366,3 +366,184 @@ class TestImportEndpoint:
             headers=_auth_for(test_user.id),
         )
         assert response.status_code == 404
+
+
+class TestImportStaging:
+    """Tests for the POST /api/import staging endpoint.
+
+    These tests validate the import staging behavior including conflict
+    detection, bundle validation, and authorization. The endpoint is not yet
+    implemented, so all tests are expected to fail (RED phase).
+    """
+
+    def _valid_bundle(self, skill_name: str = "imported-skill") -> dict:
+        """Return a minimal but valid ExportBundle payload."""
+        return {
+            "version": 1,
+            "format": "academic-pal-skills-agents-v1",
+            "exported_at": "2025-01-15T10:30:00",
+            "skills": [
+                {
+                    "name": skill_name,
+                    "description": "An imported skill",
+                    "is_public": False,
+                    "builtin_tools": [],
+                    "custom_tools": [],
+                    "tags": [],
+                }
+            ],
+            "agent_configs": [
+                {
+                    "name": "Imported Agent",
+                    "role": "researcher",
+                    "provider": "opencode",
+                    "model": "gpt-4o",
+                    "tools": [],
+                    "system_prompt": "Imported system prompt",
+                    "skill_names": [skill_name],
+                }
+            ],
+        }
+
+    @pytest.mark.asyncio
+    async def test_import_staging_accepts_valid_bundle(
+        self, client, db_session, test_user
+    ):
+        """POST valid bundle → 200 with staging_token, summary, conflicts."""
+        bundle = self._valid_bundle()
+        response = await client.post(
+            "/api/import",
+            json=bundle,
+            headers=_auth_for(test_user.id),
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert isinstance(body["staging_token"], str)
+        assert isinstance(body["summary"], dict)
+        assert isinstance(body["conflicts"], list)
+
+    @pytest.mark.asyncio
+    async def test_import_staging_detects_name_conflicts(
+        self, client, db_session, test_user
+    ):
+        """Existing skill with same name → conflict entry with type and name."""
+        await _make_skill(
+            db_session,
+            test_user.id,
+            name="imported-skill",
+            description="Already here",
+        )
+        bundle = self._valid_bundle(skill_name="imported-skill")
+        response = await client.post(
+            "/api/import",
+            json=bundle,
+            headers=_auth_for(test_user.id),
+        )
+        assert response.status_code == 200
+        body = response.json()
+        conflicts = body["conflicts"]
+        skill_conflicts = [c for c in conflicts if c.get("type") == "skill"]
+        assert len(skill_conflicts) >= 1
+        assert skill_conflicts[0]["name"] == "imported-skill"
+
+    @pytest.mark.asyncio
+    async def test_import_staging_duplicate_names_in_bundle(
+        self, client, db_session, test_user
+    ):
+        """Duplicate skill names within the bundle → 422."""
+        bundle = self._valid_bundle()
+        bundle["skills"].append(
+            {
+                "name": "imported-skill",
+                "description": "Duplicate skill",
+                "is_public": False,
+                "builtin_tools": [],
+                "custom_tools": [],
+                "tags": [],
+            }
+        )
+        response = await client.post(
+            "/api/import",
+            json=bundle,
+            headers=_auth_for(test_user.id),
+        )
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_import_staging_skill_ref_not_found(
+        self, client, db_session, test_user
+    ):
+        """Agent references a skill not in bundle or DB → 422."""
+        bundle = self._valid_bundle()
+        bundle["agent_configs"][0]["skill_names"] = ["nonexistent-skill"]
+        response = await client.post(
+            "/api/import",
+            json=bundle,
+            headers=_auth_for(test_user.id),
+        )
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_import_staging_invalid_json(
+        self, client, db_session, test_user
+    ):
+        """Non-dict, non-JSON body → 400."""
+        response = await client.post(
+            "/api/import",
+            content="not json",
+            headers={
+                "Content-Type": "application/json",
+                **_auth_for(test_user.id),
+            },
+        )
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_import_staging_missing_required_fields(
+        self, client, db_session, test_user
+    ):
+        """Bundle missing 'version' field → 422."""
+        bundle = self._valid_bundle()
+        del bundle["version"]
+        response = await client.post(
+            "/api/import",
+            json=bundle,
+            headers=_auth_for(test_user.id),
+        )
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_import_staging_wrong_version(
+        self, client, db_session, test_user
+    ):
+        """Bundle with unsupported version number → 422."""
+        bundle = self._valid_bundle()
+        bundle["version"] = 999
+        response = await client.post(
+            "/api/import",
+            json=bundle,
+            headers=_auth_for(test_user.id),
+        )
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_import_staging_empty_bundle(
+        self, client, db_session, test_user
+    ):
+        """Empty skills and agent_configs lists → 200 with zero counts."""
+        bundle = self._valid_bundle()
+        bundle["skills"] = []
+        bundle["agent_configs"] = []
+        response = await client.post(
+            "/api/import",
+            json=bundle,
+            headers=_auth_for(test_user.id),
+        )
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_import_staging_requires_auth(self, client, db_session, test_user):
+        """POST without auth header returns 401."""
+        bundle = self._valid_bundle()
+        response = await client.post("/api/import", json=bundle)
+        assert response.status_code == 401
