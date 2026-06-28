@@ -388,6 +388,8 @@ async def _run_stage(
     if grobid_dict:
         agent_context["grobid"] = grobid_dict
 
+    if stage_def.get("role") == "researcher":
+        agent_context["skip_synthesis"] = True
 
     max_retries = 3
     last_error = None

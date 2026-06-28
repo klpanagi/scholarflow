@@ -1190,7 +1190,13 @@ class SearchAgent(BaseAgent):
         return state
 
     async def synthesize(self, state: AgentState) -> AgentState:
-        """Build a ResearchDossier, apply hybrid ranking, and produce LLM synthesis."""
+        """Build a ResearchDossier, apply hybrid ranking, and optionally produce LLM synthesis.
+
+        When context["skip_synthesis"] is True, the LLM synthesis call is skipped
+        but the ResearchDossier is still constructed and stored in context. This
+        saves ~5-10s and 1 LLM call for downstream agents (e.g. ReviewAgent) that
+        read the structured dossier fields directly.
+        """
         ctx = state["context"]
         deduped: list[dict] = ctx.get("deduplicated_results", []) or []
         gaps: list[ResearchGap] = ctx.get("gaps", []) or []
@@ -1201,10 +1207,11 @@ class SearchAgent(BaseAgent):
         queries_used: list[str] = ctx.get("search_queries", [])
         expanded_used: list[str] = ctx.get("expanded_queries", [])
         s2_seed_id: str | None = ctx.get("recommendations_seed_id")
+        skip_synthesis: bool = ctx.get("skip_synthesis", False)
 
         logger.info(
             f"synthesize: {len(deduped)} deduped results, {len(gaps)} gaps, "
-            f"{len(methodology_table)} methods"
+            f"{len(methodology_table)} methods, skip_synthesis={skip_synthesis}"
         )
 
         if not deduped:
@@ -1336,6 +1343,19 @@ class SearchAgent(BaseAgent):
                 }
             )
         ctx["search_results"] = legacy_results
+
+        if skip_synthesis:
+            output_lines = [f"Found {len(papers)} papers across {len(queries_used)} queries."]
+            if papers:
+                output_lines.append("Top papers:")
+                for p in papers[:5]:
+                    output_lines.append(f"  - {p.title} ({p.year or 'N/A'}) [{p.citation_count} cites]")
+            if gaps:
+                output_lines.append("Research gaps:")
+                for g in gaps[:3]:
+                    output_lines.append(f"  - {g.concept_a} ↔ {g.concept_b}: {g.description}")
+            state["output"] = "\n".join(output_lines)
+            return state
 
         async def _verify(r: dict) -> tuple[dict, dict]:
             title = r.get("title", "Untitled")
