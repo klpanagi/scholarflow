@@ -166,3 +166,78 @@ export interface AssetListResponse {
   page: number
   size: number
 }
+
+// ---------------------------------------------------------------------------
+// Export / Import payloads
+// ---------------------------------------------------------------------------
+
+export interface SkillExportPayload {
+  name: string
+  description?: string
+  prompt_template?: string
+  builtin_tools: string[]
+  custom_tools?: Record<string, unknown>[]
+  input_schema?: Record<string, unknown>
+  output_schema?: Record<string, unknown>
+  tags: string[]
+  is_public: boolean
+}
+
+export interface AgentConfigExportPayload {
+  name: string
+  role: string
+  provider: string
+  model: string
+  temperature: number
+  max_tokens: number
+  strategy: string
+  tools?: string[]
+  system_prompt?: string
+  is_default: boolean
+  variant?: string
+  skill_names: string[]
+}
+
+export interface ExportBundlePayload {
+  version: number
+  format: string
+  exported_at: string
+  skills: SkillExportPayload[]
+  agent_configs: AgentConfigExportPayload[]
+}
+
+export interface ImportConflictPayload {
+  conflict_id: string
+  type: 'skill' | 'agent_config'
+  name: string
+  existing: Record<string, unknown>
+  incoming: Record<string, unknown>
+  differences: string[]
+}
+
+export interface ImportPreviewPayload {
+  staging_token: string
+  summary: Record<string, unknown>
+  conflicts: ImportConflictPayload[]
+}
+
+export interface ImportDecisionPayload {
+  conflict_id: string
+  action: 'skip' | 'overwrite'
+}
+
+export interface ImportConfirmRequestPayload {
+  staging_token: string
+  decisions: ImportDecisionPayload[]
+}
+
+export interface ImportResultPayload {
+  skills_created: number
+  skills_updated: number
+  skills_skipped: number
+  agent_configs_created: number
+  agent_configs_updated: number
+  agent_configs_skipped: number
+  agent_skills_links_created: number
+  errors: string[]
+}
