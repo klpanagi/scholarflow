@@ -156,7 +156,7 @@ class ReviewAgent(BaseAgent):
             ]
 
             review_prompt = (
-                f"Based on your thorough analysis of the full paper text:\n\n{analysis}\n\n"
+                f"Based on the following comprehensive analysis of the paper:\n\n{analysis}\n\n"
                 "Now produce a complete, structured review following this format:\n\n"
                 "## Summary\n[Brief overview of the document and its contribution]\n\n"
                 "## Strengths\n[3-5 numbered points with evidence]\n\n"
@@ -165,13 +165,14 @@ class ReviewAgent(BaseAgent):
                 "novelty/significance, clarity, and reproducibility/completeness]\n\n"
                 "## Recommendations for Authors\n[Specific, actionable improvement suggestions]\n\n"
                 "## Decision\n[Accept / Minor Revision / Major Revision / Reject with justification]\n\n"
-                "CRITICAL RULES:\n"
-                "- Base your review ONLY on the content provided in the analysis above.\n"
+                "RULES:\n"
+                "- You have been provided with the full paper content and a detailed analysis.\n"
+                "- Do NOT write that you lack access to the paper or that your review is based on a secondary summary.\n"
                 "- Do NOT cite specific code, architecture names, class names, table/figure/section numbers,\n"
                 "  or reference-list entries that are not present in the provided text.\n"
-                "- If the content is insufficient to evaluate a criterion, state what you can assess\n"
-                "  and explicitly note the limitation. Do NOT fabricate details to fill gaps.\n"
-                "- Separate observation from inference. Use hedging language for inferences."
+                "- If a criterion cannot be assessed from the available content, note the specific limitation\n"
+                "  (e.g., 'no experimental results section is present') rather than hedging about access.\n"
+                "- Separate observation from inference. Use hedging for inferences, not for access disclaimers."
             )
 
             response = await self._run_strategy(

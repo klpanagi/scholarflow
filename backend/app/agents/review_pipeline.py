@@ -362,7 +362,8 @@ Scoring rules:
 - overall_score MUST be the weighted average: sum(criterion.score * criterion.weight) rounded to nearest integer
 - Each criterion score must be 1-100
 - Use the anchors above as calibration guides
-- confidence: high = full document text available + clear evidence; medium = partial content or ambiguous evidence; low = missing content or insufficient data
+- confidence: high = full document text available + clear evidence; medium = review covers only some criteria or contradicts itself; low = missing content or mostly fabricated details
+- NOTE: Appropriate academic hedging language (e.g., "appears to", "suggests", "based on the text") is standard scholarly practice and does NOT reduce confidence. Only penalize confidence when the review is structurally incomplete or factually unsupported.
 - If the review cites specific code, architecture names, or references not grounded in the provided analyses, penalize Technical Soundness and note the hallucination risk in scoring_notes
 """
 
