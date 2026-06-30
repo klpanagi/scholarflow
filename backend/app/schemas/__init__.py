@@ -150,7 +150,7 @@ class AgentConfigUpdate(BaseModel):
 
 class AgentConfigResponse(AgentConfigBase):
     id: UUID
-    user_id: UUID
+    user_id: UUID | None = None
     skills: list["SkillResponse"] = []
     created_at: datetime
     updated_at: datetime
@@ -387,7 +387,7 @@ class SkillUpdate(BaseModel):
 
 class SkillResponse(SkillBase):
     id: UUID
-    user_id: UUID
+    user_id: UUID | None = None
     created_at: datetime
     updated_at: datetime
 
