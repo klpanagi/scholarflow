@@ -101,6 +101,7 @@ const STRATEGIES = [
 
 const TABS = [
   { value: "all", label: "All", icon: Bot },
+  { value: "chat", label: "Chat", icon: MessageCircle },
   { value: "search", label: "Search", icon: Search },
   { value: "review", label: "Review", icon: FileText },
   { value: "writing", label: "Writing", icon: Wand2 },
@@ -112,6 +113,7 @@ type TabValue = (typeof TABS)[number]["value"]
 
 const TAB_ROLE_MAP: Record<TabValue, string[]> = {
   all: [],
+  chat: ["chat"],
   search: ["researcher"],
   review: ["reviewer", "deep_reviewer"],
   writing: ["writer", "revision"],
@@ -129,6 +131,7 @@ const ROLE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   manager: UserCog,
   revision: Wand2,
   analyzer: BarChart3,
+  chat: MessageCircle,
 }
 
 function getRoleIcon(role: string): React.ComponentType<{ className?: string }> {

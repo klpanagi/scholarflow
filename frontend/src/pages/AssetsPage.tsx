@@ -514,23 +514,6 @@ export default function AssetsPage() {
         ))}
       </div>
 
-      {/* ── Health Status ── */}
-      {providers.length > 0 && (
-        <div className="rounded-xl border border-border/40 bg-card/60 backdrop-blur-xl p-5">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-foreground">API Providers</h2>
-            <button
-              onClick={() => navigate("/settings")}
-              className="text-muted-foreground hover:text-foreground transition-colors"
-              title="Provider settings"
-            >
-              <SettingsIcon className="h-4 w-4" />
-            </button>
-          </div>
-          <HealthStatus providers={providers} variant="compact" />
-        </div>
-      )}
-
       {/* ── Search + Filters ── */}
       <div className="space-y-3">
         <form onSubmit={handleSearch} className="relative">
