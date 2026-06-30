@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.routes import auth, assets, agents, workspaces, settings, chat, skills, workflows, dashboard, revisions, export_import
+from app.api.routes import auth, assets, agents, workspaces, settings, chat, skills, workflows, dashboard, revisions, export_import, tasks
 
 router = APIRouter(prefix="/api")
 
@@ -15,3 +15,4 @@ router.include_router(workflows.router, prefix="/workflows")
 router.include_router(revisions.router, prefix="/revisions")
 router.include_router(dashboard.router)
 router.include_router(export_import.router)
+router.include_router(tasks.router)
