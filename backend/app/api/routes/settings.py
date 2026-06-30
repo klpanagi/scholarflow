@@ -1,5 +1,3 @@
-import asyncio
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
@@ -81,38 +79,36 @@ async def test_provider(
     provider: str,
     current_user: str = Depends(get_current_user),
 ):
-    from app.services.health_monitor import FREE_MODELS
-
     status = await llm_service.get_provider_status()
     if provider not in status:
         raise HTTPException(status_code=404, detail=f"Provider {provider} not found")
-    
+
     if not status[provider]["configured"]:
         return {"provider": provider, "status": "not_configured", "message": "API key not set"}
-    
+
+    import httpx
+
+    config = llm_service.PROVIDER_CONFIG.get(provider)
+    if not config:
+        return {"provider": provider, "status": "error", "message": f"Unknown provider: {provider}"}
+
+    base_url = config["base_url"].rstrip("/")
+    api_key = config["api_key"]
+
     try:
-        free = FREE_MODELS.get(provider, [])
-        if free:
-            model = free[0]
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"{base_url}/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+        if resp.status_code == 200:
+            return {"provider": provider, "status": "connected", "message": "API reachable"}
+        elif resp.status_code in (401, 403):
+            return {"provider": provider, "status": "error", "message": "Authentication failed — check API key"}
         else:
-            models = await llm_service.get_available_models()
-            provider_models = models.get(provider, [])
-            if not provider_models:
-                return {"provider": provider, "status": "error", "message": "No models available"}
-            model = provider_models[0]
-        
-        response = await asyncio.wait_for(
-            llm_service.get_completion(
-                model=model,
-                messages=[{"role": "user", "content": "Say 'test successful' in 3 words."}],
-                provider=provider,
-                max_tokens=20,
-            ),
-            timeout=15,
-        )
-        return {"provider": provider, "status": "connected", "response": response, "model": model}
-    except asyncio.TimeoutError:
-        return {"provider": provider, "status": "error", "message": "Connection timed out (15s)"}
+            return {"provider": provider, "status": "error", "message": f"HTTP {resp.status_code}"}
+    except httpx.TimeoutException:
+        return {"provider": provider, "status": "error", "message": "Connection timed out (10s)"}
     except Exception as e:
         return {"provider": provider, "status": "error", "message": str(e)}
 

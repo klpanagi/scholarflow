@@ -105,91 +105,37 @@ async def _get_active_models() -> dict[str, set[str]]:
     return active
 
 
-async def _check_model_health(
+async def _check_provider_connectivity(
     client: httpx.AsyncClient,
     base_url: str,
     api_key: str,
-    model: str,
-    is_embedding: bool = False,
-) -> ModelHealth:
-    """Check health of a single model by making a minimal API call."""
+) -> tuple[bool, str | None]:
+    """Verify provider API is reachable via GET /models.
+
+    Returns (reachable, error_message). Does NOT send chat/embedding calls.
+    """
     start = time.monotonic()
     try:
-        if is_embedding:
-            resp = await client.post(
-                f"{base_url}/embeddings",
-                json={"model": model, "input": "test"},
-                headers={"Authorization": f"Bearer {api_key}"},
-                timeout=10.0,
-            )
-        else:
-            resp = await client.post(
-                f"{base_url}/chat/completions",
-                json={
-                    "model": model,
-                    "messages": [{"role": "user", "content": "hi"}],
-                    "max_tokens": 1,
-                },
-                headers={"Authorization": f"Bearer {api_key}"},
-                timeout=15.0,
-            )
-
+        resp = await client.get(
+            f"{base_url}/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10.0,
+        )
         latency = (time.monotonic() - start) * 1000
 
         if resp.status_code == 200:
-            return ModelHealth(
-                model=model,
-                status="healthy",
-                latency_ms=round(latency, 1),
-                last_checked=time.time(),
-            )
+            logger.debug(f"Provider connectivity check OK ({latency:.0f}ms)")
+            return True, None
         elif resp.status_code in (401, 403):
-            return ModelHealth(
-                model=model,
-                status="unhealthy",
-                latency_ms=round(latency, 1),
-                error="Authentication failed",
-                last_checked=time.time(),
-            )
-        elif resp.status_code == 404:
-            return ModelHealth(
-                model=model,
-                status="unhealthy",
-                latency_ms=round(latency, 1),
-                error="Model not found",
-                last_checked=time.time(),
-            )
+            return False, "Authentication failed — check API key"
         elif resp.status_code == 429:
-            return ModelHealth(
-                model=model,
-                status="degraded",
-                latency_ms=round(latency, 1),
-                error="Rate limited",
-                last_checked=time.time(),
-            )
+            return True, None  # API reachable, just rate-limited on /models
         else:
-            return ModelHealth(
-                model=model,
-                status="degraded",
-                latency_ms=round(latency, 1),
-                error=f"HTTP {resp.status_code}",
-                last_checked=time.time(),
-            )
-
+            return False, f"HTTP {resp.status_code}"
     except httpx.TimeoutException:
-        return ModelHealth(
-            model=model,
-            status="unhealthy",
-            error="Timeout",
-            last_checked=time.time(),
-        )
+        return False, "Timeout connecting to provider"
     except Exception as e:
-        return ModelHealth(
-            model=model,
-            status="unhealthy",
-            error=str(e)[:100],
-            last_checked=time.time(),
-        )
+        return False, str(e)[:100]
 
 
 async def _check_provider_health(
@@ -218,31 +164,25 @@ async def _check_provider_health(
             api_reachable=True,
         )
 
-    models_to_check = list(active_models)
-
     async with httpx.AsyncClient() as client:
-        tasks = [
-            _check_model_health(client, base_url, api_key, model)
-            for model in models_to_check
-        ]
-        model_results = await asyncio.gather(*tasks)
+        reachable, error = await _check_provider_connectivity(client, base_url, api_key)
 
-    statuses = [m.status for m in model_results]
-    if all(s == "healthy" for s in statuses):
-        overall = "healthy"
-    elif any(s == "unhealthy" for s in statuses):
-        overall = "degraded" if any(s == "healthy" for s in statuses) else "unhealthy"
-    elif any(s == "degraded" for s in statuses):
-        overall = "degraded"
-    else:
-        overall = "unknown"
+    model_health = [
+        ModelHealth(
+            model=m,
+            status="healthy" if reachable else "unhealthy",
+            error=error if not reachable else None,
+            last_checked=time.time(),
+        )
+        for m in active_models
+    ]
 
     return ProviderHealth(
         provider=provider_name,
-        status=overall,
-        models=list(model_results),
+        status="healthy" if reachable else "unhealthy",
+        models=model_health,
         last_checked=time.time(),
-        api_reachable=True,
+        api_reachable=reachable,
     )
 
 
