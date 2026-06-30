@@ -156,30 +156,94 @@ async def get_completion(
     raise last_error
 
 
+# ---------------------------------------------------------------------------
+# Circuit breaker for embedding calls (prevents event-loop blocking)
+# ---------------------------------------------------------------------------
+
+class _CircuitBreaker:
+    """Simple per-provider circuit breaker.
+
+    After ``fail_max`` consecutive failures the circuit *opens* and
+    ``allow()`` returns ``False`` for ``cooldown`` seconds, after which
+    it enters *half-open* state and allows a single probe request.
+    """
+
+    def __init__(self, fail_max: int = 3, cooldown: float = 30.0):
+        self.fail_max = fail_max
+        self.cooldown = cooldown
+        self._consecutive_fails: int = 0
+        self._opened_at: float = 0.0
+
+    def allow(self) -> bool:
+        if self._consecutive_fails < self.fail_max:
+            return True
+        elapsed = time.monotonic() - self._opened_at
+        if elapsed >= self.cooldown:
+            return True  # half-open: allow one probe
+        return False
+
+    def record_success(self) -> None:
+        self._consecutive_fails = 0
+        self._opened_at = 0.0
+
+    def record_failure(self) -> None:
+        self._consecutive_fails += 1
+        if self._consecutive_fails == self.fail_max:
+            self._opened_at = time.monotonic()
+            logger.warning(
+                f"Circuit breaker OPEN for embedding (cooldown {self.cooldown}s)"
+            )
+
+
+# One breaker per provider key
+_embedding_breakers: dict[str, _CircuitBreaker] = {}
+
+
+def _get_embedding_breaker(provider: str) -> _CircuitBreaker:
+    if provider not in _embedding_breakers:
+        _embedding_breakers[provider] = _CircuitBreaker(fail_max=3, cooldown=30.0)
+    return _embedding_breakers[provider]
+
+
+_EMBED_TIMEOUT = httpx.Timeout(connect=5.0, read=30.0, write=5.0, pool=5.0)
+
+
 async def get_embedding(
     model: str,
     texts: list[str],
     provider: str = "opencode",
 ) -> list[list[float]]:
+    breaker = _get_embedding_breaker(provider)
+    if not breaker.allow():
+        raise RuntimeError(
+            f"Embedding provider '{provider}' is circuit-open (too many recent failures). "
+            "Retry after cooldown."
+        )
+
     config = _get_provider_config(provider)
     base_url = config["base_url"].rstrip("/")
     api_key = config["api_key"]
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        resp = await client.post(
-            f"{base_url}/embeddings",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": model,
-                "input": texts,
-            },
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return [item["embedding"] for item in data["data"]]
+    try:
+        async with httpx.AsyncClient(timeout=_EMBED_TIMEOUT) as client:
+            resp = await client.post(
+                f"{base_url}/embeddings",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "input": texts,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            breaker.record_success()
+            return [item["embedding"] for item in data["data"]]
+    except Exception:
+        breaker.record_failure()
+        raise
 
 
 async def _fetch_models_from_provider(provider: str) -> list[str]:
