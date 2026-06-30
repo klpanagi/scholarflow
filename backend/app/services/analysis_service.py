@@ -14,11 +14,26 @@ DEFAULT_LLM_PROVIDER = "openrouter"
 
 
 def _extract_json(text: str) -> str:
+    """Extract JSON from LLM response, handling markdown fences and trailing content."""
+    import re
+
+    # Strip markdown code fences first
+    text = text.strip()
+    fence_match = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
+    if fence_match:
+        text = fence_match.group(1).strip()
+
     for open_char, close_char in [("{", "}"), ("[", "]")]:
         start = text.find(open_char)
         end = text.rfind(close_char)
         if start != -1 and end > start:
-            return text[start : end + 1]
+            candidate = text[start : end + 1]
+            # Validate it's parseable before returning
+            try:
+                json.loads(candidate)
+                return candidate
+            except json.JSONDecodeError:
+                continue
     return text
 
 
@@ -29,6 +44,7 @@ async def _invoke_llm(
     temperature: float = 0.7,
     max_tokens: int = 4000,
 ) -> str:
+    logger.info(f"Invoking LLM: provider={provider}, model={model}")
     llm = llm_service.get_llm(
         model=model,
         provider=provider,
@@ -36,7 +52,17 @@ async def _invoke_llm(
         max_tokens=max_tokens,
     )
     response = await llm.ainvoke([HumanMessage(content=prompt)])
-    return response.content
+    content = response.content
+    if isinstance(content, list):
+        text_parts = []
+        for part in content:
+            if isinstance(part, dict) and "text" in part:
+                text_parts.append(part["text"])
+            elif isinstance(part, str):
+                text_parts.append(part)
+        content = "".join(text_parts)
+    logger.info(f"LLM response length: {len(content) if content else 0} chars")
+    return content
 
 
 ANALYSIS_PROMPT = """Analyze this academic document and produce a structured assessment.
@@ -124,10 +150,13 @@ async def analyze_paper(
         content=content,
     )
 
+    response_text = ""
     try:
         response_text = await _invoke_llm(
             prompt, model=model, provider=provider, temperature=0.3, max_tokens=4000,
         )
+        if not response_text or not response_text.strip():
+            raise ValueError("LLM returned empty response")
         raw = json.loads(_extract_json(response_text))
 
         raw.setdefault("doc_type", doc_type)
@@ -139,4 +168,6 @@ async def analyze_paper(
 
     except Exception as e:
         logger.error(f"Paper analysis failed for '{title}': {type(e).__name__}: {e}")
+        if response_text:
+            logger.error(f"Raw LLM response (first 500 chars): {response_text[:500]!r}")
         return None

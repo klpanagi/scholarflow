@@ -211,9 +211,18 @@ async def analyze_asset(
             asset.analysis = analysis.model_dump()
             asset.tags = list(set((asset.tags or []) + analysis.keywords[:8]))
         else:
-            asset.analysis = asset.analysis or {}
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Analysis failed — LLM returned empty or invalid response. Try a different provider.",
+            )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.warning(f"Re-analysis failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Analysis failed: {e}",
+        )
 
     flag_modified(asset, "analysis")
     flag_modified(asset, "tags")
