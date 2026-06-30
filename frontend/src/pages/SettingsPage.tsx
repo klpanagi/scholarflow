@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -509,6 +509,8 @@ function ApiKeysSection() {
   const [newKeyService, setNewKeyService] = useState('semantic_scholar')
   const [newKeyValue, setNewKeyValue] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
+  const [embProvider, setEmbProvider] = useState('')
+  const [embModel, setEmbModel] = useState('')
 
   const { data: settings } = useQuery<SettingsData>({
     queryKey: ['settings'],
@@ -518,6 +520,27 @@ function ApiKeysSection() {
     },
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
+  })
+
+  useEffect(() => {
+    if (settings) {
+      setEmbProvider(settings.embedding_provider || '')
+      setEmbModel(settings.embedding_model || '')
+    }
+  }, [settings])
+
+  const saveEmbeddingMutation = useMutation({
+    mutationFn: async ({ provider, model }: { provider: string; model: string }) => {
+      const { data } = await api.post('/settings/embedding', { provider, model })
+      return data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+      toast({ title: 'Saved', description: 'Embedding configuration updated.' })
+    },
+    onError: () => {
+      toast({ title: 'Error', description: 'Failed to save embedding config.', variant: 'destructive' })
+    },
   })
 
   const { data: apiKeys = [] } = useQuery<ApiKeyEntry[]>({
@@ -690,6 +713,71 @@ function ApiKeysSection() {
               })
             )}
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Embedding Configuration */}
+      <Card className="border-border/50 bg-card/60 backdrop-blur-xl">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Settings2 aria-hidden="true" className="h-4 w-4 text-primary" />
+            Embedding Configuration
+          </CardTitle>
+          <CardDescription>
+            Choose which model is used for generating paper embeddings (vector search).
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {Object.keys(settings?.embedding_models || {}).length === 0 ? (
+            <p className="py-4 text-center text-sm text-muted-foreground">
+              No embedding providers configured. Set an API key for a provider above first.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+              <div className="flex-1 space-y-1.5">
+                <Label htmlFor="emb-provider">Provider</Label>
+                <Select
+                  id="emb-provider"
+                  value={embProvider}
+                  onChange={(e) => {
+                    setEmbProvider(e.target.value)
+                    const models = settings?.embedding_models?.[e.target.value] || []
+                    setEmbModel(models[0] || '')
+                  }}
+                  options={Object.keys(settings?.embedding_models || {}).map((p) => ({
+                    value: p,
+                    label: PROVIDER_DISPLAY[p]?.name || p,
+                  }))}
+                />
+              </div>
+              <div className="flex-1 space-y-1.5">
+                <Label htmlFor="emb-model">Model</Label>
+                <Select
+                  id="emb-model"
+                  value={embModel}
+                  onChange={(e) => setEmbModel(e.target.value)}
+                  options={(settings?.embedding_models?.[embProvider] || []).map((m) => ({
+                    value: m,
+                    label: m,
+                  }))}
+                />
+              </div>
+              <Button
+                onClick={() => {
+                  if (embProvider && embModel) {
+                    saveEmbeddingMutation.mutate({ provider: embProvider, model: embModel })
+                  }
+                }}
+                disabled={!embProvider || !embModel || saveEmbeddingMutation.isPending}
+                className="bg-primary text-primary-foreground hover:bg-primary/90"
+              >
+                {saveEmbeddingMutation.isPending ? (
+                  <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
+                Save
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 
