@@ -124,7 +124,7 @@ class AgentConfig(Base):
     __tablename__ = "agent_configs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     name = Column(String(100), nullable=False)
     role = Column(SQLEnum(AgentRole), nullable=False)
     provider = Column(String(50), nullable=False, default="opencode")
@@ -194,7 +194,7 @@ class Skill(Base):
     __tablename__ = "skills"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     name = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
     prompt_template = Column(Text, nullable=True)
