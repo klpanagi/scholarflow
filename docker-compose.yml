@@ -150,6 +150,24 @@ services:
         limits:
           memory: 4G
 
+  seed:
+    build: ./backend
+    container_name: academic-pal-seed
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    command: python -m scripts.seed_defaults
+    profiles:
+      - seed
+
 volumes:
   postgres_data:
   redis_data:
