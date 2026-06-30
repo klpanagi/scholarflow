@@ -70,9 +70,15 @@ class Settings(BaseSettings):
     OPENROUTER_API_BASE: str = "https://openrouter.ai/api/v1"
     LITELLM_MASTER_KEY: str = ""
     
-    # Celery
-    CELERY_BROKER_URL: str = "redis://localhost:6379/1"
-    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"
+    # ARQ Task Queue
+    ARQ_REDIS_URL: RedisDsn = "redis://localhost:6379/1"  # DB 1 (repurposed from Celery)
+    ARQ_JOB_TIMEOUT_ASSET: int = 600       # 10 minutes
+    ARQ_JOB_TIMEOUT_WORKFLOW: int = 3600   # 1 hour
+    ARQ_KEEP_RESULT_SECONDS: int = 86400   # 7 days
+    ARQ_MAX_RETRIES_ASSET: int = 3
+    ARQ_MAX_RETRIES_WORKFLOW: int = 2
+    ARQ_CONCURRENCY_ASSET: int = 2
+    ARQ_CONCURRENCY_WORKFLOW: int = 4
     
     # External Services
     GROBID_URL: str = "http://localhost:8070"
