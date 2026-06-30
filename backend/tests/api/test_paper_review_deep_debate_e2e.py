@@ -131,9 +131,10 @@ class TestPaperReviewWorkflowVariantDispatch:
             patch("app.api.routes.workflows._build_stage_context", side_effect=lambda orig, _find, **kw: orig),
             patch("asyncio.sleep", new_callable=AsyncMock),
         ):
-            from app.api.routes.workflows import _run_workflow_background
+            from app.tasks.workflow_tasks import execute_workflow_task
 
-            await _run_workflow_background(
+            await execute_workflow_task(
+                ctx={},
                 execution_id=str(uuid4()),
                 user_id="test-user",
                 workflow_id="paper-review",

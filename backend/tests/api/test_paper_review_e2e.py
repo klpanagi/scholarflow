@@ -1,6 +1,6 @@
 """End-to-end tests for paper-review workflow dossier propagation through all 4 stages.
 
-Tests the full 4-stage ``_run_workflow_background()`` orchestrator loop, verifying that
+Tests the full 4-stage ``execute_workflow_task()`` orchestrator loop, verifying that
 the ``research_dossier`` produced by one stage propagates through subsequent stages via
 the ``current_dossier`` mechanism (line 1104 in workflows.py).
 
@@ -189,9 +189,10 @@ class TestPaperReviewWorkflowE2E:
             patch("app.api.routes.workflows._build_stage_context", side_effect=lambda orig, _find, **kw: orig),
             patch("asyncio.sleep", new_callable=AsyncMock),
         ):
-            from app.api.routes.workflows import _run_workflow_background
+            from app.tasks.workflow_tasks import execute_workflow_task
 
-            await _run_workflow_background(
+            await execute_workflow_task(
+                ctx={},
                 execution_id=str(uuid4()),
                 user_id="test-user",
                 workflow_id="paper-review",
@@ -300,9 +301,10 @@ class TestPaperReviewWorkflowE2E:
             patch("app.api.routes.workflows._build_stage_context", side_effect=lambda orig, _find, **kw: orig),
             patch("asyncio.sleep", new_callable=AsyncMock),
         ):
-            from app.api.routes.workflows import _run_workflow_background
+            from app.tasks.workflow_tasks import execute_workflow_task
 
-            await _run_workflow_background(
+            await execute_workflow_task(
+                ctx={},
                 execution_id=str(uuid4()),
                 user_id="test-user",
                 workflow_id="paper-review",
@@ -419,9 +421,10 @@ class TestPaperReviewWorkflowE2E:
             patch("app.api.routes.workflows._build_stage_context", side_effect=lambda orig, _find, **kw: orig),
             patch("asyncio.sleep", new_callable=AsyncMock),
         ):
-            from app.api.routes.workflows import _run_workflow_background
+            from app.tasks.workflow_tasks import execute_workflow_task
 
-            await _run_workflow_background(
+            await execute_workflow_task(
+                ctx={},
                 execution_id=str(uuid4()),
                 user_id="test-user",
                 workflow_id="paper-review",
@@ -539,9 +542,10 @@ class TestPaperReviewWorkflowE2E:
             patch("app.api.routes.workflows._build_stage_context", side_effect=lambda orig, _find, **kw: orig),
             patch("asyncio.sleep", new_callable=AsyncMock),
         ):
-            from app.api.routes.workflows import _run_workflow_background
+            from app.tasks.workflow_tasks import execute_workflow_task
 
-            await _run_workflow_background(
+            await execute_workflow_task(
+                ctx={},
                 execution_id=str(uuid4()),
                 user_id="test-user",
                 workflow_id="paper-review",
@@ -668,9 +672,10 @@ class TestPaperReviewWorkflowE2E:
             patch("app.api.routes.workflows._build_stage_context", side_effect=lambda orig, _find, **kw: orig),
             patch("asyncio.sleep", new_callable=AsyncMock),
         ):
-            from app.api.routes.workflows import _run_workflow_background
+            from app.tasks.workflow_tasks import execute_workflow_task
 
-            await _run_workflow_background(
+            await execute_workflow_task(
+                ctx={},
                 execution_id=str(uuid4()),
                 user_id="test-user",
                 workflow_id="paper-review",

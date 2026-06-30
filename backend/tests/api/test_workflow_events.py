@@ -155,7 +155,7 @@ def _patch_workflow_deps(
     mock_agents: list[MagicMock],
     cancel_flag: dict[str, bool] | None = None,
 ):
-    """Return a stack of patches to apply around ``_run_workflow_background``."""
+    """Return a stack of patches to apply around ``execute_workflow_task``."""
     agent_iter = iter(mock_agents)
 
     def create_agent_side_effect(*_args, **_kwargs):
@@ -193,11 +193,8 @@ def _patch_workflow_deps(
 def _reset_singletons():
     """Reset module-level singletons so tests don't pollute each other."""
     reset_progress_manager()
-    from app.api.routes.workflows import _cancel_flags
-    _cancel_flags.clear()
     yield
     reset_progress_manager()
-    _cancel_flags.clear()
 
 
 @pytest_asyncio.fixture
@@ -310,9 +307,10 @@ class TestRunningWorkflowPublishesStageEvents:
             for p in patches:
                 p.start()
             try:
-                from app.api.routes.workflows import _run_workflow_background
+                from app.tasks.workflow_tasks import execute_workflow_task
 
-                await _run_workflow_background(
+                await execute_workflow_task(
+                    ctx={},
                     execution_id=execution_id,
                     user_id="test-user",
                     workflow_id="paper-review",
@@ -482,9 +480,10 @@ class TestEventsPersistedInDB:
         for p in all_patches:
             p.start()
         try:
-            from app.api.routes.workflows import _run_workflow_background
+            from app.tasks.workflow_tasks import execute_workflow_task
 
-            await _run_workflow_background(
+            await execute_workflow_task(
+                ctx={},
                 execution_id=execution_id_str,
                 user_id=user_id_str,
                 workflow_id="paper-review",
@@ -533,7 +532,7 @@ class TestEventsPersistedInDB:
 class TestCancelledWorkflow:
     @pytest.mark.asyncio
     async def test_cancelled_workflow_publishes_terminal_event(self):
-        """Setting ``_cancel_flags[execution_id] = True`` publishes EXECUTION_FAILED with status=cancelled.
+        """Setting the cancel flag publishes EXECUTION_FAILED with status=cancelled.
 
         The ``complete_execution`` helper normalizes "cancelled" into an
         ``EXECUTION_FAILED`` event whose ``data.status`` is
@@ -554,9 +553,9 @@ class TestCancelledWorkflow:
         mock_execution.id = UUID(execution_id)
 
         # Pre-set the cancel flag so the loop bails before the first stage.
-        from app.api.routes.workflows import _cancel_flags
+        from app.tasks.cancel import set_cancel
 
-        _cancel_flags[execution_id] = True
+        await set_cancel(str(execution_id))
 
         patches = _patch_workflow_deps(
             mock_session_cm, mock_session, config_map, mock_agents
@@ -566,9 +565,10 @@ class TestCancelledWorkflow:
             for p in patches:
                 p.start()
             try:
-                from app.api.routes.workflows import _run_workflow_background
+                from app.tasks.workflow_tasks import execute_workflow_task
 
-                await _run_workflow_background(
+                await execute_workflow_task(
+                    ctx={},
                     execution_id=execution_id,
                     user_id="test-user",
                     workflow_id="paper-review",
@@ -645,11 +645,12 @@ class TestFailedWorkflow:
             for p in [*patches, run_stage_patch]:
                 p.start()
             try:
-                from app.api.routes.workflows import _run_workflow_background
+                from app.tasks.workflow_tasks import execute_workflow_task
 
                 # The function must NOT raise to the caller; failures are
                 # caught and recorded as a terminal event with status="failed".
-                await _run_workflow_background(
+                await execute_workflow_task(
+                    ctx={},
                     execution_id=execution_id,
                     user_id="test-user",
                     workflow_id="paper-review",

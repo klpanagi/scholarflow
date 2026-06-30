@@ -397,13 +397,13 @@ class TestRunReturnValue:
 
 @pytest.mark.unit_db
 class TestRunCancellation:
-    """Cancellation flag set in _cancel_flags must interrupt streaming."""
+    """Cancellation flag set via Redis must interrupt streaming."""
 
     @pytest.mark.asyncio
     async def test_cancellation_breaks_streaming_loop(
         self, mock_llm, progress_manager
     ):
-        from app.api.routes.workflows import _cancel_flags
+        from app.tasks.cancel import set_cancel, clear_cancel
 
         state = {
             "messages": [HumanMessage(content="hi")],
@@ -421,7 +421,7 @@ class TestRunCancellation:
         )
         agent = _GraphAgent(llm=mock_llm, events=events, final_state=state)
         exec_id = uuid4()
-        _cancel_flags[str(exec_id)] = True
+        await set_cancel(str(exec_id))
         try:
             result = await agent.run(
                 messages=[HumanMessage(content="hi")],
@@ -436,17 +436,17 @@ class TestRunCancellation:
             assert node_started == []
             assert "messages" in result
         finally:
-            _cancel_flags.pop(str(exec_id), None)
+            await clear_cancel(str(exec_id))
 
     @pytest.mark.asyncio
     async def test_cancel_flag_for_other_execution_does_not_affect_us(
         self, mock_llm, progress_manager
     ):
         """The agent only consults the cancel flag for its own execution_id."""
-        from app.api.routes.workflows import _cancel_flags
+        from app.tasks.cancel import set_cancel, clear_cancel
 
         other_id = uuid4()
-        _cancel_flags[str(other_id)] = True
+        await set_cancel(str(other_id))
         state = {
             "messages": [HumanMessage(content="hi")],
             "context": {},
@@ -470,4 +470,4 @@ class TestRunCancellation:
             assert len(started) == 1
             assert result["output"] == "graph done"
         finally:
-            _cancel_flags.pop(str(other_id), None)
+            await clear_cancel(str(other_id))
