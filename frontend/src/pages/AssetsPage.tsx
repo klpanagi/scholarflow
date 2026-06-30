@@ -39,6 +39,9 @@ import {
   ArrowUpFromLine,
   SlidersHorizontal,
   Plus,
+  Square,
+  CheckSquare,
+  RotateCcw,
 } from "lucide-react"
 
 // ----- Types -----
@@ -55,6 +58,7 @@ interface Asset {
   doc_type: string
   tags: string[]
   analysis?: AssetAnalysis
+  processing_status?: string
   created_at: string
   updated_at: string
 }
@@ -147,6 +151,7 @@ export default function AssetsPage() {
 
   // Action state
   const [analyzing, setAnalyzing] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
   // Modal states
   const [detailModalOpen, setDetailModalOpen] = useState(false)
@@ -337,6 +342,25 @@ export default function AssetsPage() {
     },
   })
 
+  const reprocessMutation = useMutation({
+    mutationFn: async (assetIds: string[]) => {
+      const { data } = await api.post("/assets/reprocess-batch", { asset_ids: assetIds })
+      return data
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["assets"] })
+      setSelectedIds(new Set())
+      if (data.errors?.length > 0) {
+        toast({ title: `Reprocessed ${data.enqueued}/${data.total} — ${data.errors.length} failed`, variant: "destructive" })
+      } else {
+        toast({ title: `Reprocessing ${data.enqueued} asset(s)` })
+      }
+    },
+    onError: () => {
+      toast({ title: "Reprocess failed", variant: "destructive" })
+    },
+  })
+
   // ----- Upload handlers -----
 
   const handleFiles = useCallback(
@@ -451,6 +475,23 @@ export default function AssetsPage() {
     setSelectedSources((prev) =>
       prev.includes(value) ? prev.filter((s) => s !== value) : [...prev, value],
     )
+  }
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredAssets.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(filteredAssets.map((a) => a.id)))
+    }
   }
 
   // ----- Render -----
@@ -645,6 +686,45 @@ export default function AssetsPage() {
         </div>
       </div>
 
+      {/* ── Selection Action Bar ── */}
+      {filteredAssets.length > 0 && (
+        <div className="flex items-center justify-between rounded-lg border border-border/40 bg-card/60 px-4 py-2.5 backdrop-blur-xl">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={toggleSelectAll}
+              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {selectedIds.size === filteredAssets.length && filteredAssets.length > 0 ? (
+                <CheckSquare className="h-4 w-4 text-primary" />
+              ) : (
+                <Square className="h-4 w-4" />
+              )}
+              <span className="text-xs font-medium">
+                {selectedIds.size > 0
+                  ? `${selectedIds.size} / ${filteredAssets.length} selected`
+                  : `Select all (${filteredAssets.length})`}
+              </span>
+            </button>
+          </div>
+          {selectedIds.size > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => reprocessMutation.mutate(Array.from(selectedIds))}
+              disabled={reprocessMutation.isPending}
+              className="border-primary/50 text-primary hover:bg-primary/10"
+            >
+              {reprocessMutation.isPending ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              Reprocess ({selectedIds.size})
+            </Button>
+          )}
+        </div>
+      )}
+
       {/* ── Paper Grid / Loading / Empty ── */}
       {isLoading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -679,6 +759,21 @@ export default function AssetsPage() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {mappedPapers.map((paper) => (
             <div key={paper.id} className="group/card relative">
+              <div className="absolute left-2 top-2 z-10 opacity-0 transition-opacity duration-200 group-hover/card:opacity-100">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    toggleSelect(paper.id)
+                  }}
+                  className="flex items-center justify-center rounded p-0.5 hover:bg-primary/10 transition-colors"
+                >
+                  {selectedIds.has(paper.id) ? (
+                    <CheckSquare className="h-4 w-4 text-primary" />
+                  ) : (
+                    <Square className="h-4 w-4 text-muted-foreground" />
+                  )}
+                </button>
+              </div>
               <PaperCard
                 variant="stored"
                 paper={paper}
@@ -704,6 +799,14 @@ export default function AssetsPage() {
                   ) : (
                     <Sparkles className="h-3.5 w-3.5" />
                   )}
+                </button>
+                <button
+                  onClick={() => reprocessMutation.mutate([paper.id])}
+                  disabled={reprocessMutation.isPending}
+                  className="inline-flex items-center justify-center rounded-md p-1.5 text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10 transition-colors"
+                  title="Reprocess paper"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
                 </button>
                 <button
                   onClick={() => deleteMutation.mutate(paper.id)}
