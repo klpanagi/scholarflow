@@ -276,36 +276,13 @@ async def get_available_models() -> dict[str, list[str]]:
     return result
 
 
-# Curated embedding models per provider (not exposed via /models API)
-EMBEDDING_MODELS: dict[str, list[str]] = {
-    "opencode": [
-        "text-embedding-3-small",
-        "text-embedding-3-large",
-        "text-embedding-ada-002",
-    ],
-    "opencode-zen": [
-        "text-embedding-3-small",
-        "text-embedding-3-large",
-        "text-embedding-ada-002",
-    ],
-    "openrouter": [
-        "openai/text-embedding-3-small",
-        "openai/text-embedding-3-large",
-        "openai/text-embedding-ada-002",
-    ],
-    "openai": [
-        "text-embedding-3-small",
-        "text-embedding-3-large",
-        "text-embedding-ada-002",
-    ],
-}
-
-
 async def get_available_embedding_models() -> dict[str, list[str]]:
-    result = {}
-    for provider, config in PROVIDER_CONFIG.items():
-        if config.get("api_key"):
-            result[provider] = EMBEDDING_MODELS.get(provider, [])
+    result: dict[str, list[str]] = {}
+    for provider in PROVIDER_CONFIG:
+        all_models = await _fetch_models_from_provider(provider)
+        embedding = [m for m in all_models if "embedding" in m.lower()]
+        if embedding:
+            result[provider] = embedding
     return result
 
 
