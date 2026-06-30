@@ -1,10 +1,16 @@
 """ARQ WorkerSettings for asset and workflow workers."""
 
 import logging
-from arq.connections import RedisSettings
-from app.core.config import settings
-from app.tasks.asset_tasks import process_asset_task  # type: ignore[reportMissingImports]
-from app.tasks.workflow_tasks import execute_workflow_task  # type: ignore[reportMissingImports]
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+
+import warnings  # noqa: E402
+warnings.filterwarnings("ignore", message=".*coroutine.*was never awaited.*")  # noqa: E402
+
+from arq.connections import RedisSettings  # noqa: E402
+from app.core.config import settings  # noqa: E402
+from app.tasks.asset_tasks import process_asset_task  # type: ignore[reportMissingImports]  # noqa: E402
+from app.tasks.workflow_tasks import execute_workflow_task  # type: ignore[reportMissingImports]  # noqa: E402
 
 logger = logging.getLogger(__name__)
 

@@ -25,7 +25,7 @@ async def process_asset_task(
     doc_type: str,
     full_text: str,
     sections: list[dict],
-    references: list[dict],
+    references: list[dict],  # noqa: ARG001 — kept for API compat, not used
 ) -> dict:
     """Process uploaded asset: chunk, embed, index, analyze.
 
@@ -34,92 +34,134 @@ async def process_asset_task(
     asset_uuid = UUID(asset_id)
     owner_uuid = UUID(owner_id)
 
-    try:
-        async with AsyncSessionLocal() as db:
-            result = await db.execute(select(Paper).where(Paper.id == asset_uuid))
-            asset = result.scalar_one_or_none()
-            if not asset:
-                raise ValueError(f"Asset {asset_id} not found")
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(Paper).where(Paper.id == asset_uuid))
+        asset = result.scalar_one_or_none()
+        if not asset:
+            return {"status": "error", "error": "asset not found"}
 
-            if sections:
-                section_chunks = pdf_service.chunk_sections(sections)
-            else:
-                section_chunks = _chunk_text_list(full_text)
+        logger.info("Asset %s: starting processing", asset.title)
 
-            for i, chunk in enumerate(section_chunks):
-                chunk_text = chunk["text"]
-                embedding = None
-                try:
-                    embedding = await asyncio.wait_for(
-                        search_service.embed_text(chunk_text), timeout=15
-                    )
-                except Exception as e:
-                    logger.warning(f"Embedding failed for chunk {i}: {e}")
+        section_chunks = _chunk_sections(sections, full_text)
+        logger.info("Asset %s: created %d chunks", asset.title, len(section_chunks))
 
-                db.add(PaperChunk(
-                    paper_id=asset_uuid, chunk_index=i,
-                    section=chunk.get("section"), text=chunk_text, embedding=embedding,
-                ))
+        for i, chunk in enumerate(section_chunks):
+            db.add(PaperChunk(
+                paper_id=asset_uuid,
+                chunk_index=i,
+                section=chunk.get("section"),
+                text=chunk["text"],
+                embedding=None,
+            ))
+        await db.commit()
 
-                try:
-                    await asyncio.wait_for(search_service.index_document(
-                        index="assets",
-                        doc_id=f"{asset_id}_{i}",
-                        document={
-                            "asset_id": asset_id, "chunk_index": i,
-                            "section": chunk.get("section"), "content": chunk_text,
-                            "title": title, "owner_id": owner_id,
-                        }, embedding=embedding,
-                    ), timeout=10)
-                except Exception as e:
-                    logger.warning(f"ES indexing failed for chunk {i}: {e}")
-
-            await db.commit()
-
-            asset.processing_status = "completed"
-            await db.commit()
-
-            analysis_data = _build_analysis_data(references)
+        embedding_errors = 0
+        for i, chunk in enumerate(section_chunks):
             try:
-                model, provider = await _get_analyzer_config_task(db, owner_uuid)
-                analysis = await asyncio.wait_for(
-                    analyze_paper(
-                        title=title, abstract=abstract,
-                        full_text=full_text, doc_type=doc_type,
-                        model=model, provider=provider,
-                    ),
-                    timeout=90,
+                embedding = await asyncio.wait_for(
+                    search_service.embed_text(chunk["text"]),
+                    timeout=15,
                 )
-                if analysis:
-                    asset.analysis = analysis.model_dump()
-                    asset.analysis.update(analysis_data)
-                    asset.tags = list(set((asset.tags or []) + analysis.keywords[:8]))
-                elif analysis_data:
-                    asset.analysis = analysis_data
-                flag_modified(asset, "analysis")
-                flag_modified(asset, "tags")
-            except Exception as e:
-                logger.warning(f"AI analysis failed: {e}")
-                if analysis_data:
-                    asset.analysis = analysis_data
+            except (asyncio.TimeoutError, Exception) as e:
+                logger.warning("Asset %s chunk %d embedding failed: %s", asset.title, i, e)
+                embedding = None
+                embedding_errors += 1
 
-            await db.commit()
-            logger.info(f"Asset processing complete for {asset_id}")
+            try:
+                await asyncio.wait_for(
+                    search_service.index_document(
+                        index="assets",
+                        doc_id=f"{asset_uuid}_{i}",
+                        document={
+                            "text": chunk["text"],
+                            "asset_id": str(asset_uuid),
+                            "owner_id": str(owner_uuid),
+                            "chunk_index": i,
+                            "section": chunk.get("section"),
+                            "title": title,
+                        },
+                        embedding=embedding,
+                    ),
+                    timeout=10,
+                )
+            except (asyncio.TimeoutError, Exception) as e:
+                logger.warning("Asset %s chunk %d ES index failed: %s", asset.title, i, e)
 
-        return {"status": "completed", "asset_id": asset_id}
+            chunk_obj = (await db.execute(
+                select(PaperChunk).where(
+                    PaperChunk.paper_id == asset_uuid,
+                    PaperChunk.chunk_index == i,
+                )
+            )).scalar_one_or_none()
+            if chunk_obj:
+                chunk_obj.embedding = embedding
+                flag_modified(chunk_obj, "embedding")
+        await db.commit()
 
-    except Exception as e:
-        logger.error(f"Asset processing failed for {asset_id}: {e}")
         try:
-            async with AsyncSessionLocal() as db:
-                result = await db.execute(select(Paper).where(Paper.id == asset_uuid))
-                asset = result.scalar_one_or_none()
-                if asset:
-                    asset.processing_status = "failed"
-                    await db.commit()
-        except Exception:
-            logger.error(f"Failed to set failed status for asset {asset_id}")
-        raise
+            analyzer_model, analyzer_provider = await _get_analyzer_config_task(db, owner_uuid)
+            analysis = await asyncio.wait_for(
+                analyze_paper(
+                    title=title,
+                    abstract=abstract or "",
+                    full_text=full_text[:50000],
+                    doc_type=doc_type,
+                    model=analyzer_model,
+                    provider=analyzer_provider,
+                ),
+                timeout=90,
+            )
+            if analysis is not None:
+                asset.analysis = analysis.model_dump()
+                flag_modified(asset, "analysis")
+        except (asyncio.TimeoutError, Exception) as e:
+            logger.error("Asset %s analysis failed: %s", asset.title, e)
+
+        asset.processing_status = "completed"
+        await db.commit()
+
+        logger.info(
+            "Asset %s: completed (chunks=%d, embedding_errors=%d)",
+            asset.title, len(section_chunks), embedding_errors,
+        )
+        return {
+            "status": "completed",
+            "asset_id": asset_id,
+            "chunks": len(section_chunks),
+            "embedding_errors": embedding_errors,
+        }
+
+
+def _chunk_sections(sections: list[dict], full_text: str) -> list[dict]:
+    if sections:
+        all_chunks: list[dict] = []
+        for sec in sections:
+            sec_text = sec.get("text", "")
+            sec_name = sec.get("name", "")
+            all_chunks.extend(_chunk_words(sec_text.split(), sec_name))
+        return all_chunks
+    return _chunk_text_list(full_text)
+
+
+def _chunk_words(words: list[str], section: str | None, chunk_size: int = 800, overlap: int = 100) -> list[dict]:
+    if not words:
+        return []
+    if len(words) <= chunk_size:
+        return [{"text": " ".join(words), "section": section, "word_count": len(words)}]
+    chunks: list[dict] = []
+    start = 0
+    while start < len(words):
+        end = min(start + chunk_size, len(words))
+        chunks.append({"text": " ".join(words[start:end]), "section": section, "word_count": end - start})
+        if end >= len(words):
+            break
+        start = end - overlap
+    return chunks
+
+
+def _chunk_text_list(text: str, chunk_size: int = 1000, overlap: int = 200) -> list[dict]:
+    words = text.split()
+    return _chunk_words(words, None, chunk_size, overlap)
 
 
 async def _get_analyzer_config_task(db, owner_id: UUID) -> tuple[str, str]:
@@ -135,23 +177,4 @@ async def _get_analyzer_config_task(db, owner_id: UUID) -> tuple[str, str]:
     return "google/gemma-4-31b-it:free", "openrouter"
 
 
-def _build_analysis_data(references: list[dict]) -> dict:
-    if not references:
-        return {}
-    return {"references": [
-        {"index": r.get("index"), "text": r.get("text", ""),
-         "authors": r.get("authors", []), "year": r.get("year")}
-        for r in references if isinstance(r, dict)
-    ]}
 
-
-def _chunk_text_list(text: str, chunk_size: int = 1000, overlap: int = 200) -> list[dict]:
-    words = text.split()
-    chunks = []
-    start = 0
-    while start < len(words):
-        end = start + chunk_size
-        chunk_text = " ".join(words[start:end])
-        chunks.append({"section": None, "text": chunk_text, "word_count": len(chunk_text.split())})
-        start = end - overlap
-    return chunks
