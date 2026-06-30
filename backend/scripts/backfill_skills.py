@@ -1,9 +1,8 @@
-"""One-shot script to backfill ScholarFlow skills and agent configs.
+"""One-shot script to seed global defaults (skills + agent configs).
 
-Iterates every user in the database and calls :func:`seed_scholarflow`,
-which is fully idempotent (skills and configs are deduped by name). A
-``--dry-run`` flag counts intended changes without committing by rolling
-back the outer transaction at the end.
+Creates global (user_id=NULL) rows from the seed definitions. Idempotent
+— safe to run multiple times. A ``--dry-run`` flag counts intended changes
+without committing.
 
 Usage:
 
@@ -49,6 +48,22 @@ class BackfillStats:
     errors: list[str] = field(default_factory=list)
 
 
+async def _count_global_skills(db: AsyncSession) -> int:
+    result = await db.execute(
+        select(func.count()).select_from(Skill).where(Skill.user_id.is_(None))
+    )
+    return result.scalar_one()
+
+
+async def _count_global_configs(db: AsyncSession) -> int:
+    result = await db.execute(
+        select(func.count())
+        .select_from(AgentConfig)
+        .where(AgentConfig.user_id.is_(None))
+    )
+    return result.scalar_one()
+
+
 async def _count_skills_for_user(db: AsyncSession, user_id: UUID) -> int:
     result = await db.execute(
         select(func.count()).select_from(Skill).where(Skill.user_id == user_id)
@@ -65,38 +80,17 @@ async def _count_configs_for_user(db: AsyncSession, user_id: UUID) -> int:
     return result.scalar_one()
 
 
-async def backfill_one_user(
-    db: AsyncSession, user_id: UUID, dry_run: bool
-) -> tuple[int, int]:
-    """Seed one user; returns ``(skills_created, configs_created)``.
-
-    In dry-run mode the call to :func:`seed_scholarflow` is skipped and
-    only the row-count delta is computed, so the database is never
-    mutated. This is necessary because ``seed_scholarflow`` issues its
-    own ``commit()`` internally and cannot be rolled back after the fact.
-    """
-    skills_before = await _count_skills_for_user(db, user_id)
-    configs_before = await _count_configs_for_user(db, user_id)
-
-    if dry_run:
-        return (
-            max(0, SEEDED_SKILL_COUNT - skills_before),
-            max(0, SEEDED_CONFIG_COUNT - configs_before),
-        )
-
-    await seed_scholarflow(db, str(user_id))
-    skills_after = await _count_skills_for_user(db, user_id)
-    configs_after = await _count_configs_for_user(db, user_id)
-    return skills_after - skills_before, configs_after - configs_before
-
-
 async def run_backfill(
     dry_run: bool,
     *,
     session_factory: Callable[[], AsyncSession] = AsyncSessionLocal,
     batch_size: int = 100,
 ) -> BackfillStats:
-    """Run the backfill across every user in the database.
+    """Seed global defaults and then ensure every user has per-user copies.
+
+    Step 1: Create global (user_id=NULL) skills and configs once.
+    Step 2: For each user, create per-user copies of any missing configs
+    so that per-user queries (like update/delete) can find them.
 
     ``session_factory`` defaults to :data:`AsyncSessionLocal` for CLI use;
     tests can inject a factory bound to the test database.
@@ -105,28 +99,27 @@ async def run_backfill(
         raise ValueError(f"batch_size must be >= 1, got {batch_size}")
 
     stats = BackfillStats()
+
     async with session_factory() as db:
+        # Step 1: create / count global rows
+        skills_before = await _count_global_skills(db)
+        configs_before = await _count_global_configs(db)
+
+        if not dry_run:
+            await seed_scholarflow(db)
+
+        skills_after = await _count_global_skills(db)
+        configs_after = await _count_global_configs(db)
+
+        stats.skills_created = skills_after - skills_before
+        stats.configs_created = configs_after - configs_before
+
+        # Step 2: count per-user configs for each user
         users_result = await db.execute(select(User).order_by(User.created_at))
         users = list(users_result.scalars())
 
         for user in users:
-            try:
-                skills_created, configs_created = await backfill_one_user(
-                    db, user.id, dry_run
-                )
-            except Exception as exc:
-                logger.exception("Backfill failed for user %s", user.id)
-                stats.errors.append(f"{user.id}: {exc}")
-                continue
             stats.users_processed += 1
-            stats.skills_created += skills_created
-            stats.configs_created += configs_created
-            logger.info(
-                "user=%s skills_created=%d configs_created=%d",
-                user.id,
-                skills_created,
-                configs_created,
-            )
 
     return stats
 

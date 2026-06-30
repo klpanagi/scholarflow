@@ -1016,6 +1016,51 @@ _AGENT_SEEDS = [
         "skill_names": ["issel-paper-review"],
     },
     {
+        "name": "Default Researcher",
+        "role": AgentRole.RESEARCHER,
+        "provider": "openrouter",
+        "model": "google/gemma-4-31b-it:free",
+        "strategy": Strategy.DIRECT,
+        "system_prompt": "You are an expert academic researcher. You find literature, verify novelty, and extract insights.",
+        "skill_names": ["literature-review"],
+    },
+    {
+        "name": "Default Writer",
+        "role": AgentRole.WRITER,
+        "provider": "openrouter",
+        "model": "google/gemma-4-31b-it:free",
+        "strategy": Strategy.DIRECT,
+        "system_prompt": "You are an expert academic writer. You write clear, well-structured scientific prose following IMRaD and grant proposal standards.",
+        "skill_names": ["academic-writing"],
+    },
+    {
+        "name": "Default Reviewer",
+        "role": AgentRole.REVIEWER,
+        "provider": "openrouter",
+        "model": "google/gemma-4-31b-it:free",
+        "strategy": Strategy.CRITIQUE,
+        "system_prompt": "You are a rigorous peer reviewer. You critique papers for novelty, soundness, and presentation.",
+        "skill_names": ["solo-paper-review"],
+    },
+    {
+        "name": "Default Recommender",
+        "role": AgentRole.RECOMMENDER,
+        "provider": "openrouter",
+        "model": "google/gemma-4-31b-it:free",
+        "strategy": Strategy.DIRECT,
+        "system_prompt": "You are a personalized academic recommendation engine. You suggest relevant papers and venues.",
+        "skill_names": [],
+    },
+    {
+        "name": "Default Deep Reviewer",
+        "role": AgentRole.DEEP_REVIEWER,
+        "provider": "openrouter",
+        "model": "google/gemma-4-31b-it:free",
+        "strategy": Strategy.CRITIQUE,
+        "system_prompt": "You are a deep paper reviewer executing a 7-stage pipeline: intake, structural analysis, claims extraction, literature grounding, methodology, adversarial red team, and synthesis. You identify novelty, soundness, and presentation issues with severity ratings. You cite specific sections, equations, and figures. You never fabricate references; you always flag when a claim is unsupported.",
+        "skill_names": ["solo-paper-review"],
+    },
+    {
         "name": "Default Analyzer",
         "role": AgentRole.ANALYZER,
         "provider": "openrouter",
@@ -1027,20 +1072,23 @@ _AGENT_SEEDS = [
 ]
 
 
-async def seed_scholarflow(db: AsyncSession, user_id: str) -> list[AgentConfig]:
-    """Seed ScholarFlow skills and agent configs for a first-login user.
+async def seed_scholarflow(db: AsyncSession, user_id: str | None = None) -> list[AgentConfig]:
+    """Idempotent seeder that creates global (user_id=NULL) skills and agent configs.
 
-    Creates all seed skills (if they don't exist for this user) and agent
-    configs with M2M skill associations. Returns the created configs.
+    Creates all ``_SKILL_SEEDS`` and ``_AGENT_SEEDS`` rows with ``user_id=NULL``
+    if they don't already exist. Runs once — subsequent calls are no-ops.
+
+    The ``user_id`` parameter is kept for backward compatibility with existing
+    call sites; it is ignored (seeds are always global).
     """
-    # 1. Create skills (skip if name already exists for this user)
+    # 1. Create global skills (user_id IS NULL)
     existing_skill_result = await db.execute(
-        select(Skill.name).where(Skill.user_id == user_id)
+        select(Skill.name).where(Skill.user_id.is_(None))
     )
     existing_skill_names = {row[0] for row in existing_skill_result.fetchall()}
 
     existing_config_result = await db.execute(
-        select(AgentConfig.name).where(AgentConfig.user_id == user_id)
+        select(AgentConfig.name).where(AgentConfig.user_id.is_(None))
     )
     existing_config_names = {row[0] for row in existing_config_result.fetchall()}
 
@@ -1049,7 +1097,7 @@ async def seed_scholarflow(db: AsyncSession, user_id: str) -> list[AgentConfig]:
         if skill_def["name"] in existing_skill_names:
             continue
         skill = Skill(
-            user_id=user_id,
+            user_id=None,
             name=skill_def["name"],
             description=skill_def["description"],
             prompt_template=skill_def["prompt_template"],
@@ -1062,13 +1110,13 @@ async def seed_scholarflow(db: AsyncSession, user_id: str) -> list[AgentConfig]:
         created_skills[skill_def["name"]] = skill
 
     if created_skills:
-        await db.flush()  # get ids without commit
+        await db.flush()
 
-    # Fetch any pre-existing skills we need to reference
+    # Fetch any pre-existing global skills we need to reference
     if len(created_skills) < len(_SKILL_SEEDS):
         existing_result = await db.execute(
             select(Skill).where(
-                Skill.user_id == user_id,
+                Skill.user_id.is_(None),
                 Skill.name.in_([s["name"] for s in _SKILL_SEEDS]),
             )
         )
@@ -1076,13 +1124,13 @@ async def seed_scholarflow(db: AsyncSession, user_id: str) -> list[AgentConfig]:
             if skill.name not in created_skills:
                 created_skills[str(skill.name)] = skill
 
-    # 2. Create agent configs with skill associations
+    # 2. Create global agent configs with skill associations
     created_configs = []
     for agent_def in _AGENT_SEEDS:
         if agent_def["name"] in existing_config_names:
             continue
         config = AgentConfig(
-            user_id=user_id,
+            user_id=None,
             name=agent_def["name"],
             role=agent_def["role"],
             provider=agent_def["provider"],
@@ -1098,7 +1146,6 @@ async def seed_scholarflow(db: AsyncSession, user_id: str) -> list[AgentConfig]:
         db.add(config)
         await db.flush()
 
-        # Associate skills via the raw table (since skills aren't loaded on config yet)
         for skill_name in agent_def["skill_names"]:
             skill = created_skills.get(skill_name)
             if skill:
@@ -1113,7 +1160,6 @@ async def seed_scholarflow(db: AsyncSession, user_id: str) -> list[AgentConfig]:
 
     await db.commit()
 
-    # Refresh to return usable objects
     for config in created_configs:
         await db.refresh(config)
 
