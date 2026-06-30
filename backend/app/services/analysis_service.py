@@ -28,12 +28,24 @@ def _extract_json(text: str) -> str:
         end = text.rfind(close_char)
         if start != -1 and end > start:
             candidate = text[start : end + 1]
-            # Validate it's parseable before returning
             try:
                 json.loads(candidate)
                 return candidate
             except json.JSONDecodeError:
-                continue
+                # Try closing truncated JSON by appending missing brackets
+                snippet = text[start:]
+                depth = 0
+                for ch in snippet:
+                    if ch == open_char:
+                        depth += 1
+                    elif ch == close_char:
+                        depth -= 1
+                fix = snippet + close_char * max(depth, 0)
+                try:
+                    json.loads(fix)
+                    return fix
+                except json.JSONDecodeError:
+                    continue
     return text
 
 
@@ -153,7 +165,7 @@ async def analyze_paper(
     response_text = ""
     try:
         response_text = await _invoke_llm(
-            prompt, model=model, provider=provider, temperature=0.3, max_tokens=4000,
+            prompt, model=model, provider=provider, temperature=0.3, max_tokens=8000,
         )
         if not response_text or not response_text.strip():
             raise ValueError("LLM returned empty response")
