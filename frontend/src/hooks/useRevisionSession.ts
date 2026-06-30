@@ -2,6 +2,13 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
 
+export type RevisionErrorType = 'network' | 'timeout' | 'sse' | 'unknown'
+
+export interface RevisionError {
+  message: string
+  type: RevisionErrorType
+}
+
 export interface RevisionSession {
   id: string
   workflow_execution_id: string
@@ -39,7 +46,9 @@ export function useRevisionSession() {
   const [availableStageIds, setAvailableStageIdsState] = useState<string[]>([])
   const [selectedStageIds, setSelectedStageIdsState] = useState<Set<string>>(new Set())
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([])
+  const [error, setError] = useState<RevisionError | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Hydrate from sessionStorage when the active session changes
   useEffect(() => {
@@ -104,6 +113,15 @@ export function useRevisionSession() {
       console.error('Failed to persist attachments:', err)
     }
   }, [attachedFiles, session])
+
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort()
+      if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    }
+  }, [])
+
+  const clearError = useCallback(() => setError(null), [])
 
   const setAvailableStageIds = useCallback((ids: string[]) => {
     setAvailableStageIdsState(ids)
@@ -208,12 +226,18 @@ export function useRevisionSession() {
       setMessages((prev) => [...prev, userMsg])
       setIsStreaming(true)
       setStreamingContent('')
+      setError(null)
 
-      // Optimistic clear: drop attached files BEFORE the stream completes
       setAttachedFiles([])
 
       const abortController = new AbortController()
       abortRef.current = abortController
+
+      const STREAM_TIMEOUT_MS = 30_000
+
+      timeoutRef.current = setTimeout(() => {
+        abortController.abort()
+      }, STREAM_TIMEOUT_MS)
 
       try {
         const token = useAuthStore.getState().accessToken
@@ -254,7 +278,7 @@ export function useRevisionSession() {
                 fullContent += parsed.content
                 setStreamingContent(fullContent)
               } else if (parsed.type === 'error') {
-                console.error('Stream error:', parsed.content)
+                setError({ message: parsed.content || 'Stream error from server', type: 'sse' })
               }
             } catch {}
           }
@@ -272,10 +296,24 @@ export function useRevisionSession() {
       } catch (err: unknown) {
         if (err instanceof Error && err.name === 'AbortError') {
           setStreamingContent('')
+          const isTimeout = abortController.signal.aborted && timeoutRef.current === null
+          setError({
+            message: isTimeout ? 'Response timed out. Please try again.' : 'Request was cancelled.',
+            type: isTimeout ? 'timeout' : 'unknown',
+          })
+        } else if (err instanceof TypeError && err.message.includes('fetch')) {
+          setError({ message: 'Network error. Check your connection.', type: 'network' })
         } else {
-          console.error('Revision stream error:', err)
+          setError({
+            message: err instanceof Error ? err.message : 'Something went wrong.',
+            type: 'unknown',
+          })
         }
       } finally {
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current)
+          timeoutRef.current = null
+        }
         setIsStreaming(false)
         abortRef.current = null
       }
@@ -293,6 +331,8 @@ export function useRevisionSession() {
     isLoading,
     isStreaming,
     streamingContent,
+    error,
+    clearError,
     availableStageIds,
     selectedStageIds,
     attachedFiles,

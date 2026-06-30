@@ -1,11 +1,12 @@
 import { useState, useCallback, useMemo, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { CheckCircle2, Loader2, MessageSquare } from 'lucide-react'
+import { CheckCircle2, Loader2, MessageSquare, Square, X } from 'lucide-react'
 
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useRevisionSession } from '@/hooks/useRevisionSession'
+import { useToast } from '@/hooks/use-toast'
 import type {
   WorkflowExecution,
   WorkflowExecutionStage,
@@ -19,6 +20,7 @@ import { ScoreDisplay, type Scores } from '@/components/shared/ScoreDisplay'
 import { WorkflowStageStatus, type WorkflowStatus } from '@/components/shared/WorkflowStageStatus'
 import { MessageList, type ChatListMessage } from '@/components/chat/MessageList'
 import { ChatInput } from '@/components/chat/ChatInput'
+import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 
 /* ────────────────────────────────────────────── */
@@ -183,15 +185,46 @@ interface ChatPanelProps {
   messages: ChatListMessage[]
   isLoading: boolean
   isStreaming: boolean
+  streamingContent: string
+  error: string | null
   onSend: (content: string, files?: File[]) => void
+  onStop: () => void
+  onClearError: () => void
 }
 
-function ChatPanel({ messages, isLoading, isStreaming, onSend }: ChatPanelProps) {
+function ChatPanel({
+  messages,
+  isLoading,
+  isStreaming,
+  streamingContent,
+  error,
+  onSend,
+  onStop,
+  onClearError,
+}: ChatPanelProps) {
+  const thinkingIndicator: ChatListMessage | null =
+    isStreaming && !streamingContent
+      ? {
+          id: 'thinking',
+          role: 'assistant',
+          content: (
+            <div className="flex items-center gap-1.5 py-1">
+              <span className="h-2 w-2 rounded-full bg-primary/60 animate-bounce [animation-delay:-0.3s]" />
+              <span className="h-2 w-2 rounded-full bg-primary/60 animate-bounce [animation-delay:-0.15s]" />
+              <span className="h-2 w-2 rounded-full bg-primary/60 animate-bounce" />
+            </div>
+          ),
+          timestamp: new Date().toISOString(),
+        }
+      : null
+
+  const displayMessages = thinkingIndicator ? [...messages, thinkingIndicator] : messages
+
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex-1 overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden min-h-0">
+      <div className="flex-1 overflow-hidden min-h-0">
         <MessageList
-          messages={messages}
+          messages={displayMessages}
           isLoading={isLoading && messages.length === 0}
           isStreaming={isStreaming}
           className="h-full"
@@ -210,13 +243,37 @@ function ChatPanel({ messages, isLoading, isStreaming, onSend }: ChatPanelProps)
           }
         />
       </div>
+
+      {error && (
+        <div className="flex items-center gap-2 px-3 py-2 mx-3 mb-2 rounded-lg bg-destructive/10 border border-destructive/20 text-sm text-destructive">
+          <span className="flex-1">{error}</span>
+          <button onClick={onClearError} className="shrink-0 rounded-full p-0.5 hover:bg-destructive/20">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
       <div className="border-t border-border/50 p-3 shrink-0">
-        <ChatInput
-          onSend={onSend}
-          disabled={isStreaming}
-          isStreaming={isStreaming}
-          placeholder="Ask about this review..."
-        />
+        <div className="flex items-center gap-2">
+          {isStreaming && (
+            <Button
+              variant="destructive"
+              size="icon"
+              onClick={onStop}
+              className="shrink-0 h-8 w-8"
+            >
+              <Square className="h-3.5 w-3.5" />
+            </Button>
+          )}
+          <div className="flex-1 min-w-0">
+            <ChatInput
+              onSend={onSend}
+              disabled={isStreaming}
+              isStreaming={isStreaming}
+              placeholder="Ask about this review..."
+            />
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -227,16 +284,20 @@ function ChatPanel({ messages, isLoading, isStreaming, onSend }: ChatPanelProps)
 /* ────────────────────────────────────────────── */
 
 export default function RevisionPage() {
-  const { sessionId } = useParams<{ sessionId: string }>()
+  const { id: sessionId } = useParams<{ id: string }>()
+  const { toast } = useToast()
   const {
     session,
     messages,
     isLoading,
     isStreaming,
     streamingContent,
+    error,
+    clearError,
     selectedStageIds,
     loadSession,
     sendMessage,
+    stopStreaming,
     toggleStage,
     setAvailableStageIds,
     uploadFile,
@@ -270,6 +331,16 @@ export default function RevisionPage() {
     }
   }, [execution, setAvailableStageIds])
 
+  useEffect(() => {
+    if (error) {
+      toast({
+        title: 'Stream error',
+        description: error.message,
+        variant: 'destructive',
+      })
+    }
+  }, [error, toast])
+
   // Active stage for the output panel
   const [activeStageIndex, setActiveStageIndex] = useState(0)
 
@@ -299,14 +370,23 @@ export default function RevisionPage() {
       if (files && files.length > 0) {
         fileRefs = []
         for (const file of files) {
-          const uploaded = await uploadFile(file)
-          attachFile(uploaded)
-          fileRefs.push(uploaded.file_key)
+          try {
+            const uploaded = await uploadFile(file)
+            attachFile(uploaded)
+            fileRefs.push(uploaded.file_key)
+          } catch (err) {
+            toast({
+              title: 'Upload failed',
+              description: `Could not upload "${file.name}". ${err instanceof Error ? err.message : ''}`,
+              variant: 'destructive',
+            })
+          }
         }
+        if (fileRefs.length === 0) fileRefs = undefined
       }
       sendMessage(content, fileRefs)
     },
-    [uploadFile, attachFile, sendMessage],
+    [uploadFile, attachFile, sendMessage, toast],
   )
 
   // Aggregate usage across all stages
@@ -470,14 +550,18 @@ export default function RevisionPage() {
       {/* ── Main Content ── */}
       <div className="flex-1 min-h-0">
         {/* Desktop: side-by-side */}
-        <div className="hidden md:grid md:grid-cols-[1fr_400px] gap-6 h-full">
+        <div className="hidden md:grid md:grid-cols-[1fr_400px] gap-6 h-full grid-rows-1">
           {/* Left: Chat */}
-          <div className="bg-card/60 backdrop-blur-xl border border-border/50 rounded-xl overflow-hidden">
+          <div className="bg-card/60 backdrop-blur-xl border border-border/50 rounded-xl overflow-hidden h-full">
             <ChatPanel
               messages={chatListMessages}
               isLoading={isLoading}
               isStreaming={isStreaming}
+              streamingContent={streamingContent}
+              error={error?.message ?? null}
               onSend={handleSend}
+              onStop={stopStreaming}
+              onClearError={clearError}
             />
           </div>
 
@@ -511,7 +595,11 @@ export default function RevisionPage() {
                   messages={chatListMessages}
                   isLoading={isLoading}
                   isStreaming={isStreaming}
+                  streamingContent={streamingContent}
+                  error={error?.message ?? null}
                   onSend={handleSend}
+                  onStop={stopStreaming}
+                  onClearError={clearError}
                 />
               </div>
             </TabsContent>
