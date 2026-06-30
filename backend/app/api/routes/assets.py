@@ -3,12 +3,13 @@ import logging
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.core.database import get_db, AsyncSessionLocal
+from app.core.database import get_db
+from app.core.arq import get_arq_pool
 from app.core.security import get_current_user
 from app.models import User, Paper, PaperChunk, AgentConfig, AgentRole
 from app.schemas import PaperCreate, PaperResponse, PaperListResponse
@@ -43,110 +44,8 @@ async def _get_user(user_id: str, db: AsyncSession) -> User:
     return user
 
 
-async def _process_asset_background(
-    asset_id: UUID,
-    owner_id: UUID,
-    title: str,
-    abstract: str | None,
-    doc_type: str,
-    full_text: str,
-    sections: list[dict],
-    references: list[dict],
-):
-    try:
-        async with AsyncSessionLocal() as db:
-            result = await db.execute(select(Paper).where(Paper.id == asset_id))
-            asset = result.scalar_one_or_none()
-            if not asset:
-                logger.warning(f"Background: asset {asset_id} not found")
-                return
-
-            if sections:
-                section_chunks = pdf_service.chunk_sections(sections)
-            else:
-                section_chunks = [{"section": None, "text": t, "word_count": len(t.split())}
-                                  for t in _chunk_text(full_text, chunk_size=1000, overlap=200)]
-
-            for i, chunk in enumerate(section_chunks):
-                chunk_text = chunk["text"]
-                embedding = None
-                try:
-                    embedding = await asyncio.wait_for(search_service.embed_text(chunk_text), timeout=15)
-                except Exception as e:
-                    logger.warning(f"Embedding failed for chunk {i}: {e}")
-
-                db.add(PaperChunk(
-                    paper_id=asset.id, chunk_index=i,
-                    section=chunk.get("section"), text=chunk_text, embedding=embedding,
-                ))
-
-                try:
-                    await asyncio.wait_for(search_service.index_document(
-                        index="assets", doc_id=f"{asset.id}_{i}",
-                        document={
-                            "asset_id": str(asset.id), "chunk_index": i,
-                            "section": chunk.get("section"), "content": chunk_text,
-                            "title": title, "owner_id": str(owner_id),
-                        }, embedding=embedding,
-                    ), timeout=10)
-                except Exception as e:
-                    logger.warning(f"ES indexing failed for chunk {i}: {e}")
-
-            await db.commit()
-
-            asset.processing_status = "completed"
-            await db.commit()
-
-            analysis_data = {}
-            if references:
-                analysis_data["references"] = [
-                    {"index": r.get("index"), "text": r.get("text", ""),
-                     "authors": r.get("authors", []), "year": r.get("year")}
-                    for r in references if isinstance(r, dict)
-                ]
-
-            try:
-                model, provider = await _get_analyzer_config(db, owner_id)
-                analysis = await asyncio.wait_for(
-                    analyze_paper(
-                        title=title, abstract=abstract, full_text=full_text,
-                        doc_type=doc_type, model=model, provider=provider,
-                    ),
-                    timeout=90,
-                )
-                if analysis:
-                    asset.analysis = analysis.model_dump()
-                    asset.analysis.update(analysis_data)
-                    asset.tags = list(set((asset.tags or []) + analysis.keywords[:8]))
-                else:
-                    if analysis_data:
-                        asset.analysis = analysis_data
-                flag_modified(asset, "analysis")
-                flag_modified(asset, "tags")
-            except Exception as e:
-                logger.warning(f"AI analysis failed: {e}")
-                if analysis_data:
-                    asset.analysis = analysis_data
-
-            await db.commit()
-            logger.info(f"Background processing complete for asset {asset_id}")
-
-    except Exception as e:
-        logger.error(f"Background processing crashed for asset {asset_id}: {e}")
-        try:
-            async with AsyncSessionLocal() as db:
-                result = await db.execute(select(Paper).where(Paper.id == asset_id))
-                asset = result.scalar_one_or_none()
-                if asset:
-                    asset.processing_status = "failed"
-                    await db.commit()
-        except Exception:
-            logger.error(f"Failed to set failed status for asset {asset_id}")
-
-
 @router.post("/", response_model=PaperResponse, status_code=status.HTTP_201_CREATED)
 async def upload_asset(
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     title: Optional[str] = Form(None),
     abstract: Optional[str] = Form(None),
@@ -186,19 +85,31 @@ async def upload_asset(
 
     del content, extracted
 
-    background_tasks.add_task(
-        _process_asset_background,
-        asset_id=asset.id, owner_id=current_user.id,
-        title=asset.title, abstract=asset.abstract, doc_type=asset.doc_type,
-        full_text=full_text, sections=sections, references=references,
-    )
+    try:
+        pool = await get_arq_pool()
+        job = await pool.enqueue_job(
+            "process_asset_task",
+            asset_id=str(asset.id),
+            owner_id=str(current_user.id),
+            title=asset.title,
+            abstract=asset.abstract,
+            doc_type=asset.doc_type,
+            full_text=full_text,
+            sections=sections,
+            references=references,
+        )
+        if job:
+            logger.info(f"Asset {asset.id} enqueued as ARQ job {job.job_id}")
+    except Exception as e:
+        logger.error(f"Failed to enqueue asset processing for {asset.id}: {e}")
+        asset.processing_status = "failed"
+        await db.commit()
 
     return asset
 
 
 @router.post("/batch", response_model=list[PaperResponse], status_code=status.HTTP_201_CREATED)
 async def upload_assets_batch(
-    background_tasks: BackgroundTasks,
     files: list[UploadFile] = File(...),
     doc_type: Optional[str] = Form(None),
     user_id: str = Depends(get_current_user),
@@ -238,12 +149,25 @@ async def upload_assets_batch(
 
         del content, extracted
 
-        background_tasks.add_task(
-            _process_asset_background,
-            asset_id=asset.id, owner_id=current_user.id,
-            title=asset.title, abstract=asset.abstract, doc_type=asset.doc_type,
-            full_text=full_text, sections=sections, references=references,
-        )
+        try:
+            pool = await get_arq_pool()
+            job = await pool.enqueue_job(
+                "process_asset_task",
+                asset_id=str(asset.id),
+                owner_id=str(current_user.id),
+                title=asset.title,
+                abstract=asset.abstract,
+                doc_type=asset.doc_type,
+                full_text=full_text,
+                sections=sections,
+                references=references,
+            )
+            if job:
+                logger.info(f"Asset {asset.id} enqueued as ARQ job {job.job_id}")
+        except Exception as e:
+            logger.error(f"Failed to enqueue asset processing for {asset.id}: {e}")
+            asset.processing_status = "failed"
+            await db.commit()
 
         assets.append(asset)
 
@@ -384,15 +308,3 @@ async def delete_asset(
 
     await db.delete(asset)
     await db.commit()
-
-
-def _chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> list[str]:
-    words = text.split()
-    chunks = []
-    start = 0
-    while start < len(words):
-        end = start + chunk_size
-        chunk = " ".join(words[start:end])
-        chunks.append(chunk)
-        start = end - overlap
-    return chunks
