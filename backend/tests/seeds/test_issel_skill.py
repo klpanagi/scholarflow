@@ -90,7 +90,7 @@ class TestExistingSeedsUnchanged:
 
     @pytest.mark.unit_db
     def test_existing_agent_count(self):
-        assert len(_AGENT_SEEDS) == 8  # 7 original + 1 ISSEL
+        assert len(_AGENT_SEEDS) == 14
 
     @pytest.mark.unit_db
     def test_paper_review_skill_unchanged(self):

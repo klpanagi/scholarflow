@@ -1,20 +1,27 @@
-"""Tests for the diff-based seed loop in ``list_agent_configs``.
+"""Tests for global-defaults creation and user-override merging in ``list_agent_configs``.
 
-When an existing user (>= 1 config) calls ``list_agent_configs``, the route
-iterates ``_DEFAULT_AGENT_CONFIGS`` and creates bare defaults for any roles
-missing from the user's current config set.  This file verifies that the three
-new roles added in Task 1 — ``writer``, ``debater``, ``deep_reviewer``
-— are created on the next call when the user only has a ``researcher`` config.
+When a user calls ``list_agent_configs``, the route ensures global defaults
+(user_id=NULL) exist by calling ``seed_scholarflow`` once. It then merges
+global + user configs by name, with the user's version winning on conflicts.
 """
 
 from sqlalchemy import func, select
 
 from app.api.routes.agents import list_agent_configs
 from app.models import AgentConfig, AgentRole, User
+from app.seeds.scholarflow_skills import _AGENT_SEEDS
 
 
-async def _count_configs_for_user(db_session, user_id: str) -> int:
-    """Return the number of AgentConfig rows belonging to *user_id*."""
+async def _count_global_configs(db_session) -> int:
+    result = await db_session.execute(
+        select(func.count())
+        .select_from(AgentConfig)
+        .where(AgentConfig.user_id.is_(None))
+    )
+    return result.scalar_one()
+
+
+async def _count_configs_for_user(db_session, user_id) -> int:
     result = await db_session.execute(
         select(func.count())
         .select_from(AgentConfig)
@@ -23,74 +30,51 @@ async def _count_configs_for_user(db_session, user_id: str) -> int:
     return result.scalar_one()
 
 
-async def test_diff_seed_creates_three_new_defaults_for_existing_user(
-    db_session,
-    test_user,
-):
-    """An existing user with 1 config gets the 3 new defaults on next visit.
+async def test_global_defaults_created_on_first_call(db_session, test_user):
+    """User with 0 configs calls list_agent_configs; 14 global configs appear."""
+    assert await _count_global_configs(db_session) == 0
 
-    Setup:
-        * ``test_user`` is already committed by the fixture.
-        * We manually create one ``AgentConfig`` with ``role=RESEARCHER``.
-
-    Action:
-        Call ``list_agent_configs(user_id, db)`` directly (bypassing FastAPI
-        ``Depends`` injection).
-
-    Assertions:
-        1. 7 configs total (1 existing + 6 missing defaults created).
-        2. The 3 new roles (WRITER, DEBATER, DEEP_REVIEWER) are present.
-        3. The 3 new configs have ``is_default=True`` and the expected names.
-        4. The original researcher config was not modified.
-    """
-    # --- Arrange: create the single pre-existing config ---------------------
-    existing_config = AgentConfig(
-        user_id=test_user.id,
-        name="Default Researcher",
-        role=AgentRole.RESEARCHER,
-        provider="openrouter",
-        model="google/gemma-4-31b-it:free",
-        strategy="direct",
-        system_prompt="You are a research assistant.",
-        is_default=True,
-    )
-    db_session.add(existing_config)
-    await db_session.commit()
-    await db_session.refresh(existing_config)
-
-    # Sanity check: exactly 1 config before the call
-    assert await _count_configs_for_user(db_session, test_user.id) == 1
-
-    # --- Act: call list_agent_configs directly ------------------------------
     configs = await list_agent_configs(str(test_user.id), db_session)
 
-    total = await _count_configs_for_user(db_session, test_user.id)
-    assert total == 7, f"Expected 7 configs (1 existing + 6 missing defaults), got {total}"
-    assert len(configs) == 7, f"Return list should have 7 items, got {len(configs)}"
+    assert await _count_global_configs(db_session) == len(_AGENT_SEEDS)
+    assert len(configs) == len(_AGENT_SEEDS)
 
-    # --- Assert: the 3 new roles are correct --------------------------------
-    all_roles = {c.role for c in configs}
-    assert AgentRole.WRITER in all_roles, "WRITER missing"
-    assert AgentRole.DEBATER in all_roles, "DEBATER missing"
-    assert AgentRole.DEEP_REVIEWER in all_roles, "DEEP_REVIEWER missing"
+    assert await _count_configs_for_user(db_session, test_user.id) == 0
 
-    # --- Assert: new configs have correct names + is_default -----------------
-    configs_by_role = {c.role: c for c in configs}
 
-    rw = configs_by_role[AgentRole.WRITER]
-    assert rw.name == "Default Review Writer"
-    assert rw.is_default is True
+async def test_user_override_config_takes_priority(db_session, test_user):
+    """User creates a custom "Proposal Writer"; list_agent_configs returns it instead of global."""
+    global_pw = AgentConfig(
+        user_id=None,
+        name="Proposal Writer",
+        role=AgentRole.WRITER,
+        provider="openrouter",
+        model="deepseek/deepseek-chat-v3-0324:free",
+        strategy="direct",
+        system_prompt="Global prompt.",
+    )
+    db_session.add(global_pw)
+    await db_session.commit()
+    await db_session.refresh(global_pw)
 
-    deb = configs_by_role[AgentRole.DEBATER]
-    assert deb.name == "Default Debater"
-    assert deb.is_default is True
+    user_pw = AgentConfig(
+        user_id=test_user.id,
+        name="Proposal Writer",
+        role=AgentRole.WRITER,
+        provider="opencode",
+        model="my-custom-model",
+        strategy="direct",
+        system_prompt="User's custom prompt.",
+    )
+    db_session.add(user_pw)
+    await db_session.commit()
+    await db_session.refresh(user_pw)
 
-    dr = configs_by_role[AgentRole.DEEP_REVIEWER]
-    assert dr.name == "Default Deep Reviewer"
-    assert dr.is_default is True
+    configs = await list_agent_configs(str(test_user.id), db_session)
 
-    # --- Assert: existing researcher config was not modified -----------------
-    researcher = configs_by_role[AgentRole.RESEARCHER]
-    assert researcher.id == existing_config.id
-    assert researcher.name == existing_config.name
-    assert researcher.is_default == existing_config.is_default
+    pw = next(c for c in configs if c.name == "Proposal Writer")
+    assert pw.id == user_pw.id
+    assert pw.model == "my-custom-model"
+    assert pw.system_prompt == "User's custom prompt."
+
+    assert len(configs) >= 1

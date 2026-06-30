@@ -1,9 +1,9 @@
 """Idempotency tests for :func:`seed_scholarflow`.
 
-Asserts that calling :func:`seed_scholarflow` repeatedly for the same user
-does not create duplicate ``AgentConfig`` rows. The function must mirror
-the existing skill dedup pattern (query existing names for the user, skip
-in the loop) for the four seed agent configs.
+Asserts that calling :func:`seed_scholarflow` repeatedly does not create
+duplicate ``AgentConfig`` rows. Seeds are now global (user_id=NULL), so
+dedup checks query ``user_id IS NULL`` regardless of the ``user_id``
+parameter passed to ``seed_scholarflow``.
 """
 
 import pytest
@@ -13,7 +13,7 @@ from app.models import AgentConfig, AgentRole, AgentVariant, Skill, Strategy
 from app.seeds.scholarflow_skills import _AGENT_SEEDS, seed_scholarflow
 
 
-SEEDED_CONFIG_COUNT = 7
+SEEDED_CONFIG_COUNT = len(_AGENT_SEEDS)  # 14
 SEEDED_CONFIG_NAMES = frozenset(
     {
         "Proposal Writer",
@@ -23,45 +23,51 @@ SEEDED_CONFIG_NAMES = frozenset(
         "Simple Debater",
         "Standard Debater",
         "Deep Debater",
+        "ISSEL Paper Reviewer",
+        "Default Researcher",
+        "Default Writer",
+        "Default Reviewer",
+        "Default Recommender",
+        "Default Deep Reviewer",
+        "Default Analyzer",
     }
 )
 
 
-async def _count_configs_for_user(db_session, user_id) -> int:
-    """Return the number of AgentConfig rows belonging to ``user_id``."""
+async def _count_global_configs(db_session) -> int:
+    """Return the number of global AgentConfig rows (user_id IS NULL)."""
     result = await db_session.execute(
         select(func.count())
         .select_from(AgentConfig)
-        .where(AgentConfig.user_id == user_id)
+        .where(AgentConfig.user_id.is_(None))
     )
     return result.scalar_one()
 
 
-async def _count_configs_with_name(db_session, user_id, name: str) -> int:
-    """Return the number of AgentConfig rows with the given name for the user."""
+async def _count_global_configs_with_name(db_session, name: str) -> int:
+    """Return the number of global AgentConfig rows with the given name."""
     result = await db_session.execute(
         select(func.count())
         .select_from(AgentConfig)
-        .where(AgentConfig.user_id == user_id, AgentConfig.name == name)
+        .where(AgentConfig.user_id.is_(None), AgentConfig.name == name)
     )
     return result.scalar_one()
 
 
 async def test_seed_skips_existing_agent_configs_by_name(db_session, test_user):
-    """Calling ``seed_scholarflow`` twice creates 4 configs total, not 8.
+    """Calling ``seed_scholarflow`` twice creates 14 global configs total, not 28.
 
-    The second call must detect existing config names and skip them,
-    matching the dedup pattern used for skills at lines 682-690 of
-    ``scholarflow_skills.py``.
+    The second call must detect existing global config names and skip them,
+    matching the dedup pattern used for skills.
     """
     first = await seed_scholarflow(db_session, test_user.id)
     assert len(first) == SEEDED_CONFIG_COUNT
-    assert await _count_configs_for_user(db_session, test_user.id) == SEEDED_CONFIG_COUNT
+    assert await _count_global_configs(db_session) == SEEDED_CONFIG_COUNT
 
     second = await seed_scholarflow(db_session, test_user.id)
     assert second == [], "Second call should create 0 new configs"
-    assert await _count_configs_for_user(db_session, test_user.id) == SEEDED_CONFIG_COUNT, (
-        f"Expected {SEEDED_CONFIG_COUNT} configs after second seed call, "
+    assert await _count_global_configs(db_session) == SEEDED_CONFIG_COUNT, (
+        f"Expected {SEEDED_CONFIG_COUNT} global configs after second seed call, "
         "but found duplicates — AgentConfig dedup is broken."
     )
 
@@ -69,12 +75,11 @@ async def test_seed_skips_existing_agent_configs_by_name(db_session, test_user):
 async def test_seed_does_not_create_duplicate_review_writer_config(
     db_session, test_user
 ):
-    """A pre-existing "Review Writer" config is not duplicated by the seed.
+    """A pre-existing user-level "Review Writer" does not conflict with the global seed.
 
-    "Review Writer" is the highest-risk case because the seed function
-    creates 4 configs and the user may already have a custom one with the
-    same name. The dedup must skip the seed definition when an
-    ``AgentConfig`` with that name already exists for the user.
+    Seeds are global (user_id=NULL), so a user's custom "Review Writer"
+    (user_id=test_user.id) coexists alongside the global one. The seed
+    does not skip "Review Writer" — it creates the global version.
     """
     existing = AgentConfig(
         user_id=test_user.id,
@@ -94,10 +99,12 @@ async def test_seed_does_not_create_duplicate_review_writer_config(
     await db_session.refresh(existing)
 
     created = await seed_scholarflow(db_session, test_user.id)
-    assert len(created) == SEEDED_CONFIG_COUNT - 1
-    assert {c.name for c in created} == SEEDED_CONFIG_NAMES - {"Review Writer"}
+    assert len(created) == SEEDED_CONFIG_COUNT
 
-    assert await _count_configs_with_name(db_session, test_user.id, "Review Writer") == 1
+    # Global "Review Writer" was created alongside the user's custom one
+    assert await _count_global_configs_with_name(db_session, "Review Writer") == 1
+
+    # User's custom config is still there
     result = await db_session.execute(
         select(AgentConfig).where(
             AgentConfig.user_id == test_user.id,
@@ -113,12 +120,11 @@ async def test_seed_does_not_create_duplicate_review_writer_config(
 async def test_seed_with_existing_user_creates_only_missing_skills_and_configs(
     db_session, test_user
 ):
-    """Partial state: 1 of 4 configs pre-exists → seed creates only 3 new ones.
+    """Partial user state: seed still creates all 14 global configs.
 
-    Also verifies that the existing-skill dedup path is preserved when an
-    ``AgentConfig`` is skipped: the M2M ``agent_skills`` links for the
-    missing configs are created from the freshly created or pre-existing
-    skills.
+    User has a pre-existing "Review Writer" (user_id=test_user.id), but
+    seeds are global (user_id=NULL) so all 14 configs are created as
+    global rows. The user's config coexists with the global ones.
     """
     pre_existing = AgentConfig(
         user_id=test_user.id,
@@ -135,7 +141,6 @@ async def test_seed_with_existing_user_creates_only_missing_skills_and_configs(
     db_session.add(pre_existing)
     await db_session.commit()
 
-    assert await _count_configs_for_user(db_session, test_user.id) == 1
     skills_before = await db_session.execute(
         select(func.count()).select_from(Skill).where(Skill.user_id == test_user.id)
     )
@@ -143,16 +148,19 @@ async def test_seed_with_existing_user_creates_only_missing_skills_and_configs(
 
     created = await seed_scholarflow(db_session, test_user.id)
 
-    assert len(created) == SEEDED_CONFIG_COUNT - 1
-    assert {c.name for c in created} == {
-        "Proposal Writer",
-        "Proposal Reviewer",
-        "Project Manager",
-    }
+    # All 14 global configs created (seeds are global, no dedup against user's config)
+    assert len(created) == SEEDED_CONFIG_COUNT
+    assert await _count_global_configs(db_session) == SEEDED_CONFIG_COUNT
 
-    assert await _count_configs_for_user(db_session, test_user.id) == SEEDED_CONFIG_COUNT
-
-    assert await _count_configs_with_name(db_session, test_user.id, "Review Writer") == 1
+    # User's pre-existing config still exists
+    assert await _count_global_configs_with_name(db_session, "Review Writer") == 1
+    result = await db_session.execute(
+        select(AgentConfig).where(
+            AgentConfig.user_id == test_user.id,
+            AgentConfig.name == "Review Writer",
+        )
+    )
+    assert result.scalar_one().model == "user-model"
 
 
 @pytest.mark.unit_db
