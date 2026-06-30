@@ -1,7 +1,8 @@
 import asyncio
+import json
 import logging
 import time
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator
 
 import httpx
 from langchain_openai import ChatOpenAI
@@ -113,6 +114,22 @@ def _get_provider_config(provider: str) -> dict:
     return config
 
 
+def _build_chat_headers(provider: str) -> tuple[str, str, dict]:
+    """Return ``(base_url, api_key, headers_dict)`` for an OpenAI-compatible chat endpoint.
+
+    Shared by the streaming and non-streaming completion functions so they
+    construct payloads identically.
+    """
+    config = _get_provider_config(provider)
+    base_url = config["base_url"].rstrip("/")
+    api_key = config["api_key"]
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    return base_url, api_key, headers
+
+
 async def get_completion(
     model: str,
     messages: list[dict],
@@ -121,9 +138,7 @@ async def get_completion(
     max_tokens: int = 4096,
     max_retries: int = 3,
 ) -> str:
-    config = _get_provider_config(provider)
-    base_url = config["base_url"].rstrip("/")
-    api_key = config["api_key"]
+    base_url, api_key, headers = _build_chat_headers(provider)
 
     last_error = None
     for attempt in range(max_retries):
@@ -154,6 +169,52 @@ async def get_completion(
             else:
                 raise
     raise last_error
+
+
+async def stream_completion(
+    model: str,
+    messages: list[dict],
+    provider: str = "opencode",
+    max_tokens: int = 4096,
+) -> AsyncGenerator[str, None]:
+    """Stream tokens from an OpenAI-compatible ``/chat/completions`` endpoint.
+
+    Yields content delta strings as they arrive from the SSE stream.
+    Shared between the chat router and any future streaming consumer.
+    """
+    base_url, api_key, headers = _build_chat_headers(provider)
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        async with client.stream(
+            "POST",
+            f"{base_url}/chat/completions",
+            headers=headers,
+            json={
+                "model": model,
+                "messages": messages,
+                "stream": True,
+                "max_tokens": max_tokens,
+            },
+        ) as response:
+            if response.status_code != 200:
+                error_body = await response.aread()
+                raise RuntimeError(
+                    f"LLM API error {response.status_code}: {error_body.decode()}"
+                )
+            async for line in response.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                data = line[6:]
+                if data.strip() == "[DONE]":
+                    return
+                try:
+                    obj = json.loads(data)
+                    delta = obj.get("choices", [{}])[0].get("delta", {})
+                    content = delta.get("content")
+                    if content:
+                        yield content
+                except json.JSONDecodeError:
+                    continue
 
 
 # ---------------------------------------------------------------------------
@@ -220,18 +281,13 @@ async def get_embedding(
             "Retry after cooldown."
         )
 
-    config = _get_provider_config(provider)
-    base_url = config["base_url"].rstrip("/")
-    api_key = config["api_key"]
+    base_url, api_key, headers = _build_chat_headers(provider)
 
     try:
         async with httpx.AsyncClient(timeout=_EMBED_TIMEOUT) as client:
             resp = await client.post(
                 f"{base_url}/embeddings",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
+                headers=headers,
                 json={
                     "model": model,
                     "input": texts,

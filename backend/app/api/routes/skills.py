@@ -5,8 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
+from app.core.deps import get_user
 from app.core.security import get_current_user
-from app.models import AgentConfig, Skill, User, agent_skills_table
+from app.models import AgentConfig, Skill
 from app.schemas import (
     AgentConfigUpdateWithSkills,
     SkillCreate,
@@ -15,14 +16,6 @@ from app.schemas import (
 )
 
 router = APIRouter()
-
-
-async def _get_user(user_id: str, db: AsyncSession) -> User:
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user
 
 
 BUILTIN_TOOLS = [
@@ -47,7 +40,7 @@ async def create_skill(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _get_user(user_id, db)
+    await get_user(user_id, db)
     skill = Skill(
         user_id=user_id,
         name=data.name,

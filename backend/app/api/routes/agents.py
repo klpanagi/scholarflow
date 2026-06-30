@@ -4,8 +4,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
+from app.core.deps import get_user
 from app.core.security import get_current_user
-from app.models import User, AgentConfig, AgentRole, Strategy, Skill, agent_skills_table
+from app.models import AgentConfig, AgentRole, Strategy
 from app.schemas import (
     AgentRunRequest,
     AgentRunResponse,
@@ -14,19 +15,11 @@ from app.schemas import (
     AgentConfigResponse,
     AgentListResponse,
 )
-from app.agents.factory import create_agent, list_agents
+from app.agents.factory import create_agent, enum_value, list_agents
 from app.tools import get_tools_by_names
-from app.seeds.scholarflow_skills import seed_scholarflow, _AGENT_SEEDS, _SKILL_SEEDS
+from app.seeds.scholarflow_skills import seed_scholarflow
 
 router = APIRouter(prefix="/agents", tags=["agents"])
-
-
-async def _get_user(user_id: str, db: AsyncSession) -> User:
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
-    return user
 
 
 def _get_existing_roles(configs: list[AgentConfig]) -> set[AgentRole]:
@@ -45,7 +38,7 @@ async def run_agent(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    current_user = await _get_user(user_id, db)
+    current_user = await get_user(user_id, db)
 
     system_prompt = None
     model = request.model
@@ -53,8 +46,6 @@ async def run_agent(
     strategy = request.strategy or "direct"
     temperature = 0.7
     max_tokens = 4096
-    skill_prompts = []
-    skill_tools = []
 
     if request.agent_config_id:
         result = await db.execute(
@@ -69,18 +60,21 @@ async def run_agent(
         if config:
             model = model or config.model
             provider = config.provider
-            strategy = strategy if request.strategy else (config.strategy.value if hasattr(config.strategy, 'value') else config.strategy)
+            strategy = strategy if request.strategy else enum_value(config.strategy)
             system_prompt = config.system_prompt
             temperature = config.temperature
             max_tokens = config.max_tokens
+            skill_prompts = [s.prompt_template for s in config.skills if s.prompt_template]
             skill_tools = config.get_tool_names()
-            for skill in config.skills:
-                if skill.prompt_template:
-                    skill_prompts.append(skill.prompt_template)
+        else:
+            skill_prompts = []
+            skill_tools = []
+    else:
+        skill_prompts = []
+        skill_tools = []
 
     if skill_prompts:
-        combined_prompt = "\n\n".join(filter(None, [system_prompt] + skill_prompts))
-        system_prompt = combined_prompt
+        system_prompt = "\n\n".join(filter(None, [system_prompt] + skill_prompts))
 
     resolved_tools = get_tools_by_names(skill_tools) if skill_tools else []
 
@@ -119,7 +113,7 @@ async def create_agent_config(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    current_user = await _get_user(user_id, db)
+    current_user = await get_user(user_id, db)
 
     try:
         role = AgentRole(config_data.role)
@@ -161,7 +155,7 @@ async def list_agent_configs(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    current_user = await _get_user(user_id, db)
+    current_user = await get_user(user_id, db)
 
     # Ensure global defaults exist (idempotent) — runs once on first call ever
     global_configs_result = await db.execute(
@@ -201,7 +195,7 @@ async def get_agent_config(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    current_user = await _get_user(user_id, db)
+    current_user = await get_user(user_id, db)
     result = await db.execute(
         select(AgentConfig)
         .options(selectinload(AgentConfig.skills))
@@ -223,7 +217,7 @@ async def update_agent_config(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    current_user = await _get_user(user_id, db)
+    current_user = await get_user(user_id, db)
     result = await db.execute(
         select(AgentConfig).where(
             AgentConfig.id == config_id,
@@ -268,7 +262,7 @@ async def delete_agent_config(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    current_user = await _get_user(user_id, db)
+    current_user = await get_user(user_id, db)
     result = await db.execute(
         select(AgentConfig).where(
             AgentConfig.id == config_id,

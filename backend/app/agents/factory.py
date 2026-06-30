@@ -17,7 +17,7 @@ from app.agents.writing_agent import WritingAgent
 from app.services.llm_service import llm_service
 
 
-from app.models import AgentRole
+from app.models import AgentConfig, AgentRole
 
 # Two-level registry: role → variant (optional) → class. For most roles the
 # value is a class directly. For DEBATER the value is a dict mapping variant
@@ -76,6 +76,81 @@ def create_agent(
         max_tokens=max_tokens,
     )
     return agent_cls(llm=llm, strategy_name=strategy, system_prompt=system_prompt, tools=tools, **kwargs)
+
+
+def enum_value(val: Any):
+    """Extract value from an enum member or return the value as-is.
+
+    Avoids the ``hasattr(x, 'value')`` pattern that was repeated
+    across multiple call sites.
+    """
+    return val.value if hasattr(val, "value") else val
+
+
+def build_agent_from_config(
+    config: AgentConfig,
+    *,
+    prompt_join_style: str = "default",
+    strategy_override: str | None = None,
+) -> tuple[BaseAgent, list[str]]:
+    """Create a LangGraph agent from a persisted ``AgentConfig`` row.
+
+    Handles the common boilerplate:
+    * Extracting skill prompts and tool names
+    * Resolving tool references
+    * Building a combined system prompt
+    * Extracting enum values for ``role``, ``strategy``, and ``variant``
+
+    Parameters
+    ----------
+    config:
+        ``AgentConfig`` instance with its ``skills`` relationship eagerly
+        loaded (e.g. via ``selectinload(AgentConfig.skills)``).
+    prompt_join_style:
+        How to combine the config's ``system_prompt`` with its skill prompts.
+
+        * ``"default"`` — ``"\\n\\n".join(filter(None, ...))``
+        * ``"workflows"`` — appends with ``"Additional knowledge:\\n---"``
+    strategy_override:
+        When provided, overrides the strategy from the config.  Used by
+        endpoints that accept a runtime strategy from the client.
+
+    Returns
+    -------
+    ``(agent, tool_names)`` where ``tool_names`` are the names of the
+    tools associated with the config (needed for response metadata).
+    """
+    from app.tools import get_tools_by_names
+
+    skill_prompts = [s.prompt_template for s in config.skills if s.prompt_template]
+    tool_names = config.get_tool_names()
+    resolved_tools = get_tools_by_names(tool_names) if tool_names else []
+
+    system_prompt = config.system_prompt or ""
+    if skill_prompts:
+        if prompt_join_style == "workflows":
+            system_prompt += (
+                "\n\nAdditional knowledge:\n" + "\n---\n".join(skill_prompts)
+            )
+        else:
+            system_prompt = "\n\n".join(filter(None, [system_prompt] + skill_prompts))
+
+    agent_type = enum_value(config.role)
+    strategy = strategy_override or enum_value(config.strategy)
+    variant = enum_value(getattr(config, "variant", None))
+
+    agent = create_agent(
+        agent_type=agent_type,
+        model=config.model,
+        provider=config.provider,
+        strategy=strategy,
+        system_prompt=system_prompt,
+        tools=resolved_tools,
+        temperature=config.temperature,
+        max_tokens=config.max_tokens,
+        variant=variant,
+    )
+    return agent, tool_names
 
 
 def list_agents() -> list[dict[str, str]]:

@@ -5,8 +5,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.deps import get_user
 from app.core.security import get_current_user
-from app.models import User, Workspace, Conversation, Message
+from app.models import Workspace, Conversation, Message
 from app.schemas import (
     WorkspaceCreate,
     WorkspaceResponse,
@@ -19,21 +20,13 @@ from app.schemas import (
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
 
-async def _get_user(user_id: str, db: AsyncSession) -> User:
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
-    return user
-
-
 @router.post("/", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED)
 async def create_workspace(
     data: WorkspaceCreate,
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    current_user = await _get_user(user_id, db)
+    current_user = await get_user(user_id, db)
     workspace = Workspace(
         user_id=current_user.id,
         name=data.name,
@@ -50,7 +43,7 @@ async def list_workspaces(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    current_user = await _get_user(user_id, db)
+    current_user = await get_user(user_id, db)
     result = await db.execute(
         select(Workspace).where(Workspace.user_id == current_user.id)
     )
@@ -64,7 +57,7 @@ async def create_conversation(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    current_user = await _get_user(user_id, db)
+    current_user = await get_user(user_id, db)
     ws_result = await db.execute(
         select(Workspace).where(
             Workspace.id == workspace_id,
@@ -92,7 +85,7 @@ async def list_conversations(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    current_user = await _get_user(user_id, db)
+    await get_user(user_id, db)
     result = await db.execute(
         select(Conversation).where(Conversation.workspace_id == workspace_id)
     )
@@ -106,7 +99,7 @@ async def send_message(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    current_user = await _get_user(user_id, db)
+    await get_user(user_id, db)
     message = Message(
         conversation_id=conversation_id,
         role="user",
@@ -125,7 +118,7 @@ async def list_messages(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    current_user = await _get_user(user_id, db)
+    await get_user(user_id, db)
     result = await db.execute(
         select(Message)
         .where(Message.conversation_id == conversation_id)

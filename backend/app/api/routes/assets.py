@@ -10,10 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.database import get_db
+from app.core.deps import get_user
 from app.core.arq import get_arq_pool
 from app.core.security import get_current_user
 from app.models import User, Paper, PaperChunk, AgentConfig, AgentRole
-from app.schemas import PaperCreate, PaperResponse, PaperListResponse
+from app.schemas import PaperResponse, PaperListResponse
 from app.services.minio_service import minio_service
 from app.services.pdf_service import pdf_service
 from app.services.search_service import search_service
@@ -37,12 +38,7 @@ async def _get_analyzer_config(db: AsyncSession, owner_id: UUID) -> tuple[str, s
     return "google/gemma-4-31b-it:free", "openrouter"
 
 
-async def _get_user(user_id: str, db: AsyncSession) -> User:
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
-    return user
+
 
 
 @router.post("/", response_model=PaperResponse, status_code=status.HTTP_201_CREATED)
@@ -54,7 +50,7 @@ async def upload_asset(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    current_user = await _get_user(user_id, db)
+    current_user = await get_user(user_id, db)
     content = await file.read()
 
     object_key = f"assets/{current_user.id}/{file.filename}"
@@ -101,6 +97,10 @@ async def upload_asset(
         )
         if job:
             logger.info(f"Asset {asset.id} enqueued as ARQ job {job.job_id}")
+        else:
+            logger.error(f"Failed to enqueue asset processing for {asset.id}: enqueue_job returned None (WatchError)")
+            asset.processing_status = "failed"
+            await db.commit()
     except Exception as e:
         logger.error(f"Failed to enqueue asset processing for {asset.id}: {e}")
         asset.processing_status = "failed"
@@ -116,7 +116,7 @@ async def upload_assets_batch(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    current_user = await _get_user(user_id, db)
+    current_user = await get_user(user_id, db)
     assets = []
 
     for file in files:
@@ -181,7 +181,7 @@ async def analyze_asset(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    current_user = await _get_user(user_id, db)
+    current_user = await get_user(user_id, db)
     result = await db.execute(
         select(Paper).where(Paper.id == asset_id, Paper.owner_id == current_user.id)
     )
@@ -240,7 +240,7 @@ async def list_assets(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    current_user = await _get_user(user_id, db)
+    current_user = await get_user(user_id, db)
     offset = (page - 1) * size
 
     query = select(Paper).where(Paper.owner_id == current_user.id)
@@ -280,7 +280,7 @@ async def get_asset(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    current_user = await _get_user(user_id, db)
+    current_user = await get_user(user_id, db)
     result = await db.execute(
         select(Paper).where(Paper.id == asset_id, Paper.owner_id == current_user.id)
     )
@@ -296,7 +296,7 @@ async def delete_asset(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    current_user = await _get_user(user_id, db)
+    current_user = await get_user(user_id, db)
     result = await db.execute(
         select(Paper).where(Paper.id == asset_id, Paper.owner_id == current_user.id)
     )
@@ -326,7 +326,7 @@ async def reprocess_asset(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    current_user = await _get_user(user_id, db)
+    current_user = await get_user(user_id, db)
     result = await db.execute(
         select(Paper).where(Paper.id == asset_id, Paper.owner_id == current_user.id)
     )
@@ -403,7 +403,7 @@ async def reprocess_batch(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    current_user = await _get_user(user_id, db)
+    current_user = await get_user(user_id, db)
     asset_ids = [UUID(aid) for aid in body.asset_ids]
 
     result = await db.execute(

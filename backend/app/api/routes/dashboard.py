@@ -10,23 +10,18 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.deps import get_user_optional
 from app.core.security import get_current_user
 from app.models import (
     AgentConfig,
     ChatSession,
     Conversation,
     Paper,
-    User,
     Workspace,
     WorkflowExecution,
 )
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
-
-
-async def _get_user(user_id: str, db: AsyncSession) -> User | None:
-    result = await db.execute(select(User).where(User.id == user_id))
-    return result.scalar_one_or_none()
 
 
 @router.get("/stats")
@@ -35,7 +30,7 @@ async def get_dashboard_stats(
     db: AsyncSession = Depends(get_db),
 ):
     """Aggregate dashboard statistics for the current user."""
-    user = await _get_user(user_id, db)
+    user = await get_user_optional(user_id, db)
     if not user:
         return {
             "assets_count": 0,

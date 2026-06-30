@@ -23,7 +23,6 @@ from app.core.arq import get_arq_pool
 from app.tasks.cancel import set_cancel
 from app.api.deps import get_current_user_from_query
 from app.models import AgentConfig, Paper, PaperChunk, AgentRole, WorkflowExecution, RevisionSession, RevisionMessage, agent_skills_table
-from app.agents.factory import create_agent
 from app.utils.context_budget import fit_to_budget, budget_for_stages
 from app.utils.pdf_model_support import model_supports_pdf, create_multimodal_human_message
 from app.services.llm_service import fetch_model_pricing, calculate_cost, llm_service
@@ -51,6 +50,7 @@ TERMINAL_EXECUTION_STATUSES = frozenset(
 
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 @dataclass
@@ -326,34 +326,10 @@ async def _run_stage(
             "output": f"Agent config '{config_id}' not found for this user.",
         }
 
-    skill_prompts = []
-    for s in config.skills:
-        if s.prompt_template:
-            skill_prompts.append(s.prompt_template)
-    skill_tools = config.get_tool_names()
+    from app.agents.factory import build_agent_from_config
 
-    from app.tools import get_tools_by_names
-    resolved_tools = get_tools_by_names(skill_tools)
-
-    system_prompt = config.system_prompt or ""
-    if skill_prompts:
-        system_prompt += "\n\nAdditional knowledge:\n" + "\n---\n".join(skill_prompts)
-
-    agent_type = config.role.value if hasattr(config.role, "value") else config.role
-
-    variant_raw = getattr(config, "variant", None)
-    variant_value = variant_raw.value if hasattr(variant_raw, "value") else variant_raw
-
-    agent = create_agent(
-        agent_type=agent_type,
-        model=config.model,
-        provider=config.provider,
-        strategy=config.strategy.value if hasattr(config.strategy, "value") else (config.strategy or "direct"),
-        system_prompt=system_prompt,
-        tools=resolved_tools,
-        temperature=config.temperature,
-        max_tokens=config.max_tokens,
-        variant=variant_value,
+    agent, skill_tools = build_agent_from_config(
+        config, prompt_join_style="workflows"
     )
 
     task = stage_def["task_template"].format(input=context)
@@ -757,8 +733,10 @@ async def execute_workflow(
 
     paper_content_to_pass = context if req.include_full_paper and req.paper_id else None
 
+    logger.info(f"DEBUG: entering enqueue block for {execution_id}, paper_id={req.paper_id}, context length={len(context) if context else 0}")
     try:
         pool = await get_arq_pool()
+        logger.info(f"DEBUG: got pool {type(pool).__name__}")
         job = await pool.enqueue_job(
             "execute_workflow_task",
             execution_id=execution_id,
@@ -774,6 +752,11 @@ async def execute_workflow(
         )
         if job:
             logger.info(f"Workflow {execution_id} enqueued as ARQ job {job.job_id}")
+        else:
+            logger.error(f"Failed to enqueue workflow {execution_id}: enqueue_job returned None (WatchError)")
+            execution.status = "error"
+            await db.commit()
+            raise HTTPException(status_code=503, detail="Task queue unavailable: enqueue_job failed (WatchError)")
     except Exception as e:
         logger.error(f"Failed to enqueue workflow {execution_id}: {e}")
         execution.status = "error"

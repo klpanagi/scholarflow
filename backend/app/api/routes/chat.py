@@ -11,8 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import AsyncSessionLocal, get_db
+from app.core.deps import get_user
 from app.core.security import get_current_user
-from app.models import AgentConfig, ChatMessage, ChatSession, Paper, User, chat_session_assets_table
+from app.models import AgentConfig, ChatMessage, ChatSession, Paper, chat_session_assets_table
 from app.schemas import (
     ChatFileUploadResponse,
     ChatForkRequest,
@@ -22,18 +23,14 @@ from app.schemas import (
     ChatSessionResponse,
     ChatSessionUpdate,
 )
-from app.services.llm_service import get_available_models, get_available_embedding_models, PROVIDER_CONFIG
+from app.services.llm_service import (
+    get_available_embedding_models,
+    get_available_models,
+    stream_completion,
+)
 from app.services.minio_service import minio_service
 
 router = APIRouter()
-
-
-async def _get_user(user_id: str, db: AsyncSession) -> User:
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user
 
 
 @asynccontextmanager
@@ -42,59 +39,13 @@ async def _get_db_session():
         yield session
 
 
-async def _stream_completion(messages: list[dict], model: str, provider: str):
-    config = PROVIDER_CONFIG.get(provider)
-    if not config:
-        raise ValueError(f"Unknown provider: {provider}")
-
-    import httpx
-
-    base_url = config["base_url"]
-    api_key = config["api_key"]
-
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        async with client.stream(
-            "POST",
-            f"{base_url}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": model,
-                "messages": messages,
-                "stream": True,
-                "max_tokens": 4096,
-            },
-        ) as response:
-            if response.status_code != 200:
-                error_body = await response.aread()
-                raise RuntimeError(
-                    f"LLM API error {response.status_code}: {error_body.decode()}"
-                )
-            async for line in response.aiter_lines():
-                if not line.startswith("data: "):
-                    continue
-                data = line[6:]
-                if data.strip() == "[DONE]":
-                    return
-                try:
-                    obj = json.loads(data)
-                    delta = obj.get("choices", [{}])[0].get("delta", {})
-                    content = delta.get("content")
-                    if content:
-                        yield content
-                except json.JSONDecodeError:
-                    continue
-
-
 @router.post("/sessions", response_model=ChatSessionResponse)
 async def create_session(
     data: ChatSessionCreate,
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _get_user(user_id, db)
+    await get_user(user_id, db)
 
     # Validate the agent config is accessible (global or user's own)
     agent_result = await db.execute(
@@ -418,7 +369,7 @@ async def stream_chat(
                     yield f"data: {json.dumps({'type': 'token', 'content': chunk})}\n\n"
             else:
                 # D7 fallback: legacy session without agent -> generic LLM call
-                async for chunk in _stream_completion(messages, session.model, session.provider):
+                async for chunk in stream_completion(session.model, messages, provider=session.provider):
                     full_response += chunk
                     yield f"data: {json.dumps({'type': 'token', 'content': chunk})}\n\n"
         except Exception as e:
@@ -463,34 +414,10 @@ async def _stream_via_agent(
     session: ChatSession, messages: list[dict], user_text: str
 ):
     """Dispatch through the agent registry. Yields raw text chunks."""
-    from app.agents.factory import create_agent
-    from app.tools import get_tools_by_names
+    from app.agents.factory import build_agent_from_config
     from langchain_core.messages import HumanMessage, SystemMessage
 
-    agent_cfg = session.agent_config
-    skill_tools = agent_cfg.get_tool_names()
-    skill_prompts: list[str] = []
-    for sk in agent_cfg.skills:
-        if sk.prompt_template:
-            skill_prompts.append(sk.prompt_template)
-
-    system_prompt = agent_cfg.system_prompt
-    if skill_prompts:
-        system_prompt = "\n\n".join(filter(None, [system_prompt] + skill_prompts))
-
-    resolved_tools = get_tools_by_names(skill_tools) if skill_tools else []
-
-    agent = create_agent(
-        agent_type=agent_cfg.role.value,
-        model=agent_cfg.model,
-        provider=agent_cfg.provider,
-        strategy=agent_cfg.strategy.value if hasattr(agent_cfg.strategy, "value") else agent_cfg.strategy,
-        system_prompt=system_prompt,
-        tools=resolved_tools,
-        temperature=agent_cfg.temperature,
-        max_tokens=agent_cfg.max_tokens,
-        variant=agent_cfg.variant.value if hasattr(agent_cfg.variant, "value") else agent_cfg.variant,
-    )
+    agent, _ = build_agent_from_config(session.agent_config)
 
     lc_messages = []
     for m in messages:
