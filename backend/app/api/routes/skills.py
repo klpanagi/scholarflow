@@ -71,21 +71,24 @@ async def list_skills(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """List skills — global defaults (user_id IS NULL) merged with user's own overrides.
+
+    Returns global skills plus any user-specific overrides. User's own skill
+    wins over the global default of the same name.
+    """
     result = await db.execute(
-        select(Skill).where((Skill.user_id == user_id) | (Skill.is_public == True))
+        select(Skill).where(
+            (Skill.user_id.is_(None)) | (Skill.user_id == user_id)
+        )
     )
     skills = result.scalars().all()
-    # Deduplicate by name. Seed skills are copied per user with is_public=True,
-    # so the (user_id | is_public) query returns N copies of each seed. Prefer the
-    # current user's own skill so they always see their own editable version.
-    # Cast the column to str for type checkers that don't follow SQLAlchemy's
-    # descriptor protocol. At runtime skill.name is already a str.
     user_id_str = str(user_id)
     by_name: dict[str, Skill] = {}
     for skill in skills:
         name: str = str(skill.name)
         existing = by_name.get(name)
-        if existing is None or (str(existing.user_id) != user_id_str and str(skill.user_id) == user_id_str):
+        skill_user_id = str(skill.user_id) if skill.user_id else None
+        if existing is None or (skill_user_id == user_id_str and str(existing.user_id) != user_id_str):
             by_name[name] = skill
     return list(by_name.values())
 

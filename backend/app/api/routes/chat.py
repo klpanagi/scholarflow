@@ -96,11 +96,11 @@ async def create_session(
 ):
     await _get_user(user_id, db)
 
-    # Validate the agent belongs to the user (G1)
+    # Validate the agent config is accessible (global or user's own)
     agent_result = await db.execute(
         select(AgentConfig).where(
             AgentConfig.id == data.agent_config_id,
-            AgentConfig.user_id == user_id,
+            (AgentConfig.user_id.is_(None)) | (AgentConfig.user_id == user_id),
         )
     )
     agent = agent_result.scalar_one_or_none()
@@ -247,7 +247,7 @@ async def update_session(
         agent_result = await db.execute(
             select(AgentConfig).where(
                 AgentConfig.id == data.agent_config_id,
-                AgentConfig.user_id == user_id,
+                (AgentConfig.user_id.is_(None)) | (AgentConfig.user_id == user_id),
             )
         )
         agent = agent_result.scalar_one_or_none()

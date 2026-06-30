@@ -20,107 +20,6 @@ from app.seeds.scholarflow_skills import seed_scholarflow, _AGENT_SEEDS, _SKILL_
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
-# Default agent config definitions — used for diff-based seeding
-_DEFAULT_AGENT_CONFIGS: list[dict] = [
-    {
-        "name": "Default Researcher",
-        "role": AgentRole.RESEARCHER,
-        "provider": "openrouter",
-        "model": "google/gemma-4-31b-it:free",
-        "strategy": Strategy.DIRECT,
-        "system_prompt": "You are an expert academic researcher. You find literature, verify novelty, and extract insights.",
-    },
-    {
-        "name": "Default Writer",
-        "role": AgentRole.WRITER,
-        "provider": "openrouter",
-        "model": "google/gemma-4-31b-it:free",
-        "strategy": Strategy.DIRECT,
-        "system_prompt": "You are an expert academic writer. You write clear, well-structured scientific prose following IMRaD and grant proposal standards.",
-    },
-    {
-        "name": "Default Reviewer",
-        "role": AgentRole.REVIEWER,
-        "provider": "openrouter",
-        "model": "google/gemma-4-31b-it:free",
-        "strategy": Strategy.CRITIQUE,
-        "system_prompt": "You are a rigorous peer reviewer. You critique papers for novelty, soundness, and presentation.",
-    },
-    {
-        "name": "Default Recommender",
-        "role": AgentRole.RECOMMENDER,
-        "provider": "openrouter",
-        "model": "google/gemma-4-31b-it:free",
-        "strategy": Strategy.DIRECT,
-        "system_prompt": "You are a personalized academic recommendation engine. You suggest relevant papers and venues.",
-    },
-    {
-        "name": "Default Review Writer",
-        "role": AgentRole.WRITER,
-        "provider": "openrouter",
-        "model": "google/gemma-4-31b-it:free",
-        "strategy": Strategy.CRITIQUE,
-        "system_prompt": (
-            "You are a Paper Review Writer. You transform the prior peer review stages "
-            "(SearchAgent's literature search, the reviewer's evaluation, the debate moderator's "
-            "synthesis) into TWO polished, editorial-manager-ready documents in a single response: "
-            "a public Response to Authors (uploaded to the journal's public review field) and a "
-            "confidential Response to Editor (uploaded to the journal's confidential comments field). "
-            "You follow the conventions of the `response-to-author` and `response-to-editor` skills "
-            "loaded into your context.\n"
-            "\n"
-            "Before you finalize your response, internally verify that it satisfies ALL of the "
-            "following criteria — your output is rejected by downstream validation if any of these "
-            "fail:\n"
-            "\n"
-            "1. **Tone** — public-facing review is professional/respectful/constructive; "
-            "editor-facing is direct/candid.\n"
-            "2. **Section completeness** — both `## Response to Authors` and `## Response to "
-            "Editor` sections are present, with the required subsections per the two skills "
-            "(Metadata, Summary, Major/Minor Comments, Recommendation for Authors; Metadata, "
-            "Summary of Contribution, Key Strengths/Concerns, Recommendation for Editor).\n"
-            "3. **Recommendation consistency** — the Decision in Metadata matches EXACTLY the "
-            "Decision in the Recommendation block of Response to Authors, and the Recommendation "
-            "matches between Metadata and section 4 of Response to Editor.\n"
-            "4. **No-fabrication rule** — every cited paper appears in the prior stage outputs. "
-            "You do not invent references.\n"
-            "5. **Bracket identifiers** — every numbered comment uses [C1], [C2], ... with "
-            "numbering restarting in the Minor Comments section of Response to Authors.\n"
-            "6. **Blocking/non-blocking flags** — every concern in Response to Editor's Key "
-            "Concerns section ends with `(blocking)` or `(non-blocking)`.\n"
-            "\n"
-            "You never fabricate citations. You always produce BOTH documents in a single response "
-            "with clear `## Response to Authors` and `## Response to Editor` H2 headings "
-            "(case-sensitive) so the output can be split or rendered and downstream validation can "
-            "confirm both sections exist."
-        ),
-    },
-    {
-        "name": "Default Debater",
-        "role": AgentRole.DEBATER,
-        "provider": "openrouter",
-        "model": "google/gemma-4-31b-it:free",
-        "strategy": Strategy.CRITIQUE,
-        "system_prompt": "You are a structured debate moderator for academic peer review. You defend the paper against the reviewer's criticisms, evaluate each defense on merits and evidence, and produce a balanced synthesis with a final recommendation. You cite specific claims and counter-claims from the review, the author's defense, and the broader literature. You never invent evidence; you always flag uncertainty explicitly.",
-    },
-    {
-        "name": "Default Deep Reviewer",
-        "role": AgentRole.DEEP_REVIEWER,
-        "provider": "openrouter",
-        "model": "google/gemma-4-31b-it:free",
-        "strategy": Strategy.CRITIQUE,
-        "system_prompt": "You are a deep paper reviewer executing a 7-stage pipeline: intake, structural analysis, claims extraction, literature grounding, methodology, adversarial red team, and synthesis. You identify novelty, soundness, and presentation issues with severity ratings. You cite specific sections, equations, and figures. You never fabricate references; you always flag when a claim is unsupported.",
-    },
-    {
-        "name": "Default Analyzer",
-        "role": AgentRole.ANALYZER,
-        "provider": "openrouter",
-        "model": "google/gemma-4-31b-it:free",
-        "strategy": Strategy.DIRECT,
-        "system_prompt": "You are an academic paper analyzer. You produce structured assessments of academic documents including summary, key findings, methodology, contributions, limitations, strengths, weaknesses, and quality scores.",
-    },
-]
-
 
 async def _get_user(user_id: str, db: AsyncSession) -> User:
     result = await db.execute(select(User).where(User.id == user_id))
@@ -163,7 +62,7 @@ async def run_agent(
             .options(selectinload(AgentConfig.skills))
             .where(
                 AgentConfig.id == request.agent_config_id,
-                AgentConfig.user_id == current_user.id,
+                (AgentConfig.user_id.is_(None)) | (AgentConfig.user_id == current_user.id),
             )
         )
         config = result.scalar_one_or_none()
@@ -263,157 +162,37 @@ async def list_agent_configs(
     db: AsyncSession = Depends(get_db),
 ):
     current_user = await _get_user(user_id, db)
+
+    # Ensure global defaults exist (idempotent) — runs once on first call ever
+    global_configs_result = await db.execute(
+        select(AgentConfig)
+        .options(selectinload(AgentConfig.skills))
+        .where(AgentConfig.user_id.is_(None))
+    )
+    global_configs = list(global_configs_result.scalars().all())
+    if not global_configs:
+        await seed_scholarflow(db)
+
+    # Query global + user configs, merge by name (user override wins)
     result = await db.execute(
         select(AgentConfig)
         .options(selectinload(AgentConfig.skills))
-        .where(AgentConfig.user_id == current_user.id)
-    )
-    configs = result.scalars().all()
-
-    # First login: full ScholarFlow seed (skills + configs)
-    if len(configs) == 0:
-        seeded_configs = await seed_scholarflow(db, str(current_user.id))
-        # Also create bare defaults for any roles not covered by seeds
-        seeded_roles = {c.role for c in seeded_configs}
-        for default_def in _DEFAULT_AGENT_CONFIGS:
-            if default_def["role"] not in seeded_roles:
-                config = AgentConfig(
-                    user_id=current_user.id,
-                    name=default_def["name"],
-                    role=default_def["role"],
-                    provider=default_def["provider"],
-                    model=default_def["model"],
-                    strategy=default_def["strategy"],
-                    system_prompt=default_def["system_prompt"],
-                    is_default=True,
-                )
-                db.add(config)
-                seeded_configs.append(config)
-        await db.commit()
-        for c in seeded_configs:
-            await db.refresh(c)
-        return seeded_configs
-
-    # Subsequent visits: diff-based bare defaults for missing roles
-    existing_roles = _get_existing_roles(configs)
-    created = []
-    for default_def in _DEFAULT_AGENT_CONFIGS:
-        if default_def["role"] not in existing_roles:
-            config = AgentConfig(
-                user_id=current_user.id,
-                name=default_def["name"],
-                role=default_def["role"],
-                provider=default_def["provider"],
-                model=default_def["model"],
-                strategy=default_def["strategy"],
-                system_prompt=default_def["system_prompt"],
-                is_default=True,
-            )
-            db.add(config)
-            created.append(config)
-
-    if created:
-        await db.commit()
-        for c in created:
-            await db.refresh(c)
-        configs = configs + created
-
-    # Also check _AGENT_SEEDS for newly added seed configs (post-first-login)
-    # This handles the case where new seeds are added via code deploy
-    # while users already have existing configs.
-    existing_config_names = {c.name for c in configs}
-    missing_seed_configs = [a for a in _AGENT_SEEDS if a["name"] not in existing_config_names]
-
-    if missing_seed_configs:
-        # Get existing skills for this user
-        existing_skill_result = await db.execute(
-            select(Skill.name).where(Skill.user_id == current_user.id)
+        .where(
+            (AgentConfig.user_id.is_(None)) | (AgentConfig.user_id == current_user.id)
         )
-        existing_skill_names = {row[0] for row in existing_skill_result.fetchall()}
+    )
+    all_configs = result.scalars().all()
 
-        # Build seed skill lookup
-        seed_skills_by_name = {s["name"]: s for s in _SKILL_SEEDS}
-        created_skills: dict[str, Skill] = {}
+    by_name: dict[str, AgentConfig] = {}
+    user_id_str = str(current_user.id)
+    for c in all_configs:
+        name = str(c.name)
+        existing = by_name.get(name)
+        c_user_id = str(c.user_id) if c.user_id else None
+        if existing is None or (c_user_id == user_id_str and str(existing.user_id) != user_id_str):
+            by_name[name] = c
 
-        # Create any missing skills referenced by missing seed configs
-        for agent_def in missing_seed_configs:
-            for skill_name in agent_def["skill_names"]:
-                if skill_name in existing_skill_names or skill_name in created_skills:
-                    continue
-                skill_def = seed_skills_by_name.get(skill_name)
-                if not skill_def:
-                    continue
-                skill = Skill(
-                    user_id=current_user.id,
-                    name=skill_def["name"],
-                    description=skill_def["description"],
-                    prompt_template=skill_def["prompt_template"],
-                    builtin_tools=skill_def["builtin_tools"],
-                    custom_tools=[],
-                    tags=skill_def["tags"],
-                    is_public=skill_def["is_public"],
-                )
-                db.add(skill)
-                created_skills[skill_name] = skill
-
-        if created_skills:
-            await db.flush()
-
-        # Fetch pre-existing skills referenced by seed configs
-        all_needed_skill_names = set()
-        for agent_def in missing_seed_configs:
-            all_needed_skill_names.update(agent_def["skill_names"])
-        if all_needed_skill_names:
-            existing_needed = await db.execute(
-                select(Skill).where(
-                    Skill.user_id == current_user.id,
-                    Skill.name.in_(list(all_needed_skill_names)),
-                )
-            )
-            for skill in existing_needed.scalars().all():
-                if skill.name not in created_skills:
-                    created_skills[str(skill.name)] = skill
-
-        # Create missing seed agent configs
-        seed_configs_created = []
-        for agent_def in missing_seed_configs:
-            config = AgentConfig(
-                user_id=current_user.id,
-                name=agent_def["name"],
-                role=agent_def["role"],
-                provider=agent_def["provider"],
-                model=agent_def["model"],
-                strategy=agent_def["strategy"],
-                variant=agent_def.get("variant"),
-                system_prompt=agent_def["system_prompt"],
-                temperature=0.7,
-                max_tokens=4096,
-                tools=[],
-                is_default=False,
-            )
-            db.add(config)
-            await db.flush()
-
-            # Associate skills via raw table
-            for skill_name in agent_def["skill_names"]:
-                skill = created_skills.get(skill_name)
-                if skill:
-                    await db.execute(
-                        agent_skills_table.insert().values(
-                            agent_config_id=config.id,
-                            skill_id=skill.id,
-                        )
-                    )
-
-            seed_configs_created.append(config)
-
-        if seed_configs_created:
-            await db.commit()
-            for c in seed_configs_created:
-                await db.refresh(c)
-            configs = configs + seed_configs_created
-
-    return configs
+    return list(by_name.values())
 
 
 @router.get("/configs/{config_id}", response_model=AgentConfigResponse)
@@ -428,7 +207,7 @@ async def get_agent_config(
         .options(selectinload(AgentConfig.skills))
         .where(
             AgentConfig.id == config_id,
-            AgentConfig.user_id == current_user.id,
+            (AgentConfig.user_id.is_(None)) | (AgentConfig.user_id == current_user.id),
         )
     )
     config = result.scalar_one_or_none()

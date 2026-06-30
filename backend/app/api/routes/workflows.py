@@ -256,8 +256,8 @@ async def _get_user_config_by_id(db: AsyncSession, user_id: str, config_id: UUID
         select(AgentConfig)
         .options(selectinload(AgentConfig.skills))
         .where(
-            AgentConfig.user_id == user_id,
             AgentConfig.id == config_id,
+            (AgentConfig.user_id.is_(None)) | (AgentConfig.user_id == user_id),
         )
     )
     return result.scalar_one_or_none()
@@ -669,79 +669,7 @@ def _build_stage_context(
 
 
 async def _ensure_review_writer_config(db: AsyncSession, user_id: str) -> None:
-    """Ensure a Review Writer AgentConfig exists for this user.
-
-    Existing users created before the Review Writer seed was added may be
-    missing this config. Creates it on-demand without requiring re-login.
-    """
-    from uuid import UUID
-    from sqlalchemy import select
-    from app.models import AgentConfig, AgentRole, Skill
-    from app.seeds.scholarflow_skills import _AGENT_SEEDS
-
-    # 1. Convert user_id to UUID if needed
-    user_id_uuid = UUID(user_id) if isinstance(user_id, str) else user_id
-
-    # 2. Check if config already exists — short-circuit
-    result = await db.execute(
-        select(AgentConfig).where(
-            AgentConfig.user_id == user_id_uuid,
-            AgentConfig.role == AgentRole.WRITER,
-            AgentConfig.name == "Review Writer",
-            AgentConfig.name == "Review Writer",
-        )
-    )
-    if result.scalar_one_or_none():
-        return
-
-    # 3. Find the Review Writer seed entry
-    seed = None
-    for s in _AGENT_SEEDS:
-        if s["name"] == "Review Writer":
-            seed = s
-            break
-    if not seed:
-        return  # safety: seed not found, nothing to create
-
-    # 4. Look up the required skills for this user
-    result = await db.execute(
-        select(Skill).where(
-            Skill.user_id == user_id_uuid,
-            Skill.name.in_(seed["skill_names"]),
-        )
-    )
-    skills = {s.name: s for s in result.scalars().all()}
-    if any(n not in skills for n in seed["skill_names"]):
-        return  # safety: skills missing, user must re-login to trigger seed
-
-    # 5. Create the AgentConfig
-    config = AgentConfig(
-        user_id=user_id_uuid,
-        name=seed["name"],
-        role=seed["role"],
-        provider=seed["provider"],
-        model=seed["model"],
-        strategy=seed["strategy"],
-        system_prompt=seed["system_prompt"],
-        temperature=0.7,
-        max_tokens=4096,
-        tools=[],
-        is_default=False,
-    )
-    db.add(config)
-    await db.flush()  # get config.id
-
-    # 6. Associate skills via the M2M table
-    for skill_name in seed["skill_names"]:
-        skill = skills[skill_name]
-        await db.execute(
-            agent_skills_table.insert().values(
-                agent_config_id=config.id,
-                skill_id=skill.id,
-            )
-        )
-
-    await db.commit()
+    """No-op with global defaults: Review Writer is always seeded globally."""
 
 
 @router.post("/execute")
