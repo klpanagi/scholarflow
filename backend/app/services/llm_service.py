@@ -276,9 +276,35 @@ async def get_available_models() -> dict[str, list[str]]:
     return result
 
 
+async def _fetch_embedding_models_openrouter() -> list[str]:
+    config = _get_provider_config("openrouter")
+    api_key = config["api_key"]
+    if not api_key:
+        return []
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                "https://openrouter.ai/api/v1/embeddings/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            models = data.get("data", [])
+            return sorted([m["id"] for m in models if "id" in m])
+    except Exception:
+        return []
+
+
 async def get_available_embedding_models() -> dict[str, list[str]]:
     result: dict[str, list[str]] = {}
+
+    or_models = await _fetch_embedding_models_openrouter()
+    if or_models:
+        result["openrouter"] = or_models
+
     for provider in PROVIDER_CONFIG:
+        if provider == "openrouter":
+            continue
         all_models = await _fetch_models_from_provider(provider)
         embedding = [m for m in all_models if "embedding" in m.lower()]
         if embedding:
