@@ -4,6 +4,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
@@ -317,3 +318,115 @@ async def delete_asset(
 
     await db.delete(asset)
     await db.commit()
+
+
+@router.post("/{asset_id}/reprocess", response_model=PaperResponse)
+async def reprocess_asset(
+    asset_id: UUID,
+    user_id: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    current_user = await _get_user(user_id, db)
+    result = await db.execute(
+        select(Paper).where(Paper.id == asset_id, Paper.owner_id == current_user.id)
+    )
+    asset = result.scalar_one_or_none()
+    if not asset:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
+
+    err = await _reprocess_single_asset(asset, current_user, db)
+    if err:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=err)
+
+    return asset
+
+
+class ReprocessBatchRequest(BaseModel):
+    asset_ids: list[str]
+
+
+async def _reprocess_single_asset(
+    asset: Paper, current_user: User, db: AsyncSession
+) -> str | None:
+    chunks_result = await db.execute(
+        select(PaperChunk).where(PaperChunk.paper_id == asset.id)
+    )
+    for chunk in chunks_result.scalars().all():
+        try:
+            await search_service.delete_document("assets", f"{asset.id}_{chunk.chunk_index}")
+        except Exception:
+            pass
+        await db.delete(chunk)
+    await db.commit()
+
+    try:
+        file_data = await minio_service.download_file(asset.minio_key)
+    except Exception as e:
+        logger.warning(f"PDF not found for asset {asset.id}: {e}")
+        return f"PDF not found: {e}"
+
+    extracted = await pdf_service.extract_text(file_data)
+    del file_data
+
+    asset.processing_status = "processing"
+    asset.embedding = None
+    asset.es_doc_id = None
+    await db.commit()
+
+    try:
+        pool = await get_arq_pool()
+        job = await pool.enqueue_job(
+            "process_asset_task",
+            asset_id=str(asset.id),
+            owner_id=str(current_user.id),
+            title=asset.title,
+            abstract=asset.abstract,
+            doc_type=asset.doc_type,
+            full_text=extracted.full_text,
+            sections=extracted.sections or [],
+            references=extracted.references or [],
+        )
+        if job:
+            logger.info(f"Asset {asset.id} re-enqueued as ARQ job {job.job_id}")
+    except Exception as e:
+        logger.error(f"Failed to enqueue reprocessing for {asset.id}: {e}")
+        asset.processing_status = "failed"
+        await db.commit()
+        return str(e)
+
+    return None
+
+
+@router.post("/reprocess-batch")
+async def reprocess_batch(
+    body: ReprocessBatchRequest,
+    user_id: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    current_user = await _get_user(user_id, db)
+    asset_ids = [UUID(aid) for aid in body.asset_ids]
+
+    result = await db.execute(
+        select(Paper).where(
+            Paper.id.in_(asset_ids), Paper.owner_id == current_user.id
+        )
+    )
+    assets = result.scalars().all()
+
+    if not assets:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No matching assets found")
+
+    enqueued = 0
+    errors: list[str] = []
+    for asset in assets:
+        err = await _reprocess_single_asset(asset, current_user, db)
+        if err:
+            errors.append(f"{asset.title}: {err}")
+        else:
+            enqueued += 1
+
+    return {
+        "enqueued": enqueued,
+        "total": len(assets),
+        "errors": errors,
+    }
