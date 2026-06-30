@@ -175,10 +175,7 @@ class BaseAgent(ABC):
         )
         config: RunnableConfig = {"configurable": {"thread_id": thread_id or "default"}}
 
-        # Lazy import — the cancel flags singleton lives in the workflows
-        # route module, which depends on FastAPI. We don't want to import
-        # that at agent module load time.
-        from app.api.routes.workflows import _cancel_flags
+        from app.tasks.cancel import is_cancelled
 
         # ------------------------------------------------------------------
         # Phase 1: Graph streaming with astream_events
@@ -202,7 +199,7 @@ class BaseAgent(ABC):
             # cancel request that arrives mid-stream interrupts the loop
             # at the next event boundary (per the "no cancellation inside
             # the strategy loop" rule in the task spec).
-            if execution_id is not None and _cancel_flags.get(str(execution_id), False):
+            if await is_cancelled(str(execution_id) if execution_id is not None else None):
                 break
 
             if progress_manager is not None and execution_id is not None:
@@ -299,10 +296,7 @@ class BaseAgent(ABC):
         # stream's cancel check already stopped further graph events, and
         # running the strategy would publish STRATEGY_ITERATION events for
         # an already-cancelled execution.
-        cancelled = (
-            execution_id is not None
-            and _cancel_flags.get(str(execution_id), False)
-        )
+        cancelled = await is_cancelled(str(execution_id) if execution_id is not None else None)
         if not cancelled and not final_state.get("output") and self.strategy is not None:
             graph_messages = list(final_state.get("messages", []))
             async for sev in self.strategy.execute(

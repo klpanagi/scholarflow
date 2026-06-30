@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +19,8 @@ import io
 
 from app.core.database import get_db, AsyncSessionLocal
 from app.core.security import get_current_user
+from app.core.arq import get_arq_pool
+from app.tasks.cancel import set_cancel
 from app.api.deps import get_current_user_from_query
 from app.models import AgentConfig, Paper, PaperChunk, AgentRole, WorkflowExecution, RevisionSession, RevisionMessage, agent_skills_table
 from app.agents.factory import create_agent
@@ -47,8 +49,6 @@ TERMINAL_EXECUTION_STATUSES = frozenset(
     {"completed", "failed", "cancelled", "error", "partial", "cancelling"}
 )
 
-# In-memory cancel flags — key = str(execution_id), value = True if cancelled
-_cancel_flags: dict[str, bool] = {}
 
 logger = logging.getLogger(__name__)
 
@@ -747,7 +747,6 @@ async def _ensure_review_writer_config(db: AsyncSession, user_id: str) -> None:
 @router.post("/execute")
 async def execute_workflow(
     req: WorkflowExecuteRequest,
-    background_tasks: BackgroundTasks,
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -827,23 +826,31 @@ async def execute_workflow(
     await db.refresh(execution)
 
     execution_id = str(execution.id)
-    _cancel_flags[execution_id] = False
 
     paper_content_to_pass = context if req.include_full_paper and req.paper_id else None
 
-    background_tasks.add_task(
-        _run_workflow_background,
-        execution_id=execution_id,
-        user_id=user_id,
-        workflow_id=req.workflow_id,
-        original_context=context,
-        pdf_bytes=pdf_bytes,
-        paper_s2_id=paper_s2_id,
-        topic_query=topic_query,
-        agent_assignments={k: str(v) for k, v in req.agent_assignments.items()},
-        paper_content=paper_content_to_pass,
-        rubric_standard=req.rubric_standard,
-    )
+    try:
+        pool = await get_arq_pool()
+        job = await pool.enqueue_job(
+            "execute_workflow_task",
+            execution_id=execution_id,
+            user_id=str(user_id),
+            workflow_id=req.workflow_id,
+            original_context=context,
+            pdf_bytes=pdf_bytes,
+            paper_s2_id=paper_s2_id,
+            topic_query=topic_query,
+            agent_assignments={k: str(v) for k, v in req.agent_assignments.items()},
+            paper_content=paper_content_to_pass,
+            rubric_standard=req.rubric_standard,
+        )
+        if job:
+            logger.info(f"Workflow {execution_id} enqueued as ARQ job {job.job_id}")
+    except Exception as e:
+        logger.error(f"Failed to enqueue workflow {execution_id}: {e}")
+        execution.status = "error"
+        await db.commit()
+        raise HTTPException(status_code=503, detail=f"Task queue unavailable: {e}")
 
     return WorkflowStartResponse(
         execution_id=execution.id,
@@ -851,274 +858,6 @@ async def execute_workflow(
         workflow_id=req.workflow_id,
         workflow_name=workflow["name"],
     )
-
-
-async def _run_workflow_background(
-    execution_id: str,
-    user_id: str,
-    workflow_id: str,
-    original_context: str,
-    pdf_bytes: Optional[bytes],
-    paper_s2_id: Optional[str],
-    topic_query: Optional[str],
-    agent_assignments: dict[str, str],
-    paper_content: Optional[str] = None,
-    rubric_standard: str = "general",
-):
-    workflow = WORKFLOW_DEFINITIONS[workflow_id]
-    start_time = time.time()
-
-    progress_manager = get_progress_manager()
-    exec_uuid = UUID(execution_id) if not isinstance(execution_id, UUID) else execution_id
-    await progress_manager.create_execution(exec_uuid)
-
-    try:
-        async with AsyncSessionLocal() as db:
-            print(
-                f"[_run_workflow_background] paper_content={len(paper_content) if paper_content else 0} chars, "
-                f"include_full_paper effective={paper_content is not None}",
-                flush=True,
-            )
-            stage_results = []
-            prior_findings = []
-            current_dossier = None
-
-            # Programmatic GROBID extraction — done once, shared with all stages.
-            grobid_dict: dict = {}
-            if pdf_bytes:
-                try:
-                    grobid_result = await pdf_service.grobid_extract(pdf_bytes)
-                    grobid_dict = grobid_result.to_dict()
-                    logger.info(
-                        "Workflow GROBID extraction: source=%s title=%r refs=%d",
-                        grobid_result.source,
-                        grobid_result.title,
-                        len(grobid_result.references),
-                    )
-                except Exception as exc:
-                    logger.warning("Workflow GROBID extraction failed: %s", exc)
-
-
-            for i, stage_def in enumerate(workflow["stages"]):
-                if _cancel_flags.get(execution_id, False):
-                    for r in stage_results:
-                        if r.get("status") == "pending":
-                            r["status"] = "cancelled"
-                            r["output"] = "Cancelled by user."
-                    stage_results.append({
-                        "agent_role": stage_def["role"],
-                        "agent_name": "",
-                        "status": "cancelled",
-                        "output": "Workflow cancelled by user.",
-                        "metadata": {},
-                    })
-                    # Publish terminal event for cancellation. Breaks the
-                    # loop, so no further stage events are emitted.
-                    await progress_manager.complete_execution(exec_uuid, "cancelled")
-                    break
-
-                stage_id = stage_def.get("id")
-                config_id_str = agent_assignments.get(stage_id)
-                if not config_id_str:
-                    stage_results.append({
-                        "agent_role": stage_def["role"],
-                        "agent_name": "",
-                        "status": "error",
-                        "output": f"Missing agent assignment for stage: {stage_id}",
-                        "metadata": {},
-                    })
-                    continue
-
-                await progress_manager.publish(
-                    exec_uuid,
-                    ExecutionEvent(
-                        event_id=await _next_progress_event_id(progress_manager, exec_uuid),
-                        execution_id=exec_uuid,
-                        event_type=EventType.STAGE_STARTED,
-                        timestamp=datetime.now(timezone.utc),
-                        data={
-                            "stage_id": stage_id or f"stage-{i}",
-                            "stage_index": i,
-                            "agent_role": stage_def.get("role", ""),
-                            "agent_name": stage_def.get("agent", ""),
-                        },
-                    ),
-                )
-
-                result = await db.execute(
-                    select(WorkflowExecution).where(WorkflowExecution.id == execution_id)
-                )
-                execution = result.scalar_one_or_none()
-                if execution:
-                    stages_copy = list(execution.stages) if execution.stages else []
-                    while len(stages_copy) <= i:
-                        stages_copy.append({
-                            "agent_role": stage_def["role"],
-                            "agent_name": "",
-                            "status": "pending",
-                            "output": "",
-                            "metadata": {},
-                        })
-                    stages_copy[i] = {
-                        "agent_role": stage_def["role"],
-                        "agent_name": "",
-                        "status": "running",
-                        "output": "",
-                        "metadata": {},
-                    }
-                    execution.stages = stages_copy
-                    await db.commit()
-
-                stage_config = await _get_user_config_by_id(db, user_id, UUID(config_id_str))
-                stage_context = _build_stage_context(
-                    original_context,
-                    prior_findings,
-                    model=str(stage_config.model) if stage_config else None,
-                    output_tokens=stage_config.max_tokens if stage_config else 4096,
-                    has_separate_paper_content=bool(paper_content),
-                )
-
-                stage_start = time.monotonic()
-                try:
-                    result = await _run_stage(
-                        db, user_id, stage_def, stage_context, UUID(config_id_str),
-                        pdf_bytes=pdf_bytes, paper_s2_id=paper_s2_id, topic_query=topic_query,
-                        paper_content=paper_content, rubric_standard=rubric_standard,
-                        research_dossier=current_dossier,
-                        grobid_dict=grobid_dict,
-                        progress_manager=progress_manager,
-                        execution_id=exec_uuid,
-                    )
-                except Exception as stage_exc:
-                    # Publish STAGE_COMPLETED with status="failed" so
-                    # the SSE stream sees a clean terminal for this
-                    # stage, then re-raise so the outer handler records
-                    # EXECUTION_FAILED for the workflow.
-                    duration_ms = int((time.monotonic() - stage_start) * 1000)
-                    await progress_manager.publish(
-                        exec_uuid,
-                        ExecutionEvent(
-                            event_id=await _next_progress_event_id(progress_manager, exec_uuid),
-                            execution_id=exec_uuid,
-                            event_type=EventType.STAGE_COMPLETED,
-                            timestamp=datetime.now(timezone.utc),
-                            data={
-                                "stage_id": stage_id or f"stage-{i}",
-                                "stage_index": i,
-                                "status": "failed",
-                                "duration_ms": duration_ms,
-                                "error": f"{type(stage_exc).__name__}: {str(stage_exc)[:200]}",
-                            },
-                        ),
-                    )
-                    raise
-
-                stage_duration_ms = int((time.monotonic() - stage_start) * 1000)
-                stage_status = result.get("status", "completed")
-                stage_usage = result.get("metadata", {}).get("usage", {})
-                # Publish STAGE_COMPLETED with the result status, the
-                # wall-clock duration, and the token usage payload
-                # (never the output content — see Task 2 design notes).
-                await progress_manager.publish(
-                    exec_uuid,
-                    ExecutionEvent(
-                        event_id=await _next_progress_event_id(progress_manager, exec_uuid),
-                        execution_id=exec_uuid,
-                        event_type=EventType.STAGE_COMPLETED,
-                        timestamp=datetime.now(timezone.utc),
-                        data={
-                            "stage_id": stage_id or f"stage-{i}",
-                            "stage_index": i,
-                            "status": stage_status,
-                            "duration_ms": stage_duration_ms,
-                            "usage": stage_usage,
-                            "agent_role": result.get("agent_role", stage_def.get("role", "")),
-                            "agent_name": result.get("agent_name", ""),
-                        },
-                    ),
-                )
-                # Extract dossier for next stage before converting to JSON-safe
-                current_dossier = result.get("research_dossier") or current_dossier
-                # Convert result to JSON-safe for DB storage (ResearchDossier is not serializable)
-                result_for_stages = result.copy()
-                if hasattr(result_for_stages.get("research_dossier"), "model_dump"):
-                    result_for_stages["research_dossier"] = result_for_stages["research_dossier"].model_dump(mode="json")
-                stage_results.append(result_for_stages)
-                prev_output = result.get("output", "")
-                if prev_output:
-                    prior_findings.append({
-                        "stage": stage_def.get("id", f"stage-{i}"),
-                        "role": stage_def["role"],
-                        "agent_name": result.get("agent_name", ""),
-                        "output": prev_output,
-                    })
-
-                result_update = await db.execute(
-                    select(WorkflowExecution).where(WorkflowExecution.id == execution_id)
-                )
-                exec_to_update = result_update.scalar_one_or_none()
-                if exec_to_update:
-                    stages_copy = list(exec_to_update.stages) if exec_to_update.stages else []
-                    while len(stages_copy) <= i:
-                        stages_copy.append(result_for_stages)
-                    stages_copy[i] = result_for_stages
-                    exec_to_update.stages = stages_copy
-                    await db.commit()
-
-                if i < len(workflow["stages"]) - 1:
-                    await asyncio.sleep(STAGE_DELAY_SECONDS)
-
-            duration = time.time() - start_time
-            overall_status = "completed"
-            if _cancel_flags.get(execution_id, False):
-                overall_status = "cancelled"
-            else:
-                for s in stage_results:
-                    if s.get("status") in ("timeout", "error"):
-                        overall_status = "partial"
-                        break
-
-            total_input = sum(s.get("metadata", {}).get("usage", {}).get("input_tokens", 0) for s in stage_results)
-            total_output = sum(s.get("metadata", {}).get("usage", {}).get("output_tokens", 0) for s in stage_results)
-            total_tokens = sum(s.get("metadata", {}).get("usage", {}).get("total_tokens", 0) for s in stage_results)
-            total_cost = sum(s.get("metadata", {}).get("usage", {}).get("cost_usd", 0.0) for s in stage_results)
-
-            final_result = await db.execute(
-                select(WorkflowExecution).where(WorkflowExecution.id == execution_id)
-            )
-            final_exec = final_result.scalar_one_or_none()
-            if final_exec:
-                final_exec.stages = stage_results
-                final_exec.status = overall_status
-                final_exec.duration_seconds = round(duration, 2)
-                await db.commit()
-
-            logger.info(f"Workflow {workflow_id} [{execution_id}] finished: {overall_status} ({duration:.1f}s) | tokens: {total_input}+{total_output}={total_tokens} | cost: ${total_cost:.6f}")
-
-            # Cancellation already published its terminal event at the break site.
-            if overall_status != "cancelled":
-                await progress_manager.complete_execution(exec_uuid, "completed")
-
-    except Exception as e:
-        logger.error(f"Background workflow {execution_id} failed: {e}")
-        try:
-            await progress_manager.complete_execution(exec_uuid, "failed")
-        except Exception:
-            logger.error(f"Failed to publish EXECUTION_FAILED for {execution_id}")
-        try:
-            async with AsyncSessionLocal() as db:
-                result = await db.execute(
-                    select(WorkflowExecution).where(WorkflowExecution.id == execution_id)
-                )
-                exec_obj = result.scalar_one_or_none()
-                if exec_obj:
-                    exec_obj.status = "error"
-                    exec_obj.duration_seconds = round(time.time() - start_time, 2)
-                    await db.commit()
-        except Exception:
-            logger.error(f"Failed to update error status for {execution_id}")
-    finally:
-        _cancel_flags.pop(execution_id, None)
 
 
 @router.get("/")
@@ -1223,7 +962,7 @@ async def cancel_workflow(
             detail=f"Cannot cancel execution with status '{execution.status}'",
         )
 
-    _cancel_flags[str(execution_id)] = True
+    await set_cancel(str(execution_id))
     execution.status = "cancelling"
     await db.commit()
 
@@ -1309,7 +1048,17 @@ async def stream_workflow_progress(
             finally:
                 relay_done.set()
 
+        async def relay_redis_events() -> None:
+            try:
+                async for ev in progress_manager.subscribe_redis(execution_id):
+                    await local_queue.put(ev)
+                    if ev.event_type in terminal_types:
+                        return
+            except Exception:
+                pass
+
         relay_task = asyncio.create_task(relay_events())
+        redis_task = asyncio.create_task(relay_redis_events())
         try:
             while True:
                 try:
@@ -1325,8 +1074,10 @@ async def stream_workflow_progress(
                     break
         finally:
             relay_task.cancel()
+            redis_task.cancel()
             try:
                 await relay_task
+                await redis_task
             except (asyncio.CancelledError, Exception):
                 pass
 

@@ -311,6 +311,35 @@ class ProgressManager:
                     if not current:
                         self._subscribers.pop(key, None)
 
+    async def subscribe_redis(
+        self,
+        execution_id: UUID | str,
+    ) -> AsyncIterator[ExecutionEvent]:
+        """Yield events from the Redis pub/sub channel for ``execution_id``.
+
+        Cross-process consumers use this to receive events published by
+        the ARQ worker.  The channel name matches the one used by
+        :meth:`_publish_to_redis`.
+        """
+        if self.redis is None:
+            return
+        channel = self._channel(execution_id)
+        pubsub = self.redis.pubsub()
+        try:
+            await pubsub.subscribe(channel)
+            async for raw in pubsub.listen():
+                if raw["type"] != "message":
+                    continue
+                try:
+                    yield ExecutionEvent.from_json(raw["data"])
+                except Exception:
+                    logger.debug(
+                        "Skipping unparseable Redis message on %s", channel
+                    )
+        finally:
+            await pubsub.unsubscribe(channel)
+            await pubsub.close()
+
     async def get_events(
         self,
         execution_id: UUID | str,
