@@ -19,6 +19,52 @@ services:
       - ./backend:/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
+  worker-asset:
+    build: ./backend
+    container_name: academic-pal-worker-asset
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    volumes:
+      - ./backend:/app
+    command: arq app.tasks.worker_settings.AssetWorkerSettings
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    restart: unless-stopped
+
+  worker-workflow:
+    build: ./backend
+    container_name: academic-pal-worker-workflow
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    volumes:
+      - ./backend:/app
+    command: arq app.tasks.worker_settings.WorkflowWorkerSettings
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    restart: unless-stopped
+
   frontend:
     build: ./frontend
     container_name: academic-pal-frontend

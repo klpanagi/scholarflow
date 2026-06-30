@@ -4,13 +4,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import router as api_router
+from app.core.arq import close_arq_pool, get_arq_pool
 from app.services.health_monitor import start_health_monitor, stop_health_monitor
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     start_health_monitor()
+    await get_arq_pool()
     yield
+    await close_arq_pool()
     stop_health_monitor()
 
 
