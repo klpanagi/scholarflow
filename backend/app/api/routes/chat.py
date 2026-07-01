@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import uuid
@@ -8,6 +9,7 @@ from io import BytesIO
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 logger = logging.getLogger(__name__)
+from typing import AsyncIterator
 from fastapi.responses import StreamingResponse
 from sqlalchemy import delete, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -386,10 +388,16 @@ async def stream_chat(
         try:
             if session.agent_config is not None:
                 try:
-                    # D4: ONE agent per chat, dispatched through the registry
-                    async for chunk in _stream_via_agent(session, messages, data.content):
-                        full_response += chunk
-                        yield f"data: {json.dumps({'type': 'token', 'content': chunk})}\n\n"
+                    agent_context = {
+                        "owner_id": user_id,
+                        "asset_ids": [str(a.id) for a in session.attached_assets],
+                    }
+                    async for event in _stream_agent_with_progress(session, messages, data.content, agent_context=agent_context):
+                        if event["type"] == "progress":
+                            yield f"data: {json.dumps({'type': 'progress', 'event_type': event['event_type'], 'data': event['data']})}\n\n"
+                        elif event["type"] == "token":
+                            full_response += event["content"]
+                            yield f"data: {json.dumps({'type': 'token', 'content': event['content']})}\n\n"
                 except Exception as agent_err:
                     # Agent dispatch failed (e.g. unknown role, missing registry entry).
                     # Fall back to generic LLM completion so the user gets a response.
@@ -487,8 +495,11 @@ def _abstracts_only(assets: list[Paper]) -> str:
 def _chunks_context(assets: list[Paper], chunks: list[PaperChunk], budget: int) -> str:
     """Format paper chunks into a single context string, truncating to budget."""
     paper_map = {str(a.id): a for a in assets}
+    allowed_ids = set(paper_map.keys())
     chunks_by_paper: dict[str, list[PaperChunk]] = {}
     for c in chunks:
+        if str(c.paper_id) not in allowed_ids:
+            continue
         chunks_by_paper.setdefault(str(c.paper_id), []).append(c)
 
     consumed = 0
@@ -545,16 +556,20 @@ async def _rag_context(assets: list[Paper], user_query: str, user_id: str, budge
         index=settings.ELASTICSEARCH_PAPERS_INDEX,
         limit=20,
         owner_filter=user_id,
+        asset_ids=[str(a.id) for a in assets],
         embedding=embedding,
     )
 
     snippets: list[str] = []
     seen = set()
     consumed = 0
+    allowed_ids = set(paper_map.keys())
     for hit in es_results:
         doc = hit["document"]
         chunk_text = doc.get("content") or doc.get("text") or ""
         asset_id = doc.get("asset_id", "")
+        if asset_id not in allowed_ids:
+            continue
         # Deduplicate by content hash
         content_key = chunk_text[:100]
         if content_key in seen:
@@ -577,6 +592,85 @@ async def _rag_context(assets: list[Paper], user_query: str, user_id: str, budge
         return ""
 
     return header + "\n---\n".join(snippets)
+
+
+async def _stream_agent_with_progress(
+    session: ChatSession,
+    messages: list[dict],
+    user_text: str,
+    agent_context: dict | None = None,
+) -> AsyncIterator[dict]:
+    """Run agent with progress streaming via ProgressManager.
+
+    Yields dicts with two shapes:
+      {"type": "progress", "event_type": "...", "data": {...}}
+      {"type": "token", "content": "..."}
+
+    Progress events are emitted during agent execution (node transitions,
+    tool calls, strategy iterations). Token chunks come after completion.
+    """
+    from app.agents.factory import build_agent_from_config
+    from app.services.progress import get_progress_manager, EventType, ExecutionEvent
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+
+    execution_id = uuid.uuid4()
+    progress_manager = get_progress_manager()
+    await progress_manager.create_execution(execution_id)
+
+    agent, _ = build_agent_from_config(session.agent_config)
+
+    lc_messages = []
+    for m in messages:
+        if m["role"] == "system":
+            lc_messages.append(SystemMessage(content=m["content"]))
+        elif m["role"] == "user":
+            lc_messages.append(HumanMessage(content=m["content"]))
+        elif m["role"] == "assistant":
+            lc_messages.append(AIMessage(content=m["content"]))
+
+    # Local queue for interleaving progress events
+    local_queue: asyncio.Queue[ExecutionEvent] = asyncio.Queue()
+
+    async def relay_events():
+        async for ev in progress_manager.subscribe(execution_id):
+            await local_queue.put(ev)
+
+    relay_task = asyncio.create_task(relay_events())
+
+    async def run_agent():
+        result = await agent.run(
+            messages=lc_messages,
+            context=agent_context or {},
+            thread_id=str(session.id),
+            progress_manager=progress_manager,
+            execution_id=execution_id,
+        )
+        return result.get("output", "")
+
+    agent_task = asyncio.create_task(run_agent())
+
+    try:
+        while not agent_task.done():
+            try:
+                ev = await asyncio.wait_for(local_queue.get(), timeout=0.1)
+                yield {
+                    "type": "progress",
+                    "event_type": ev.event_type.value,
+                    "data": ev.data,
+                }
+            except asyncio.TimeoutError:
+                continue
+    finally:
+        relay_task.cancel()
+        try:
+            await relay_task
+        except (asyncio.CancelledError, Exception):
+            pass
+
+    output = agent_task.result()
+    chunk_size = 32
+    for i in range(0, len(output), chunk_size):
+        yield {"type": "token", "content": output[i:i + chunk_size]}
 
 
 async def _stream_via_agent(
