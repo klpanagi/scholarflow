@@ -41,7 +41,7 @@ async def _get_analyzer_config(db: AsyncSession, owner_id: UUID) -> tuple[str, s
 
 
 
-@router.post("/", response_model=PaperResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=PaperResponse, status_code=status.HTTP_202_ACCEPTED)
 async def upload_asset(
     file: UploadFile = File(...),
     title: Optional[str] = Form(None),
@@ -55,45 +55,25 @@ async def upload_asset(
 
     object_key = f"assets/{current_user.id}/{file.filename}"
     await minio_service.upload_file(content, object_key, content_type=file.content_type)
-
-    extracted = await pdf_service.extract_text(content)
+    del content
 
     asset = Paper(
         owner_id=current_user.id,
-        title=title or extracted.title or file.filename,
-        abstract=abstract or extracted.abstract,
-        authors=extracted.authors,
+        title=title or file.filename,
         minio_key=object_key,
-        doc_type=doc_type or extracted.doc_type,
-        year=extracted.year,
-        venue=extracted.venue,
-        doi=extracted.doi,
-        arxiv_id=extracted.arxiv_id,
+        doc_type=doc_type or "other",
         tags=[],
-        processing_status="processing",
+        processing_status="pending",
     )
     db.add(asset)
     await db.commit()
     await db.refresh(asset)
-
-    references = extracted.references or []
-    full_text = extracted.full_text
-    sections = extracted.sections or []
-
-    del content, extracted
 
     try:
         pool = await get_arq_pool()
         job = await pool.enqueue_job(
             "process_asset_task",
             asset_id=str(asset.id),
-            owner_id=str(current_user.id),
-            title=asset.title,
-            abstract=asset.abstract,
-            doc_type=asset.doc_type,
-            full_text=full_text,
-            sections=sections,
-            references=references,
         )
         if job:
             logger.info(f"Asset {asset.id} enqueued as ARQ job {job.job_id}")
@@ -109,7 +89,7 @@ async def upload_asset(
     return asset
 
 
-@router.post("/batch", response_model=list[PaperResponse], status_code=status.HTTP_201_CREATED)
+@router.post("/batch", response_model=list[PaperResponse], status_code=status.HTTP_202_ACCEPTED)
 async def upload_assets_batch(
     files: list[UploadFile] = File(...),
     doc_type: Optional[str] = Form(None),
@@ -123,45 +103,25 @@ async def upload_assets_batch(
         content = await file.read()
         object_key = f"assets/{current_user.id}/{file.filename}"
         await minio_service.upload_file(content, object_key, content_type=file.content_type)
-
-        extracted = await pdf_service.extract_text(content)
+        del content
 
         asset = Paper(
             owner_id=current_user.id,
-            title=extracted.title or file.filename,
-            abstract=extracted.abstract,
-            authors=extracted.authors,
+            title=file.filename,
             minio_key=object_key,
-            doc_type=doc_type or extracted.doc_type,
-            year=extracted.year,
-            venue=extracted.venue,
-            doi=extracted.doi,
-            arxiv_id=extracted.arxiv_id,
+            doc_type=doc_type or "other",
             tags=[],
-            processing_status="processing",
+            processing_status="pending",
         )
         db.add(asset)
         await db.commit()
         await db.refresh(asset)
-
-        references = extracted.references or []
-        full_text = extracted.full_text
-        sections = extracted.sections or []
-
-        del content, extracted
 
         try:
             pool = await get_arq_pool()
             job = await pool.enqueue_job(
                 "process_asset_task",
                 asset_id=str(asset.id),
-                owner_id=str(current_user.id),
-                title=asset.title,
-                abstract=asset.abstract,
-                doc_type=asset.doc_type,
-                full_text=full_text,
-                sections=sections,
-                references=references,
             )
             if job:
                 logger.info(f"Asset {asset.id} enqueued as ARQ job {job.job_id}")
@@ -359,16 +319,18 @@ async def _reprocess_single_asset(
         await db.delete(chunk)
     await db.commit()
 
-    try:
-        file_data = await minio_service.download_file(asset.minio_key)
-    except Exception as e:
-        logger.warning(f"PDF not found for asset {asset.id}: {e}")
-        return f"PDF not found: {e}"
+    chunks_result = await db.execute(
+        select(PaperChunk).where(PaperChunk.paper_id == asset.id)
+    )
+    for chunk in chunks_result.scalars().all():
+        try:
+            await search_service.delete_document("assets", f"{asset.id}_{chunk.chunk_index}")
+        except Exception:
+            pass
+        await db.delete(chunk)
+    await db.commit()
 
-    extracted = await pdf_service.extract_text(file_data)
-    del file_data
-
-    asset.processing_status = "processing"
+    asset.processing_status = "pending"
     asset.embedding = None
     asset.es_doc_id = None
     await db.commit()
@@ -378,13 +340,6 @@ async def _reprocess_single_asset(
         job = await pool.enqueue_job(
             "process_asset_task",
             asset_id=str(asset.id),
-            owner_id=str(current_user.id),
-            title=asset.title,
-            abstract=asset.abstract,
-            doc_type=asset.doc_type,
-            full_text=extracted.full_text,
-            sections=extracted.sections or [],
-            references=extracted.references or [],
         )
         if job:
             logger.info(f"Asset {asset.id} re-enqueued as ARQ job {job.job_id}")

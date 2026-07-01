@@ -1,6 +1,7 @@
 """Asset processing task for ARQ workers."""
 
 import asyncio
+import json
 import logging
 from uuid import UUID
 
@@ -10,29 +11,28 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.core.database import AsyncSessionLocal
 from app.models import AgentConfig, AgentRole, Paper, PaperChunk
 from app.services.analysis_service import analyze_paper
+from app.services.minio_service import minio_service
 from app.services.pdf_service import pdf_service
 from app.services.search_service import search_service
+from app.services.system_settings import get_setting
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_EXTRACTION_METHOD = "grobid"
 
 
 async def process_asset_task(
     ctx: dict,
     asset_id: str,
-    owner_id: str,
-    title: str,
-    abstract: str | None,
-    doc_type: str,
-    full_text: str,
-    sections: list[dict],
-    references: list[dict],  # noqa: ARG001 — kept for API compat, not used
 ) -> dict:
-    """Process uploaded asset: chunk, embed, index, analyze.
+    """Process uploaded asset: extract, chunk, embed, index, analyze.
 
-    Called by ARQ worker. All args are JSON-serializable (UUIDs as str).
+    Fully autonomous — loads the Paper from DB, downloads the file from
+    MinIO, selects the extraction method from SystemSettings, extracts
+    structured content, stores extraction_meta in Paper.analysis,
+    chunks, embeds, indexes in ES, and runs LLM analysis.
     """
     asset_uuid = UUID(asset_id)
-    owner_uuid = UUID(owner_id)
 
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(Paper).where(Paper.id == asset_uuid))
@@ -42,7 +42,69 @@ async def process_asset_task(
 
         logger.info("Asset %s: starting processing", asset.title)
 
-        section_chunks = _chunk_sections(sections, full_text)
+        method = DEFAULT_EXTRACTION_METHOD
+        try:
+            raw = await get_setting(db, "extraction_method")
+            if raw and raw.strip().lower() in ("grobid", "pymupdf", "tika"):
+                method = raw.strip().lower()
+        except Exception:
+            pass
+
+        try:
+            pdf_bytes = await minio_service.download_file(asset.minio_key)
+        except Exception as e:
+            logger.error("Asset %s: MinIO download failed: %s", asset.title, e)
+            asset.processing_status = "failed"
+            await db.commit()
+            return {"status": "error", "error": f"MinIO download failed: {e}"}
+
+        asset.processing_status = "processing"
+        await db.commit()
+
+        try:
+            extracted = await pdf_service.extract(pdf_bytes, method=method)
+        except Exception as e:
+            logger.error("Asset %s: extraction failed: %s", asset.title, e)
+            asset.processing_status = "failed"
+            await db.commit()
+            return {"status": "error", "error": f"Extraction failed: {e}"}
+        finally:
+            del pdf_bytes
+
+        asset.title = extracted.title or asset.title
+        asset.authors = extracted.authors or asset.authors
+        asset.abstract = extracted.abstract or asset.abstract
+        if extracted.year:
+            asset.year = extracted.year
+        if extracted.venue:
+            asset.venue = extracted.venue
+        if extracted.doi:
+            asset.doi = extracted.doi
+        if extracted.arxiv_id:
+            asset.arxiv_id = extracted.arxiv_id
+        if extracted.doc_type and extracted.doc_type != "other":
+            asset.doc_type = extracted.doc_type
+
+        existing_analysis = asset.analysis or {}
+        if isinstance(existing_analysis, str):
+            existing_analysis = json.loads(existing_analysis)
+        existing_analysis["extraction_meta"] = extracted.to_extraction_meta()
+        asset.analysis = existing_analysis
+        flag_modified(asset, "analysis")
+
+        await db.commit()
+
+        logger.info(
+            "Asset %s: extracted via %s (%.1fs, %d sections, %d refs)",
+            asset.title, extracted.source, extracted.extraction_time,
+            len(extracted.sections), len(extracted.references),
+        )
+
+        sections_for_chunking = [
+            {"name": s.get("heading", ""), "text": s.get("text", "")}
+            for s in extracted.sections
+        ]
+        section_chunks = _chunk_sections(sections_for_chunking, extracted.full_text)
         logger.info("Asset %s: created %d chunks", asset.title, len(section_chunks))
 
         for i, chunk in enumerate(section_chunks):
@@ -75,10 +137,10 @@ async def process_asset_task(
                         document={
                             "text": chunk["text"],
                             "asset_id": str(asset_uuid),
-                            "owner_id": str(owner_uuid),
+                            "owner_id": str(asset.owner_id),
                             "chunk_index": i,
                             "section": chunk.get("section"),
-                            "title": title,
+                            "title": asset.title,
                         },
                         embedding=embedding,
                     ),
@@ -99,20 +161,24 @@ async def process_asset_task(
         await db.commit()
 
         try:
-            analyzer_model, analyzer_provider = await _get_analyzer_config_task(db, owner_uuid)
+            analyzer_model, analyzer_provider = await _get_analyzer_config_task(db, asset.owner_id)
             analysis = await asyncio.wait_for(
                 analyze_paper(
-                    title=title,
-                    abstract=abstract or "",
-                    full_text=full_text[:50000],
-                    doc_type=doc_type,
+                    title=asset.title,
+                    abstract=asset.abstract or "",
+                    full_text=extracted.full_text[:50000],
+                    doc_type=asset.doc_type,
                     model=analyzer_model,
                     provider=analyzer_provider,
                 ),
                 timeout=90,
             )
             if analysis is not None:
-                asset.analysis = analysis.model_dump()
+                existing = asset.analysis or {}
+                if isinstance(existing, str):
+                    existing = json.loads(existing)
+                existing["llm_analysis"] = analysis.model_dump()
+                asset.analysis = existing
                 flag_modified(asset, "analysis")
         except (asyncio.TimeoutError, Exception) as e:
             logger.error("Asset %s analysis failed: %s", asset.title, e)

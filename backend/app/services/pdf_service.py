@@ -1,4 +1,4 @@
-"""PDF processing service using PyMuPDF and GROBID."""
+"""PDF processing service using PyMuPDF, GROBID, and Tika."""
 
 import asyncio
 import hashlib
@@ -26,9 +26,11 @@ GROBID_MAX_CONNECTIONS = 8
 GROBID_SEMAPHORE_LIMIT = 4
 GROBID_CACHE_TTL_SECONDS = 3600
 GROBID_CACHE_KEY_PREFIX = "grobid:extract:"
+TIKA_TIMEOUT = 30.0
 
 _grobid_client: httpx.AsyncClient | None = None
 _grobid_semaphore: asyncio.Semaphore | None = None
+_tika_client: httpx.AsyncClient | None = None
 
 
 def _get_grobid_client() -> httpx.AsyncClient:
@@ -96,6 +98,73 @@ class GrobidResult:
             source=data.get("source", "grobid"),
             extraction_time=data.get("extraction_time", 0.0),
         )
+
+
+@dataclass
+class ExtractionResult:
+    """Unified extraction result from any method (GROBID, PyMuPDF, Tika)."""
+
+    title: str | None
+    authors: list[str]
+    abstract: str | None
+    full_text: str
+    sections: list[dict]          # unified: each has "heading" and "text"
+    references: list[dict]         # unified: each has "raw_text", "doi", "year", "authors", "title"
+    source: str                    # "grobid" | "pymupdf" | "tika"
+    extraction_time: float = 0.0
+    year: int | None = None
+    venue: str | None = None
+    doi: str | None = None
+    arxiv_id: str | None = None
+    page_count: int = 0
+    doc_type: str = "other"
+    metadata: dict = field(default_factory=dict)
+
+    def to_extraction_meta(self) -> dict:
+        """Serialize to a JSON-safe dict for storing in Paper.analysis['extraction_meta'].
+
+        This stores only what downstream stages (review pipeline, workflows) need:
+        structured sections and references. The full text is stored as PaperChunks.
+        """
+        return {
+            "source": self.source,
+            "extraction_time": self.extraction_time,
+            "sections": self.sections,
+            "references": self.references,
+            "title": self.title,
+            "authors": self.authors,
+            "abstract": self.abstract,
+            "year": self.year,
+            "venue": self.venue,
+            "doi": self.doi,
+            "arxiv_id": self.arxiv_id,
+            "page_count": self.page_count,
+            "doc_type": self.doc_type,
+        }
+
+
+def _get_tika_client() -> httpx.AsyncClient:
+    global _tika_client
+    if _tika_client is None:
+        _tika_client = httpx.AsyncClient(
+            timeout=TIKA_TIMEOUT,
+            limits=httpx.Limits(max_connections=4, max_keepalive_connections=2),
+        )
+    return _tika_client
+
+
+async def _call_tika(content: bytes, filename: str) -> str:
+    """Extract plain text from any document via Tika REST API."""
+    client = _get_tika_client()
+    url = f"{settings.TIKA_URL}/tika"
+    headers = {
+        "Content-Type": "application/octet-stream",
+        "Accept": "text/plain",
+    }
+    response = await client.put(url, content=content, headers=headers)
+    if response.status_code != 200:
+        raise RuntimeError(f"Tika returned non-200 status: {response.status_code}")
+    return response.text
 
 
 def _format_person_name(author_el) -> str:
@@ -398,6 +467,107 @@ class PDFService:
             doi=doi,
             arxiv_id=arxiv_id,
         )
+
+    async def extract(self, pdf_bytes: bytes, method: str = "grobid") -> ExtractionResult:
+        """Extract structured content from PDF using the specified method.
+
+        Args:
+            pdf_bytes: Raw PDF file bytes.
+            method: One of ``"grobid"``, ``"pymupdf"``, or ``"tika"``.
+
+        Returns:
+            :class:`ExtractionResult` with structured metadata, sections, and references.
+        """
+        method = method.lower().strip()
+        if method == "grobid":
+            try:
+                grob = await self.grobid_extract(pdf_bytes)
+            except Exception as exc:
+                logger.warning("GROBID extraction failed, falling back to PyMuPDF: %s", exc)
+                grob = await self._extract_via_pymupdf(pdf_bytes)
+            full_text = self._rebuild_full_text(grob.sections)
+            return ExtractionResult(
+                title=grob.title or None,
+                authors=grob.authors,
+                abstract=grob.abstract or None,
+                full_text=full_text,
+                sections=[{"heading": s.get("heading", ""), "text": s.get("text", "")} for s in grob.sections],
+                references=grob.references,
+                source=grob.source,
+                extraction_time=grob.extraction_time,
+                doi=grob.doi,
+                year=grob.year,
+                venue=grob.venue,
+                page_count=0,
+            )
+        elif method == "pymupdf":
+            return await self._extract_via_pymupdf(pdf_bytes)
+        elif method == "tika":
+            return await self._extract_via_tika(pdf_bytes)
+        else:
+            raise ValueError(f"Unknown extraction method: {method!r} (expected grobid, pymupdf, or tika)")
+
+    async def _extract_via_pymupdf(self, pdf_bytes: bytes) -> ExtractionResult:
+        """Extract using the existing PyMuPDF heuristic pipeline."""
+        start = time.monotonic()
+        extracted = await self.extract_text(pdf_bytes)
+        sections = []
+        for s in extracted.sections:
+            sections.append({"heading": s.get("name", ""), "text": s.get("text", "")})
+        refs = []
+        for r in extracted.references:
+            refs.append({
+                "raw_text": r.get("text", ""),
+                "doi": None,
+                "year": r.get("year"),
+                "authors": r.get("authors", []),
+                "title": None,
+            })
+        return ExtractionResult(
+            title=extracted.title,
+            authors=extracted.authors,
+            abstract=extracted.abstract,
+            full_text=extracted.full_text,
+            sections=sections,
+            references=refs,
+            source="pymupdf",
+            extraction_time=time.monotonic() - start,
+            year=extracted.year,
+            venue=extracted.venue,
+            doi=extracted.doi,
+            arxiv_id=extracted.arxiv_id,
+            page_count=extracted.page_count,
+            doc_type=extracted.doc_type,
+            metadata=extracted.metadata,
+        )
+
+    async def _extract_via_tika(self, pdf_bytes: bytes) -> ExtractionResult:
+        """Extract plain text via Tika REST API."""
+        start = time.monotonic()
+        plain_text = await _call_tika(pdf_bytes, "document.pdf")
+        return ExtractionResult(
+            title=None,
+            authors=[],
+            abstract=None,
+            full_text=plain_text,
+            sections=[],
+            references=[],
+            source="tika",
+            extraction_time=time.monotonic() - start,
+            page_count=0,
+        )
+
+    def _rebuild_full_text(self, sections: list[dict]) -> str:
+        """Rebuild plain full text from GROBID sections for LLM analysis."""
+        parts = []
+        for s in sections:
+            heading = s.get("heading", "")
+            text = s.get("text", "")
+            if heading:
+                parts.append(heading)
+            if text:
+                parts.append(text)
+        return "\n\n".join(parts) if parts else ""
 
     def _extract_title(self, full_text: str, doc: fitz.Document) -> str | None:
         """Extract title using PDF metadata, then first page heuristic."""
