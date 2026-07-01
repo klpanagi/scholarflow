@@ -1,19 +1,23 @@
 import json
+import logging
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from io import BytesIO
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+
+logger = logging.getLogger(__name__)
 from fastapi.responses import StreamingResponse
 from sqlalchemy import delete, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db
 from app.core.deps import get_user
 from app.core.security import get_current_user
-from app.models import AgentConfig, ChatMessage, ChatSession, Paper, chat_session_assets_table
+from app.models import AgentConfig, ChatMessage, ChatSession, Paper, PaperChunk, chat_session_assets_table
 from app.schemas import (
     ChatFileUploadResponse,
     ChatForkRequest,
@@ -23,12 +27,15 @@ from app.schemas import (
     ChatSessionResponse,
     ChatSessionUpdate,
 )
+from app.services.document_extraction import chunk_text, count_tokens, extract_text
 from app.services.llm_service import (
     get_available_embedding_models,
     get_available_models,
     stream_completion,
 )
 from app.services.minio_service import minio_service
+from app.services.search_service import search_service
+from app.services.system_settings import get_setting
 
 router = APIRouter()
 
@@ -347,9 +354,21 @@ async def stream_chat(
     if session.system_prompt:
         messages.append({"role": "system", "content": session.system_prompt})
 
-    # D6: inject attached assets as a system message prefix per-request
+    # D6: inject attached assets via hybrid direct/RAG (respects token budget)
+    try:
+        budget_str = await get_setting(db, "context_token_budget")
+        token_budget = int(budget_str) if budget_str else DEFAULT_TOKEN_BUDGET
+    except Exception:
+        token_budget = DEFAULT_TOKEN_BUDGET
+
     if session.attached_assets:
-        asset_ctx = _build_asset_context(session.attached_assets)
+        asset_ctx = await _build_asset_context(
+            session.attached_assets,
+            db,
+            token_budget=token_budget,
+            user_query=data.content,
+            user_id=user_id,
+        )
         if asset_ctx:
             messages.append({"role": "system", "content": asset_ctx})
 
@@ -361,12 +380,23 @@ async def stream_chat(
 
     async def event_stream():
         full_response = ""
+        # Emit 'thinking' immediately so the frontend can show a loading state
+        # before any tokens arrive (the agent may take 10-30s to respond).
+        yield f"data: {json.dumps({'type': 'thinking'})}\n\n"
         try:
             if session.agent_config is not None:
-                # D4: ONE agent per chat, dispatched through the registry
-                async for chunk in _stream_via_agent(session, messages, data.content):
-                    full_response += chunk
-                    yield f"data: {json.dumps({'type': 'token', 'content': chunk})}\n\n"
+                try:
+                    # D4: ONE agent per chat, dispatched through the registry
+                    async for chunk in _stream_via_agent(session, messages, data.content):
+                        full_response += chunk
+                        yield f"data: {json.dumps({'type': 'token', 'content': chunk})}\n\n"
+                except Exception as agent_err:
+                    # Agent dispatch failed (e.g. unknown role, missing registry entry).
+                    # Fall back to generic LLM completion so the user gets a response.
+                    logger.warning("Agent dispatch failed, falling back to generic completion: %s", agent_err)
+                    async for chunk in stream_completion(session.model, messages, provider=session.provider):
+                        full_response += chunk
+                        yield f"data: {json.dumps({'type': 'token', 'content': chunk})}\n\n"
             else:
                 # D7 fallback: legacy session without agent -> generic LLM call
                 async for chunk in stream_completion(session.model, messages, provider=session.provider):
@@ -391,8 +421,52 @@ async def stream_chat(
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
-def _build_asset_context(assets: list[Paper]) -> str:
-    """Format attached assets for the LLM. Truncates per-asset to keep token budget sane."""
+DEFAULT_TOKEN_BUDGET = 8000
+CONTEXT_RESERVE = 2000  # tokens reserved for system prompt + user/assistant history
+
+
+async def _build_asset_context(
+    assets: list[Paper],
+    db: AsyncSession,
+    token_budget: int = DEFAULT_TOKEN_BUDGET,
+    user_query: str = "",
+    user_id: str | None = None,
+) -> str:
+    """Inject paper content into LLM context using a hybrid direct/RAG strategy.
+
+    - Loads PaperChunks from the database.
+    - If total chunk size is within budget → direct injection.
+    - If too large AND a user query is available → RAG via Elasticsearch chunks index.
+    - Fallback → truncated direct injection (in paper+chunk order).
+    - If no chunks exist → falls back to abstract-only format.
+    """
+    content_budget = max(500, token_budget - CONTEXT_RESERVE)
+
+    result = await db.execute(
+        select(PaperChunk)
+        .where(PaperChunk.paper_id.in_([a.id for a in assets]))
+        .order_by(PaperChunk.paper_id, PaperChunk.chunk_index)
+    )
+    all_chunks: list[PaperChunk] = list(result.scalars().all())
+
+    if not all_chunks:
+        return _abstracts_only(assets)
+
+    total_estimate = sum(count_tokens(c.text) for c in all_chunks)
+
+    # RAG path: content too large for direct + we have a searchable query
+    if total_estimate > content_budget and user_query and user_id:
+        try:
+            return await _rag_context(assets, user_query, user_id, content_budget)
+        except Exception as exc:
+            logger.warning("RAG context build failed, falling back to direct: %s", exc)
+
+    # Direct injection (with truncation if needed)
+    return _chunks_context(assets, all_chunks, content_budget)
+
+
+def _abstracts_only(assets: list[Paper]) -> str:
+    """Fallback when no PaperChunks exist — format only metadata + abstract."""
     parts: list[str] = [
         "The user has attached the following documents for context."
         " Use them when relevant, but do not fabricate details not present in the documents.\n"
@@ -410,12 +484,107 @@ def _build_asset_context(assets: list[Paper]) -> str:
     return "\n".join(parts)
 
 
+def _chunks_context(assets: list[Paper], chunks: list[PaperChunk], budget: int) -> str:
+    """Format paper chunks into a single context string, truncating to budget."""
+    paper_map = {str(a.id): a for a in assets}
+    chunks_by_paper: dict[str, list[PaperChunk]] = {}
+    for c in chunks:
+        chunks_by_paper.setdefault(str(c.paper_id), []).append(c)
+
+    consumed = 0
+    sections: list[str] = []
+    header = (
+        "The user has attached the following documents for context."
+        " Use them when relevant, but do not fabricate details not present in the documents.\n"
+    )
+
+    for idx, (pid, cks) in enumerate(chunks_by_paper.items(), start=1):
+        asset = paper_map.get(pid)
+        label = f"[{idx}] {asset.title}" if asset else f"[{idx}] Paper"
+        if asset and asset.authors:
+            label += f" -- {', '.join(asset.authors[:3])}"
+        if asset and asset.year:
+            label += f" ({asset.year})"
+
+        chunk_parts: list[str] = []
+        for c in cks:
+            token_count = count_tokens(c.text)
+            if consumed + token_count > budget:
+                break
+            chunk_parts.append(c.text)
+            consumed += token_count
+            if consumed >= budget:
+                break
+
+        if chunk_parts:
+            sections.append(label + "\n" + "\n\n".join(chunk_parts))
+
+        if consumed >= budget:
+            break
+
+    if not sections:
+        return _abstracts_only(assets)
+
+    return header + "\n---\n".join(sections)
+
+
+async def _rag_context(assets: list[Paper], user_query: str, user_id: str, budget: int) -> str:
+    """Build context via RAG: search relevant chunks in Elasticsearch."""
+    header = (
+        "The user has attached the following documents for context."
+        " Use them when relevant, but do not fabricate details not present in the documents.\n"
+    )
+    paper_map = {str(a.id): a for a in assets}
+
+    # Generate embedding for the user's query
+    embedding = await search_service.embed_text(user_query)
+
+    # Search the chunks index, filtered to these assets
+    es_results = await search_service.search(
+        query=user_query,
+        index=settings.ELASTICSEARCH_CHUNKS_INDEX,
+        limit=20,
+        owner_filter=user_id,
+        embedding=embedding,
+    )
+
+    snippets: list[str] = []
+    seen = set()
+    consumed = 0
+    for hit in es_results:
+        doc = hit["document"]
+        chunk_text = doc.get("content") or doc.get("text") or ""
+        asset_id = doc.get("asset_id", "")
+        # Deduplicate by content hash
+        content_key = chunk_text[:100]
+        if content_key in seen:
+            continue
+        seen.add(content_key)
+
+        asset = paper_map.get(asset_id)
+        label = f"[{len(snippets) + 1}] {asset.title}" if asset else f"[{len(snippets) + 1}]"
+        if asset and asset.authors:
+            label += f" -- {', '.join(asset.authors[:3])}"
+
+        token_count = count_tokens(chunk_text)
+        if consumed + token_count > budget:
+            break
+
+        snippets.append(label + "\n" + chunk_text)
+        consumed += token_count
+
+    if not snippets:
+        return ""
+
+    return header + "\n---\n".join(snippets)
+
+
 async def _stream_via_agent(
     session: ChatSession, messages: list[dict], user_text: str
 ):
     """Dispatch through the agent registry. Yields raw text chunks."""
     from app.agents.factory import build_agent_from_config
-    from langchain_core.messages import HumanMessage, SystemMessage
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
     agent, _ = build_agent_from_config(session.agent_config)
 
@@ -425,7 +594,8 @@ async def _stream_via_agent(
             lc_messages.append(SystemMessage(content=m["content"]))
         elif m["role"] == "user":
             lc_messages.append(HumanMessage(content=m["content"]))
-        # assistant/tool messages in history are ignored for v1; agent builds its own
+        elif m["role"] == "assistant":
+            lc_messages.append(AIMessage(content=m["content"]))
 
     result = await agent.run(messages=lc_messages, context={}, thread_id=str(session.id))
     output = result.get("output", "")
@@ -552,6 +722,32 @@ async def upload_file(
         object_key,
         content_type=file.content_type or "application/octet-stream",
     )
+
+    # Extract text content and store as a system message for LLM context
+    extracted = extract_text(content, file.filename)
+    if extracted:
+        chunks = chunk_text(extracted)
+        for i, chunk in enumerate(chunks):
+            file_msg = ChatMessage(
+                id=uuid.uuid4(),
+                session_id=session_id,
+                role="system",
+                content=chunk,
+                file_key=object_key,
+                file_name=file.filename,
+                extra_metadata={
+                    "type": "file_content",
+                    "content_chunk": True,
+                    "chunk_index": i,
+                    "total_chunks": len(chunks),
+                },
+            )
+            db.add(file_msg)
+        await db.commit()
+        logger.info(
+            "Extracted %d chars from %s -> %d chunks",
+            len(extracted), file.filename, len(chunks),
+        )
 
     return ChatFileUploadResponse(file_key=object_key, file_name=file.filename)
 
