@@ -14,6 +14,9 @@ from app.tasks.workflow_tasks import execute_workflow_task  # type: ignore[repor
 
 logger = logging.getLogger(__name__)
 
+ASSET_QUEUE_NAME = "arq:queue:assets"
+WORKFLOW_QUEUE_NAME = "arq:queue:workflows"
+
 _BASE_REDIS_SETTINGS = RedisSettings(
     host=str(settings.REDIS_URL.host or "localhost"),
     port=settings.REDIS_URL.port or 6379,
@@ -35,6 +38,7 @@ async def _log_job_failed(ctx: dict) -> None:
 
 class AssetWorkerSettings:
     functions = [process_asset_task]
+    queue_name = ASSET_QUEUE_NAME
     redis_settings = _BASE_REDIS_SETTINGS
     max_burst_jobs = 2
     job_timeout = 600
@@ -49,6 +53,7 @@ class AssetWorkerSettings:
 
 class WorkflowWorkerSettings:
     functions = [execute_workflow_task]
+    queue_name = WORKFLOW_QUEUE_NAME
     redis_settings = _BASE_REDIS_SETTINGS
     max_burst_jobs = 4
     job_timeout = 3600
