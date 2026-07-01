@@ -1069,6 +1069,15 @@ _AGENT_SEEDS = [
         "system_prompt": "You are an academic paper analyzer. You produce structured assessments of academic documents including summary, key findings, methodology, contributions, limitations, strengths, weaknesses, and quality scores.",
         "skill_names": [],
     },
+    {
+        "name": "Default Chat",
+        "role": AgentRole.CHAT,
+        "provider": "openrouter",
+        "model": "deepseek/deepseek-chat-v3-0324:free",
+        "strategy": Strategy.DIRECT,
+        "system_prompt": "You are a helpful academic research assistant. You help researchers with literature review, paper summaries, research methodology, academic writing, and general research questions. You provide accurate, well-reasoned responses and cite sources when possible.",
+        "skill_names": [],
+    },
 ]
 
 
