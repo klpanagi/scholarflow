@@ -6,6 +6,7 @@ from app.agents.base import BaseAgent, AgentState
 from app.services.search_service import search_service
 from app.services.academic_apis import semantic_scholar, openalex_api
 from app.agents.search_agent import _extract_paper_title
+from app.core.config import settings
 from app.utils.pdf_model_support import extract_text_from_message_content
 
 
@@ -59,6 +60,9 @@ class RecommendationAgent(BaseAgent):
             original_query = extract_text_from_message_content(state["messages"][-1].content)
             short_query = _extract_paper_title(original_query)
 
+            owner_id = state["context"].get("owner_id")
+            asset_ids = state["context"].get("asset_ids")
+
             search_tool = self._get_tool("search_papers")
             if search_tool:
                 tool_result = await search_tool.ainvoke({"query": short_query, "limit": 10})
@@ -67,8 +71,10 @@ class RecommendationAgent(BaseAgent):
             else:
                 vector_results = await search_service.search(
                     query=short_query,
-                    index="papers",
+                    index=settings.ELASTICSEARCH_PAPERS_INDEX,
                     limit=10,
+                    owner_filter=owner_id,
+                    asset_ids=asset_ids,
                 )
                 state["context"]["vector_results"] = vector_results
 
