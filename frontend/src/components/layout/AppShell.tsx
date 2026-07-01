@@ -30,7 +30,7 @@ export function AppShell() {
         <Topbar onMenuClick={() => setMobileMenuOpen(true)} />
 
         <main id="main-content" tabIndex={-1} className="flex flex-col flex-1 overflow-y-auto focus:outline-none">
-          <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col p-4 lg:p-6">
+          <div className="mx-auto flex w-full max-w-7xl min-h-0 flex-1 flex-col p-4 lg:p-6">
             <AnimatePresence mode="wait">
               <motion.div
                 key={location.pathname}
@@ -38,7 +38,7 @@ export function AppShell() {
                 initial="initial"
                 animate="animate"
                 exit="exit"
-                className="flex flex-1 flex-col"
+                className="flex flex-1 flex-col min-h-0"
               >
                 <Outlet />
               </motion.div>

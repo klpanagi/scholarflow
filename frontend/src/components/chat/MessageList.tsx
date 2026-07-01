@@ -4,7 +4,7 @@ import { useStickToBottom } from 'use-stick-to-bottom'
 import { cn } from '@/lib/utils'
 import { MessageBubble, MessageBubbleSkeleton } from './MessageBubble'
 import type { MessageBubbleProps } from './MessageBubble'
-import { MessageSquare } from 'lucide-react'
+import { Bot, MessageSquare } from 'lucide-react'
 
 /**
  * Internal message shape used by the list. Wraps bubble props
@@ -79,6 +79,10 @@ export interface MessageListProps {
   isLoading?: boolean
   /** When true, passes streaming state to the last assistant bubble */
   isStreaming?: boolean
+  /** When true, shows a thinking indicator while the agent processes */
+  isThinking?: boolean
+  /** Error message from a failed stream, shown as an error banner */
+  streamError?: string | null
   /** Custom empty state node. Defaults to a centered placeholder. */
   emptyState?: React.ReactNode
   /** Additional classes for the outer wrapper */
@@ -112,6 +116,8 @@ export function MessageList({
   messages,
   isLoading = false,
   isStreaming = false,
+  isThinking = false,
+  streamError = null,
   emptyState,
   className,
   onScrollToTop,
@@ -234,6 +240,48 @@ export function MessageList({
             ))}
           </div>
         ))}
+
+        {/* ── Thinking indicator ── */}
+        {isThinking && !isStreaming && !streamError && (
+          <div className="flex gap-3" aria-label="Agent is thinking">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-navy-100 dark:bg-navy-700 ring-1 ring-border/50">
+              <Bot aria-hidden="true" className="h-4 w-4 text-navy-600 dark:text-navy-300" />
+            </div>
+            <div className="max-w-[80%] space-y-1">
+              <span className="text-[11px] font-medium text-muted-foreground/70 select-none">
+                Assistant
+              </span>
+              <div className="rounded-2xl rounded-tl-md bg-card/70 backdrop-blur-xl border border-border/40 shadow-xs px-5 py-4">
+                <div className="flex items-center gap-1.5">
+                  <span className="flex h-2 w-2 rounded-full bg-gold-500 animate-pulse" />
+                  <span className="flex h-2 w-2 rounded-full bg-gold-500/60 animate-pulse [animation-delay:200ms]" />
+                  <span className="flex h-2 w-2 rounded-full bg-gold-500/30 animate-pulse [animation-delay:400ms]" />
+                  <span className="ml-1 text-xs text-muted-foreground/50">Thinking...</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Error banner ── */}
+        {streamError && (
+          <div className="flex gap-3" role="alert">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30 ring-1 ring-border/50">
+              <Bot aria-hidden="true" className="h-4 w-4 text-red-500" />
+            </div>
+            <div className="max-w-[80%] space-y-1">
+              <span className="text-[11px] font-medium text-muted-foreground/70 select-none">
+                Assistant
+              </span>
+              <div className="rounded-2xl rounded-tl-md bg-red-50/80 dark:bg-red-950/30 border border-red-200/50 dark:border-red-800/40 shadow-xs px-4 py-3">
+                <p className="text-sm text-red-700 dark:text-red-400 leading-relaxed">
+                  {streamError}
+                </p>
+                <p className="text-xs text-red-500/60 mt-1">Response failed. Try sending your message again.</p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Scroll-to-bottom button when user has scrolled up */}

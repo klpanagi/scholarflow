@@ -89,7 +89,9 @@ export default function ChatPage() {
     currentSession,
     messages,
     isStreaming,
+    isThinking,
     streamingContent,
+    streamError,
     fetchSessions,
     createSession,
     deleteSession,
@@ -534,6 +536,8 @@ export default function ChatPage() {
         <MessageList
           messages={chatMessages}
           isStreaming={isStreaming}
+          isThinking={isThinking}
+          streamError={streamError}
           className="flex-1"
         />
 

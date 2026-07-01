@@ -43,7 +43,9 @@ export function useChat() {
   const [currentSession, setCurrentSession] = useState<ChatSession | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
+  const [isThinking, setIsThinking] = useState(false)
   const [streamingContent, setStreamingContent] = useState('')
+  const [streamError, setStreamError] = useState<string | null>(null)
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
   const abortRef = useRef<AbortController | null>(null)
 
@@ -188,8 +190,12 @@ export function useChat() {
     }
     setMessages((prev) => [...prev, userMsg])
 
+    // Show thinking state immediately — backend may take 10-30s before first token
+    setIsThinking(true)
     setIsStreaming(true)
     setStreamingContent('')
+    setStreamError(null)
+    let localStreamError: string | null = null
 
     const abortController = new AbortController()
     abortRef.current = abortController
@@ -226,12 +232,38 @@ export function useChat() {
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             const data = line.slice(6)
-            if (data === '[DONE]') break
             try {
               const parsed = JSON.parse(data)
-              if (parsed.content) {
-                fullContent += parsed.content
-                setStreamingContent(fullContent)
+
+              // Dispatch by event type
+              switch (parsed.type) {
+                case 'thinking':
+                  // Backend is still processing — keep thinking state
+                  break
+
+                case 'token':
+                  setIsThinking(false)
+                  if (parsed.content) {
+                    fullContent += parsed.content
+                    setStreamingContent(fullContent)
+                  }
+                  break
+
+                case 'error':
+                  setIsThinking(false)
+                  localStreamError = parsed.content || 'An error occurred'
+                  setStreamError(localStreamError)
+                  console.error('Stream error event:', parsed.content)
+                  // Don't append error content to message — it will be shown as error UI
+                  break
+
+                default:
+                  // Unknown type with content — treat as token for forward-compat
+                  if (parsed.content) {
+                    setIsThinking(false)
+                    fullContent += parsed.content
+                    setStreamingContent(fullContent)
+                  }
               }
             } catch {
               // Skip unparseable SSE lines
@@ -240,20 +272,28 @@ export function useChat() {
         }
       }
 
-      const assistantMsg: ChatMessage = {
-        id: `temp-assistant-${Date.now()}`,
-        session_id: currentSession.id,
-        role: 'assistant',
-        content: fullContent,
-        timestamp: new Date().toISOString(),
+      // Only finalize if there's content and no error occurred
+      if (fullContent && !localStreamError) {
+        const assistantMsg: ChatMessage = {
+          id: `temp-assistant-${Date.now()}`,
+          session_id: currentSession.id,
+          role: 'assistant',
+          content: fullContent,
+          timestamp: new Date().toISOString(),
+        }
+        setMessages((prev) => [...prev, assistantMsg])
+        setStreamingContent('')
       }
-      setMessages((prev) => [...prev, assistantMsg])
-      setStreamingContent('')
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') {
         setStreamingContent('')
+        setIsThinking(false)
       } else {
-        console.error('Stream error:', err)
+        const msg = err instanceof Error ? err.message : 'Stream failed'
+        console.error('Stream error:', msg)
+        localStreamError = msg
+        setStreamError(msg)
+        setIsThinking(false)
       }
     } finally {
       setIsStreaming(false)
@@ -324,7 +364,9 @@ export function useChat() {
     currentSession,
     messages,
     isStreaming,
+    isThinking,
     streamingContent,
+    streamError,
     availableModels,
     fetchSessions,
     createSession,
