@@ -140,6 +140,37 @@ async def set_context_budget(
     return {"budget": body.budget}
 
 
+EXTRACTION_METHODS = {"grobid", "pymupdf", "tika"}
+
+
+class ExtractionMethodRequest(BaseModel):
+    method: str
+
+
+@router.get("/extraction-method")
+async def get_extraction_method(
+    current_user: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    method = await get_setting(db, "extraction_method")
+    return {"method": method if method in EXTRACTION_METHODS else "grobid"}
+
+
+@router.post("/extraction-method")
+async def set_extraction_method(
+    body: ExtractionMethodRequest,
+    current_user: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if body.method not in EXTRACTION_METHODS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid method '{body.method}'. Must be one of: {', '.join(sorted(EXTRACTION_METHODS))}",
+        )
+    await set_setting(db, "extraction_method", body.method)
+    return {"method": body.method}
+
+
 @router.get("/health")
 async def get_llm_health(current_user: str = Depends(get_current_user)):
     health = await get_health_status()
