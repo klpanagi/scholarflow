@@ -9,7 +9,7 @@ Usage:
 
 Prerequisites:
     - docker-compose up -d (postgres, minio, elasticsearch, grobid, redis)
-    - ARQ worker running: uv run arq app.tasks.worker_settings.WorkerSettings
+    - ARQ worker running: uv run arq app.tasks.worker_settings.AssetWorkerSettings
     - Backend running: uv run uvicorn app.main:app
 """
 

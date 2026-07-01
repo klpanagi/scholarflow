@@ -19,6 +19,7 @@ from app.services.minio_service import minio_service
 from app.services.pdf_service import pdf_service
 from app.services.search_service import search_service
 from app.services.analysis_service import analyze_paper
+from app.tasks.worker_settings import ASSET_QUEUE_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +75,7 @@ async def upload_asset(
         job = await pool.enqueue_job(
             "process_asset_task",
             asset_id=str(asset.id),
+            _queue_name=ASSET_QUEUE_NAME,
         )
         if job:
             logger.info(f"Asset {asset.id} enqueued as ARQ job {job.job_id}")
@@ -122,6 +124,7 @@ async def upload_assets_batch(
             job = await pool.enqueue_job(
                 "process_asset_task",
                 asset_id=str(asset.id),
+                _queue_name=ASSET_QUEUE_NAME,
             )
             if job:
                 logger.info(f"Asset {asset.id} enqueued as ARQ job {job.job_id}")
@@ -340,6 +343,7 @@ async def _reprocess_single_asset(
         job = await pool.enqueue_job(
             "process_asset_task",
             asset_id=str(asset.id),
+            _queue_name=ASSET_QUEUE_NAME,
         )
         if job:
             logger.info(f"Asset {asset.id} re-enqueued as ARQ job {job.job_id}")
