@@ -38,6 +38,7 @@ import {
   Download,
   Upload,
   FileJson,
+  Gauge,
 } from 'lucide-react'
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -1011,11 +1012,40 @@ function ApiKeysSection() {
 
 function PreferencesSection() {
   const { toast } = useToast()
+  const queryClient = useQueryClient()
   const [language, setLanguage] = useState('en')
+  const [localBudget, setLocalBudget] = useState(8000)
   const [notifications, setNotifications] = useState({
     email: true,
     push: false,
     digest: true,
+  })
+
+  const { data: budgetData } = useQuery<{ budget: number }>({
+    queryKey: ['context-budget'],
+    queryFn: async () => {
+      const { data } = await api.get('/settings/context-budget')
+      return data
+    },
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  })
+
+  useEffect(() => {
+    if (budgetData?.budget) setLocalBudget(budgetData.budget)
+  }, [budgetData])
+
+  const saveBudgetMutation = useMutation({
+    mutationFn: async (budget: number) => {
+      await api.post('/settings/context-budget', { budget })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['context-budget'] })
+      toast({ title: 'Saved', description: 'Context token budget updated.' })
+    },
+    onError: () => {
+      toast({ title: 'Error', description: 'Failed to save context budget.', variant: 'destructive' })
+    },
   })
 
   const handleNotificationChange = (
@@ -1051,6 +1081,60 @@ function PreferencesSection() {
               </p>
             </div>
             <ThemePicker />
+          </div>
+
+          {/* Context Token Budget */}
+          <div className="pb-6">
+            <div className="space-y-0.5 mb-4">
+              <Label className="flex items-center gap-2 text-sm font-medium">
+                <Gauge aria-hidden="true" className="h-4 w-4 text-primary" />
+                Context Token Budget
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Maximum tokens used for paper content when chatting.
+                Higher values give the LLM more context but may increase latency.
+              </p>
+            </div>
+            <div className="flex items-center gap-4">
+              <input
+                id="context-budget"
+                type="range"
+                min={1000}
+                max={128000}
+                step={1000}
+                value={localBudget}
+                onChange={(e) => setLocalBudget(Number(e.target.value))}
+                className="flex-1 h-2 rounded-full appearance-none cursor-pointer
+                  bg-border/50 accent-primary
+                  [&::-webkit-slider-thumb]:appearance-none
+                  [&::-webkit-slider-thumb]:h-4
+                  [&::-webkit-slider-thumb]:w-4
+                  [&::-webkit-slider-thumb]:rounded-full
+                  [&::-webkit-slider-thumb]:bg-primary
+                  [&::-webkit-slider-thumb]:shadow-sm
+                  [&::-webkit-slider-thumb]:cursor-pointer"
+              />
+              <Input
+                type="number"
+                min={1000}
+                max={128000}
+                step={1000}
+                value={localBudget}
+                onChange={(e) => setLocalBudget(Number(e.target.value))}
+                className="w-24 text-center text-sm tabular-nums"
+              />
+              <Button
+                size="sm"
+                onClick={() => saveBudgetMutation.mutate(localBudget)}
+                disabled={saveBudgetMutation.isPending || localBudget === (budgetData?.budget ?? 8000)}
+              >
+                {saveBudgetMutation.isPending ? (
+                  <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  'Save'
+                )}
+              </Button>
+            </div>
           </div>
 
           {/* Language */}

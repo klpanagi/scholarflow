@@ -30,6 +30,10 @@ class EmbeddingConfig(BaseModel):
     model: str
 
 
+class ContextBudgetRequest(BaseModel):
+    budget: int
+
+
 async def _get_embedding_config(db: AsyncSession) -> tuple[str, str]:
     db_provider = await get_setting(db, "embedding_provider")
     db_model = await get_setting(db, "embedding_model")
@@ -111,6 +115,29 @@ async def test_provider(
         return {"provider": provider, "status": "error", "message": "Connection timed out (10s)"}
     except Exception as e:
         return {"provider": provider, "status": "error", "message": str(e)}
+
+
+@router.get("/context-budget")
+async def get_context_budget(
+    current_user: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    budget = await get_setting(db, "context_token_budget")
+    return {"budget": int(budget) if budget else 8000}
+
+
+@router.post("/context-budget")
+async def set_context_budget(
+    body: ContextBudgetRequest,
+    current_user: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if body.budget < 1000:
+        raise HTTPException(status_code=400, detail="Minimum budget is 1000 tokens")
+    if body.budget > 128000:
+        raise HTTPException(status_code=400, detail="Maximum budget is 128000 tokens")
+    await set_setting(db, "context_token_budget", str(body.budget))
+    return {"budget": body.budget}
 
 
 @router.get("/health")
