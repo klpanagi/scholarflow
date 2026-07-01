@@ -1072,8 +1072,8 @@ _AGENT_SEEDS = [
     {
         "name": "Default Chat",
         "role": AgentRole.CHAT,
-        "provider": "openrouter",
-        "model": "deepseek/deepseek-chat-v3-0324:free",
+        "provider": "opencode",
+        "model": "deepseek-v4-flash",
         "strategy": Strategy.DIRECT,
         "system_prompt": "You are a helpful academic research assistant. You help researchers with literature review, paper summaries, research methodology, academic writing, and general research questions. You provide accurate, well-reasoned responses and cite sources when possible.",
         "skill_names": [],
