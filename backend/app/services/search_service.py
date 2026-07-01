@@ -90,35 +90,22 @@ class SearchService:
 
         must_clause = []
         if owner_filter:
-            must_clause.append({"term": {"owner_id": owner_filter}})
+            must_clause.append({"term": {"owner_id.keyword": owner_filter}})
 
-        should_clause = [
-            {
-                "multi_match": {
-                    "query": query,
-                    "fields": ["title^3", "abstract^2", "content^2", "text^2"],
-                    "type": "best_fields",
-                    "fuzziness": "AUTO",
-                }
-            },
-        ]
-
-        if embedding:
-            should_clause.append({
-                "knn": {
-                    "field": "embedding",
-                    "query_vector": embedding,
-                    "k": limit,
-                }
-            })
-
-        search_body = {
+        search_body: dict = {
             "size": limit,
             "query": {
                 "bool": {
                     "must": must_clause if must_clause else [{"match_all": {}}],
-                    "should": should_clause,
-                    "minimum_should_match": 1 if should_clause else 0,
+                    "should": [{
+                        "multi_match": {
+                            "query": query,
+                            "fields": ["title^3", "abstract^2", "content^2", "text^2"],
+                            "type": "best_fields",
+                            "fuzziness": "AUTO",
+                        }
+                    }],
+                    "minimum_should_match": 1,
                 }
             },
             "highlight": {
@@ -130,6 +117,16 @@ class SearchService:
                 }
             },
         }
+
+        # kNN must be at the top level of the search body (ES 8.x syntax),
+        # not nested inside bool.should.
+        if embedding:
+            search_body["knn"] = {
+                "field": "embedding",
+                "query_vector": embedding,
+                "k": limit,
+                "num_candidates": limit * 10,
+            }
 
         resp = await client.search(index=search_index, body=search_body)
 
