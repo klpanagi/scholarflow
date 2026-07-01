@@ -542,7 +542,7 @@ async def _rag_context(assets: list[Paper], user_query: str, user_id: str, budge
     # Search the chunks index, filtered to these assets
     es_results = await search_service.search(
         query=user_query,
-        index=settings.ELASTICSEARCH_CHUNKS_INDEX,
+        index=settings.ELASTICSEARCH_PAPERS_INDEX,
         limit=20,
         owner_filter=user_id,
         embedding=embedding,
