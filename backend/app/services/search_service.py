@@ -82,6 +82,7 @@ class SearchService:
         index: str | None = None,
         limit: int = 20,
         owner_filter: str | None = None,
+        asset_ids: list[str] | None = None,
         embedding: list[float] | None = None,
     ) -> list[dict]:
         """Search documents with BM25 and optional vector search."""
@@ -91,6 +92,8 @@ class SearchService:
         must_clause = []
         if owner_filter:
             must_clause.append({"term": {"owner_id.keyword": owner_filter}})
+        if asset_ids:
+            must_clause.append({"terms": {"asset_id": asset_ids}})
 
         search_body: dict = {
             "size": limit,
