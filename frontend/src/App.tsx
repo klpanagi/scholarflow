@@ -24,6 +24,7 @@ const AssetsPage = lazy(() => import('./pages/AssetsPage'))
 const AgentsPage = lazy(() => import('./pages/AgentsPage'))
 const SkillsPage = lazy(() => import('./pages/SkillsPage'))
 const ChatPage = lazy(() => import('./pages/ChatPage'))
+const PaperDetailPage = lazy(() => import('./pages/PaperDetailPage'))
 const WorkspacePage = lazy(() => import('./pages/WorkspacePage'))
 const WorkflowsPage = lazy(() => import('./pages/WorkflowsPage'))
 const RevisionPage = lazy(() => import('./pages/RevisionPage'))
@@ -60,6 +61,7 @@ export default function App() {
         <Route element={<AppShell />}>
           <Route path="dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
           <Route path="assets" element={<ProtectedRoute><AssetsPage /></ProtectedRoute>} />
+          <Route path="assets/:id" element={<ProtectedRoute><PaperDetailPage /></ProtectedRoute>} />
           <Route path="cult">
             <Route index element={<Navigate to="/cult/agents" replace />} />
             <Route path="agents" element={<ProtectedRoute><AgentsPage /></ProtectedRoute>} />

@@ -777,10 +777,7 @@ export default function AssetsPage() {
               <PaperCard
                 variant="stored"
                 paper={paper}
-                onClick={() => {
-                  setSelectedPaperId(paper.id)
-                  setDetailModalOpen(true)
-                }}
+                onClick={() => navigate(`/assets/${paper.id}`)}
               />
 
               {/* Action buttons — visible on hover */}
