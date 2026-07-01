@@ -12,6 +12,11 @@ export interface AvailableModel {
   provider: string
 }
 
+export interface AgentProgressEvent {
+  event_type: string
+  data: Record<string, unknown>
+}
+
 /**
  * Internal implementation that accepts the new `CreateSessionParams` object.
  */
@@ -46,6 +51,7 @@ export function useChat() {
   const [isThinking, setIsThinking] = useState(false)
   const [streamingContent, setStreamingContent] = useState('')
   const [streamError, setStreamError] = useState<string | null>(null)
+  const [progressEvents, setProgressEvents] = useState<AgentProgressEvent[]>([])
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
   const abortRef = useRef<AbortController | null>(null)
 
@@ -195,6 +201,7 @@ export function useChat() {
     setIsStreaming(true)
     setStreamingContent('')
     setStreamError(null)
+    setProgressEvents([])
     let localStreamError: string | null = null
 
     const abortController = new AbortController()
@@ -238,7 +245,15 @@ export function useChat() {
               // Dispatch by event type
               switch (parsed.type) {
                 case 'thinking':
-                  // Backend is still processing — keep thinking state
+                  break
+
+                case 'progress':
+                  if (parsed.event_type) {
+                    setProgressEvents(prev => [...prev, {
+                      event_type: parsed.event_type,
+                      data: parsed.data || {},
+                    }])
+                  }
                   break
 
                 case 'token':
@@ -367,6 +382,7 @@ export function useChat() {
     isThinking,
     streamingContent,
     streamError,
+    progressEvents,
     availableModels,
     fetchSessions,
     createSession,

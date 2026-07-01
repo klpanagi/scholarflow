@@ -3,7 +3,9 @@ import { useRef, useEffect, useMemo } from 'react'
 import { useStickToBottom } from 'use-stick-to-bottom'
 import { cn } from '@/lib/utils'
 import { MessageBubble, MessageBubbleSkeleton } from './MessageBubble'
+import { AgentProgressIndicator } from './AgentProgressIndicator'
 import type { MessageBubbleProps } from './MessageBubble'
+import type { AgentProgressEvent } from '@/hooks/useChat'
 import { Bot, MessageSquare } from 'lucide-react'
 
 /**
@@ -83,6 +85,8 @@ export interface MessageListProps {
   isThinking?: boolean
   /** Error message from a failed stream, shown as an error banner */
   streamError?: string | null
+  /** Progress events from agent execution, shown as a live status indicator */
+  progressEvents?: AgentProgressEvent[]
   /** Custom empty state node. Defaults to a centered placeholder. */
   emptyState?: React.ReactNode
   /** Additional classes for the outer wrapper */
@@ -118,6 +122,7 @@ export function MessageList({
   isStreaming = false,
   isThinking = false,
   streamError = null,
+  progressEvents,
   emptyState,
   className,
   onScrollToTop,
@@ -252,12 +257,23 @@ export function MessageList({
                 Assistant
               </span>
               <div className="rounded-2xl rounded-tl-md bg-card/70 backdrop-blur-xl border border-border/40 shadow-xs px-5 py-4">
-                <div className="flex items-center gap-1.5">
-                  <span className="flex h-2 w-2 rounded-full bg-gold-500 animate-pulse" />
-                  <span className="flex h-2 w-2 rounded-full bg-gold-500/60 animate-pulse [animation-delay:200ms]" />
-                  <span className="flex h-2 w-2 rounded-full bg-gold-500/30 animate-pulse [animation-delay:400ms]" />
-                  <span className="ml-1 text-xs text-muted-foreground/50">Thinking...</span>
-                </div>
+                {progressEvents && progressEvents.length > 0 ? (
+                  <div className="space-y-2">
+                    <AgentProgressIndicator events={progressEvents} />
+                    <div className="flex items-center gap-1.5">
+                      <span className="flex h-1.5 w-1.5 rounded-full bg-gold-500 animate-pulse" />
+                      <span className="flex h-1.5 w-1.5 rounded-full bg-gold-500/60 animate-pulse [animation-delay:200ms]" />
+                      <span className="flex h-1.5 w-1.5 rounded-full bg-gold-500/30 animate-pulse [animation-delay:400ms]" />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <span className="flex h-2 w-2 rounded-full bg-gold-500 animate-pulse" />
+                    <span className="flex h-2 w-2 rounded-full bg-gold-500/60 animate-pulse [animation-delay:200ms]" />
+                    <span className="flex h-2 w-2 rounded-full bg-gold-500/30 animate-pulse [animation-delay:400ms]" />
+                    <span className="ml-1 text-xs text-muted-foreground/50">Thinking...</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>

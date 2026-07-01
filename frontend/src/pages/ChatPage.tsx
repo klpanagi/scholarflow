@@ -92,6 +92,7 @@ export default function ChatPage() {
     isThinking,
     streamingContent,
     streamError,
+    progressEvents,
     fetchSessions,
     createSession,
     deleteSession,
@@ -538,6 +539,7 @@ export default function ChatPage() {
           isStreaming={isStreaming}
           isThinking={isThinking}
           streamError={streamError}
+          progressEvents={progressEvents}
           className="flex-1"
         />
 
