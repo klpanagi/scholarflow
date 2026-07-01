@@ -147,28 +147,9 @@ class DeepReviewAgent(BaseAgent):
 
         pdf_bytes = state["context"].get("pdf_bytes")
 
-        # D-1: single-intake GROBID extraction → state["context"]["grobid"] for downstream stages.
-        if pdf_bytes and "grobid" not in state["context"]:
-            try:
-                grobid_result = await pdf_service.grobid_extract(pdf_bytes)
-                state["context"].setdefault("grobid", grobid_result.to_dict())
-                logger.info(
-                    "GROBID extraction complete: source=%s title=%r refs=%d time=%.2fs",
-                    grobid_result.source,
-                    grobid_result.title,
-                    len(grobid_result.references),
-                    grobid_result.extraction_time,
-                )
-            except Exception as exc:
-                # Fallback: empty dict keeps downstream shape consistent.
-                logger.warning(
-                    "GROBID extraction failed, continuing without structured bibliography: %s",
-                    exc,
-                )
-                state["context"].setdefault("grobid", {})
-        elif not pdf_bytes:
-            logger.info("No pdf_bytes in context, skipping GROBID extraction")
-            state["context"].setdefault("grobid", {})
+        # GROBID data is pre-extracted at upload time and injected into agent_context["grobid"]
+        # by the workflow dispatcher (_run_stage in workflows.py). Only set fallback if missing.
+        state["context"].setdefault("grobid", {})
 
         model_name = self._get_model_name()
         use_pdf = pdf_bytes and model_supports_pdf(model_name)

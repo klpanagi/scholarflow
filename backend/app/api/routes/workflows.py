@@ -748,6 +748,7 @@ async def execute_workflow(
             topic_query=topic_query,
             agent_assignments={k: str(v) for k, v in req.agent_assignments.items()},
             paper_content=paper_content_to_pass,
+            paper_id=str(req.paper_id) if req.paper_id else None,
             rubric_standard=req.rubric_standard,
         )
         if job:

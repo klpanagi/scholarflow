@@ -15,8 +15,7 @@ from uuid import UUID
 from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
-from app.models import WorkflowExecution
-from app.services.pdf_service import pdf_service
+from app.models import Paper, WorkflowExecution
 from app.services.progress import (
     EventType,
     ExecutionEvent,
@@ -41,6 +40,7 @@ async def execute_workflow_task(
     topic_query: Optional[str],
     agent_assignments: dict[str, str],
     paper_content: Optional[str] = None,
+    paper_id: Optional[str] = None,
     rubric_standard: str = "general",
 ) -> dict:
     """Execute a multi-stage LangGraph workflow inside an ARQ worker.
@@ -71,19 +71,29 @@ async def execute_workflow_task(
             prior_findings: list[dict[str, str]] = []
             current_dossier: Any = None
 
+            # Load pre-extracted GROBID metadata from Paper.analysis if paper_id is available.
+            # Extraction happens once at upload time in asset_tasks.py — never re-extract in workflows.
             grobid_dict: dict = {}
-            if pdf_bytes:
+            if paper_id:
                 try:
-                    grobid_result = await pdf_service.grobid_extract(pdf_bytes)
-                    grobid_dict = grobid_result.to_dict()
-                    logger.info(
-                        "Workflow GROBID extraction: source=%s title=%r refs=%d",
-                        grobid_result.source,
-                        grobid_result.title,
-                        len(grobid_result.references),
+                    paper_result = await db.execute(
+                        select(Paper).where(Paper.id == UUID(paper_id))
                     )
+                    paper = paper_result.scalar_one_or_none()
+                    if paper and paper.analysis and isinstance(paper.analysis, dict):
+                        extraction_meta = paper.analysis.get("extraction_meta")
+                        if extraction_meta:
+                            grobid_dict = extraction_meta
+                            logger.info(
+                                "Loaded extraction_meta for paper %s: source=%s refs=%d",
+                                paper_id,
+                                extraction_meta.get("source", "unknown"),
+                                len(extraction_meta.get("references", [])),
+                            )
                 except Exception as exc:
-                    logger.warning("Workflow GROBID extraction failed: %s", exc)
+                    logger.warning("Failed to load extraction_meta for paper %s: %s", paper_id, exc)
+            elif pdf_bytes:
+                logger.info("No paper_id provided, skipping extraction_meta load")
 
             for i, stage_def in enumerate(workflow["stages"]):
                 if await is_cancelled(execution_id):
