@@ -21,6 +21,7 @@ from app.core.database import get_db, AsyncSessionLocal
 from app.core.security import get_current_user
 from app.core.arq import get_arq_pool
 from app.tasks.cancel import set_cancel
+from app.tasks.worker_settings import WORKFLOW_QUEUE_NAME
 from app.api.deps import get_current_user_from_query
 from app.models import AgentConfig, Paper, PaperChunk, AgentRole, WorkflowExecution, RevisionSession, RevisionMessage, agent_skills_table
 from app.utils.context_budget import fit_to_budget, budget_for_stages
@@ -750,6 +751,7 @@ async def execute_workflow(
             paper_content=paper_content_to_pass,
             paper_id=str(req.paper_id) if req.paper_id else None,
             rubric_standard=req.rubric_standard,
+            _queue_name=WORKFLOW_QUEUE_NAME,
         )
         if job:
             logger.info(f"Workflow {execution_id} enqueued as ARQ job {job.job_id}")
